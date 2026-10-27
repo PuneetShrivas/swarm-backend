@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict, Any
 
 app = FastAPI(title="Swarm Backend", version="1.0.0")
 
@@ -19,6 +19,14 @@ class Agent(BaseModel):
     name: str
     role: str
     status: str
+
+class Message(BaseModel):
+    role: str
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
+
+class ChatRequest(BaseModel):
+    messages: List[Message]
 
 # In-memory storage for demo purposes
 agents_db: List[Agent] = []
@@ -42,3 +50,16 @@ def create_agent(agent: Agent):
 def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
+
+@app.post("/api/chat", response_model=Message)
+def chat(request: ChatRequest):
+    """Chat endpoint supporting rich message data scheme."""
+    # A simple mock response processing the messages
+    return Message(
+        role="agent",
+        content="I received your message and am processing it.",
+        metadata={
+            "agent_state": "active",
+            "tool_calls": []
+        }
+    )
