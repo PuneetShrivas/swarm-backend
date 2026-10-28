@@ -137,4 +137,13 @@
   - `npm --prefix frontend run build`: Exit code 0 (Compiled all static and dynamic routes).
 - **Result:** Complete resolution. Authenticated sessions correctly transmit Bearer tokens across all workflow endpoints.
 
+### Step 8: Supabase Cache Sync & Multi-Store Record Resolution (2026-10-28T19:42:00+05:30)
+- **Files Changed:**
+  - `backend/app/main.py`: Created `_get_workflow_record` and `_get_tool_record` multi-store lookup helpers. Updated `create_workflow`, `get_workflow`, `update_workflow`, `delete_workflow`, `get_shared_workflow`, `fork_workflow`, `unit_test_step`, `run_workflow`, and knowledge file endpoints to query Supabase first with automatic MemoryStore caching. Imported `supabase` client for shared view access.
+  - `backend/test_endpoints.py`: Added explicit test assertions immediately retrieving (`GET /api/workflows/{id}`) and updating (`PUT /api/workflows/{id}`) newly created workflows to guarantee zero 404 regressions across the full lifecycle.
+- **Reason:** Resolve `404 Workflow not found` when loading studio, saving steps, or testing steps after workflow creation. The workflow was previously stored in Supabase PostgreSQL without syncing to the in-memory cache, causing subsequent memory-only lookups to return 404.
+- **Commands Run:**
+  - `& "backend\venv\Scripts\python.exe" -u backend/test_endpoints.py`: Exit code 0 (25 of 25 passed cleanly).
+- **Result:** Fixed. Workflows persisted to Supabase are now immediately retrievable, editable, testable, and runnable.
+
 

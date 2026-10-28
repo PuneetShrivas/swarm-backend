@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from app.auth import AuthUser, get_current_user, get_optional_user
 from app.supabase import (
+    supabase,
     is_supabase_configured,
     get_user_supabase_client,
     memory_store,
@@ -1021,6 +1022,24 @@ def list_workflow_tools(current_user: AuthUser = Depends(get_current_user)):
     return memory_store.get_tools(current_user.id)
 
 
+def _get_tool_record(tool_id: str, current_user: AuthUser) -> Optional[Dict[str, Any]]:
+    """Retrieves a script tool from Supabase or MemoryStore with cache sync."""
+    tool = None
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_tools").select("*").eq("id", tool_id).execute()
+                if res.data:
+                    tool = res.data[0]
+                    memory_store.create_tool(tool)
+            except Exception as e:
+                print(f"Supabase _get_tool_record error: {e}")
+    if not tool:
+        tool = memory_store.get_tool(tool_id)
+    return tool
+
+
 @app.post("/api/workflow-tools", response_model=ScriptTool)
 def create_workflow_tool(
     payload: ScriptTool,
@@ -1045,7 +1064,9 @@ def create_workflow_tool(
             try:
                 res = client.table("workflow_tools").insert(tool_dict).execute()
                 if res.data:
-                    return res.data[0]
+                    created_tool = res.data[0]
+                    memory_store.create_tool(created_tool)
+                    return created_tool
             except Exception as e:
                 print(f"Supabase create_workflow_tool error: {e}")
 
@@ -1058,7 +1079,7 @@ def get_workflow_tool(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Retrieves details and Python code of a specific script tool."""
-    tool = memory_store.get_tool(tool_id, current_user.id)
+    tool = _get_tool_record(tool_id, current_user)
     if not tool:
         raise HTTPException(status_code=404, detail="Script tool not found.")
     return tool
@@ -1075,6 +1096,12 @@ def update_workflow_tool(
     if not is_valid:
         raise HTTPException(status_code=400, detail=f"Tool validation failed: {validation_error}")
 
+    existing = _get_tool_record(tool_id, current_user)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Script tool not found.")
+    if existing.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot modify another user's script tool.")
+
     updates = {
         "name": payload.name,
         "description": payload.description,
@@ -1084,6 +1111,18 @@ def update_workflow_tool(
         "is_public": payload.is_public,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_tools").update(updates).eq("id", tool_id).eq("user_id", current_user.id).execute()
+                if res.data:
+                    memory_store.update_tool(tool_id, current_user.id, updates)
+                    return res.data[0]
+            except Exception as e:
+                print(f"Supabase update_workflow_tool error: {e}")
+
     updated = memory_store.update_tool(tool_id, current_user.id, updates)
     if not updated:
         raise HTTPException(status_code=404, detail="Script tool not found or unauthorized.")
@@ -1096,9 +1135,21 @@ def delete_workflow_tool(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Deletes a user script tool."""
+    existing = _get_tool_record(tool_id, current_user)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Script tool not found.")
+    if existing.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot delete another user's script tool.")
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("workflow_tools").delete().eq("id", tool_id).eq("user_id", current_user.id).execute()
+            except Exception as e:
+                print(f"Supabase delete_workflow_tool error: {e}")
+
     success = memory_store.delete_tool(tool_id, current_user.id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Script tool not found or unauthorized.")
     return {"message": "Script tool deleted successfully."}
 
 
@@ -1109,7 +1160,7 @@ def test_workflow_tool(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Directly executes a script tool with test input arguments inside the AST sandbox."""
-    tool = memory_store.get_tool(tool_id, current_user.id)
+    tool = _get_tool_record(tool_id, current_user)
     if not tool:
         raise HTTPException(status_code=404, detail="Script tool not found.")
 
@@ -1130,6 +1181,24 @@ def test_workflow_tool(
 
 # ----------------- Workflows CRUD & Sharing -----------------
 
+def _get_workflow_record(workflow_id: str, current_user: AuthUser) -> Optional[Dict[str, Any]]:
+    """Retrieves a workflow from Supabase or MemoryStore with cache sync."""
+    wf = None
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflows").select("*").eq("id", workflow_id).execute()
+                if res.data:
+                    wf = res.data[0]
+                    memory_store.create_workflow(wf)
+            except Exception as e:
+                print(f"Supabase _get_workflow_record error: {e}")
+    if not wf:
+        wf = memory_store.get_workflow(workflow_id)
+    return wf
+
+
 @app.get("/api/workflows", response_model=List[Workflow])
 def list_workflows(current_user: AuthUser = Depends(get_current_user)):
     """Lists workflows owned by the user or shared publicly."""
@@ -1138,7 +1207,10 @@ def list_workflows(current_user: AuthUser = Depends(get_current_user)):
         if client:
             try:
                 res = client.table("workflows").select("*").or_(f"user_id.eq.{current_user.id},visibility.in.(shared,public)").order("updated_at", desc=True).execute()
-                return res.data or []
+                if res.data is not None:
+                    for w in res.data:
+                        memory_store.create_workflow(w)
+                    return res.data
             except Exception as e:
                 print(f"Supabase list_workflows error: {e}")
     return memory_store.get_workflows(current_user.id)
@@ -1174,7 +1246,9 @@ def create_workflow(
             try:
                 res = client.table("workflows").insert(wf_dict).execute()
                 if res.data:
-                    return res.data[0]
+                    created_wf = res.data[0]
+                    memory_store.create_workflow(created_wf)
+                    return created_wf
             except Exception as e:
                 print(f"Supabase create_workflow error: {e}")
 
@@ -1187,9 +1261,11 @@ def get_workflow(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Retrieves a workflow by ID if owned or shared."""
-    wf = memory_store.get_workflow(workflow_id, current_user.id)
+    wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
+    if wf.get("user_id") != current_user.id and wf.get("visibility") not in ["shared", "public"]:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this workflow.")
     return wf
 
 
@@ -1200,7 +1276,7 @@ def update_workflow(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Updates an existing workflow definition (owner only)."""
-    existing = memory_store.get_workflow(workflow_id)
+    existing = _get_workflow_record(workflow_id, current_user)
     if not existing:
         raise HTTPException(status_code=404, detail="Workflow not found.")
     if existing.get("user_id") != current_user.id:
@@ -1216,6 +1292,17 @@ def update_workflow(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflows").update(updates).eq("id", workflow_id).eq("user_id", current_user.id).execute()
+                if res.data:
+                    memory_store.update_workflow(workflow_id, current_user.id, updates)
+                    return res.data[0]
+            except Exception as e:
+                print(f"Supabase update_workflow error: {e}")
+
     updated = memory_store.update_workflow(workflow_id, current_user.id, updates)
     return updated
 
@@ -1226,11 +1313,19 @@ def delete_workflow(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Deletes a workflow definition (owner only)."""
-    existing = memory_store.get_workflow(workflow_id)
+    existing = _get_workflow_record(workflow_id, current_user)
     if not existing:
         raise HTTPException(status_code=404, detail="Workflow not found.")
     if existing.get("user_id") != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: You cannot delete another user's workflow.")
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("workflows").delete().eq("id", workflow_id).eq("user_id", current_user.id).execute()
+            except Exception as e:
+                print(f"Supabase delete_workflow error: {e}")
 
     memory_store.delete_workflow(workflow_id, current_user.id)
     return {"message": "Workflow deleted successfully."}
@@ -1242,7 +1337,19 @@ def get_shared_workflow(
     current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     """Provides view-only access to a shared workflow without allowing mutations."""
-    wf = memory_store.get_shared_workflow(share_slug)
+    wf = None
+    if is_supabase_configured():
+        try:
+            if supabase:
+                res = supabase.table("workflows").select("*").eq("share_slug", share_slug).or_("visibility.eq.shared,visibility.eq.public").execute()
+                if res.data:
+                    wf = res.data[0]
+                    memory_store.create_workflow(wf)
+        except Exception as e:
+            print(f"Supabase get_shared_workflow error: {e}")
+
+    if not wf:
+        wf = memory_store.get_shared_workflow(share_slug)
     if not wf:
         raise HTTPException(status_code=404, detail="Shared workflow not found or has been made private.")
     return wf
@@ -1254,7 +1361,7 @@ def fork_workflow(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Forks/clones a shared or accessible workflow into the current user's library."""
-    original = memory_store.get_workflow(workflow_id)
+    original = _get_workflow_record(workflow_id, current_user)
     if not original:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
@@ -1268,6 +1375,17 @@ def fork_workflow(
     forked_data["share_slug"] = f"wf-{uuid.uuid4().hex[:8]}"
     forked_data["created_at"] = now_iso
     forked_data["updated_at"] = now_iso
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflows").insert(forked_data).execute()
+                if res.data:
+                    memory_store.create_workflow(res.data[0])
+                    return res.data[0]
+            except Exception as e:
+                print(f"Supabase fork_workflow error: {e}")
 
     return memory_store.create_workflow(forked_data)
 
@@ -1286,7 +1404,21 @@ def list_knowledge_files(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Lists attached knowledge base documents for a workflow."""
-    return memory_store.get_knowledge_files(workflow_id)
+    files = []
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_knowledge_files").select("*").eq("workflow_id", workflow_id).execute()
+                if res.data:
+                    files = res.data
+                    for f in files:
+                        memory_store.add_knowledge_file(f)
+            except Exception as e:
+                print(f"Supabase list_knowledge_files error: {e}")
+    if not files:
+        files = memory_store.get_knowledge_files(workflow_id)
+    return files
 
 
 @app.post("/api/workflows/{workflow_id}/knowledge/upload", response_model=KnowledgeFile)
@@ -1296,7 +1428,7 @@ def upload_knowledge_file(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Uploads and attaches a knowledge base document to a workflow."""
-    wf = memory_store.get_workflow(workflow_id)
+    wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
     if wf.get("user_id") != current_user.id:
@@ -1317,6 +1449,19 @@ def upload_knowledge_file(
         "metadata": {},
         "created_at": now_iso,
     }
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_knowledge_files").insert(doc_dict).execute()
+                if res.data:
+                    created_file = res.data[0]
+                    memory_store.add_knowledge_file(created_file)
+                    return created_file
+            except Exception as e:
+                print(f"Supabase upload_knowledge_file error: {e}")
+
     return memory_store.add_knowledge_file(doc_dict)
 
 
@@ -1327,6 +1472,14 @@ def delete_knowledge_file(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Deletes an attached knowledge base file."""
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("workflow_knowledge_files").delete().eq("id", file_id).eq("user_id", current_user.id).execute()
+            except Exception as e:
+                print(f"Supabase delete_knowledge_file error: {e}")
+
     success = memory_store.delete_knowledge_file(file_id, current_user.id)
     if not success:
         raise HTTPException(status_code=404, detail="Knowledge file not found or unauthorized.")
@@ -1343,7 +1496,7 @@ def unit_test_step(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Executes a single step in isolation with mock input parameters for unit testing."""
-    wf = memory_store.get_workflow(workflow_id, current_user.id)
+    wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
@@ -1364,7 +1517,7 @@ def run_workflow(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Executes the entire workflow DAG end-to-end (system test or manual trigger)."""
-    wf = memory_store.get_workflow(workflow_id, current_user.id)
+    wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
@@ -1375,6 +1528,15 @@ def run_workflow(
         trigger_type="system_test",
         session_id=payload.session_id,
     )
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("workflow_runs").insert(run_record).execute()
+            except Exception as e:
+                print(f"Supabase persist workflow_run error: {e}")
+
     return run_record
 
 
@@ -1384,7 +1546,21 @@ def list_workflow_runs(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """Lists historical execution runs and telemetry for this workflow."""
-    return memory_store.get_workflow_runs(workflow_id)
+    runs = []
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_runs").select("*").eq("workflow_id", workflow_id).order("started_at", desc=True).execute()
+                if res.data:
+                    runs = res.data
+                    for r in runs:
+                        memory_store.create_workflow_run(r)
+            except Exception as e:
+                print(f"Supabase list_workflow_runs error: {e}")
+    if not runs:
+        runs = memory_store.get_workflow_runs(workflow_id)
+    return runs
 
 
 @app.get("/api/workflows/{workflow_id}/runs/{run_id}", response_model=WorkflowRun)
@@ -1398,6 +1574,8 @@ def get_workflow_run(
     if not run or run.get("workflow_id") != workflow_id:
         raise HTTPException(status_code=404, detail="Workflow run not found.")
     run_copy = dict(run)
+    run_copy["step_runs"] = memory_store.get_step_runs(run_id)
+    return run_copy
     run_copy["step_runs"] = memory_store.get_step_runs(run_id)
     return run_copy
 

@@ -351,6 +351,20 @@ def execute(input_data: dict, context: dict) -> dict:
     assert wf["visibility"] == "shared"
     print(f"PASS: POST /api/workflows -> Created '{wf['title']}' (id: {wf_id}, slug: {share_slug})")
 
+    # Verify immediate retrieval by ID (matches studio loading)
+    res_get = client.get(f"/api/workflows/{wf_id}", headers=auth_headers)
+    assert res_get.status_code == 200, f"Expected 200 when loading created workflow, got {res_get.status_code}: {res_get.text}"
+    assert res_get.json()["id"] == wf_id
+    print(f"PASS: GET /api/workflows/{wf_id} -> Successfully loaded newly created workflow")
+
+    # Verify update/save workflow with modified steps
+    updated_payload = dict(workflow_payload)
+    updated_payload["title"] = "Competitor Analysis & Synthesis Pipeline (Updated)"
+    res_put = client.put(f"/api/workflows/{wf_id}", json=updated_payload, headers=auth_headers)
+    assert res_put.status_code == 200, f"Expected 200 on workflow save/update, got {res_put.status_code}: {res_put.text}"
+    assert res_put.json()["title"] == "Competitor Analysis & Synthesis Pipeline (Updated)"
+    print(f"PASS: PUT /api/workflows/{wf_id} -> Successfully updated workflow steps and title")
+
     # 21. Test Knowledge File Attachment
     knowledge_payload = {
         "file_name": "market_context.md",
