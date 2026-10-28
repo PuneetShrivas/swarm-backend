@@ -246,11 +246,202 @@ def run_tests():
     assert res.status_code == 404, f"Expected 404 for deleted session, got {res.status_code}"
     print("PASS: Verified session is no longer accessible (404)")
 
+    # 18. Test Custom Agent CRUD
+    custom_agent_payload = {
+        "id": "agent-financial-auditor",
+        "name": "Financial Auditor Agent",
+        "role": "Financial Forensic Analyst",
+        "description": "Reviews financial records and balance sheets for anomalies.",
+        "system_prompt": "You are a specialized financial forensic analyst.",
+        "model": "gemini-2.5-flash",
+        "temperature": 0.2,
+        "icon": "ShieldCheck",
+        "tools": [{"name": "balance_sheet_evaluator"}],
+        "skills": [{"id": "audit_anomaly_detection"}],
+        "is_public": False
+    }
+    res = client.post("/api/custom-agents", json=custom_agent_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Create custom agent failed: {res.text}"
+    c_agent = res.json()
+    assert c_agent["id"] == "agent-financial-auditor"
+    print(f"PASS: POST /api/custom-agents -> Created '{c_agent['name']}' (id: {c_agent['id']})")
+
+    res = client.get("/api/custom-agents", headers=auth_headers)
+    assert res.status_code == 200
+    custom_list = res.json()
+    assert any(a["id"] == "agent-financial-auditor" for a in custom_list)
+    print(f"PASS: GET /api/custom-agents -> Listed {len(custom_list)} custom agents")
+
+    # 19. Test Script Tool Creation & AST Security Sandbox
+    safe_script_code = """
+def execute(input_data: dict, context: dict) -> dict:
+    text = input_data.get("text", "")
+    words = text.split()
+    return {
+        "word_count": len(words),
+        "status": "processed"
+    }
+"""
+    tool_payload = {
+        "name": "word_counter_tool",
+        "description": "Counts words in input text.",
+        "code": safe_script_code,
+        "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}},
+        "output_schema": {"type": "object", "properties": {"word_count": {"type": "integer"}}},
+        "is_public": False
+    }
+    res = client.post("/api/workflow-tools", json=tool_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Create tool failed: {res.text}"
+    created_tool = res.json()
+    tool_id = created_tool["id"]
+    print(f"PASS: POST /api/workflow-tools -> Created tool '{created_tool['name']}' (id: {tool_id})")
+
+    # Test AST Security sandbox rejection on unsafe code
+    unsafe_script_code = """
+import os
+def execute(input_data: dict, context: dict) -> dict:
+    return {"files": os.listdir(".")}
+"""
+    res = client.post("/api/workflow-tools", json={"name": "unsafe", "code": unsafe_script_code}, headers=auth_headers)
+    assert res.status_code == 400, "Expected 400 rejection for unsafe import 'os'"
+    print(f"PASS: AST Sandbox accurately rejected unsafe script with 400: {res.json()['detail'][:60]}...")
+
+    # Test tool execution endpoint
+    res = client.post(f"/api/workflow-tools/{tool_id}/test", json={"input_data": {"text": "hello swarm autonomous workflow"}, "context": {}}, headers=auth_headers)
+    assert res.status_code == 200, f"Tool test failed: {res.text}"
+    tool_run_res = res.json()
+    assert tool_run_res["status"] == "success"
+    assert tool_run_res["result"]["word_count"] == 4
+    print(f"PASS: POST /api/workflow-tools/{tool_id}/test -> Output: {tool_run_res['result']} (duration: {tool_run_res['duration_ms']}ms)")
+
+    # 20. Test Workflow Creation with Steps & Edges
+    workflow_payload = {
+        "title": "Competitor Analysis & Synthesis Pipeline",
+        "description": "Gathers competitor intelligence, runs statistical metrics, and synthesizes report.",
+        "goal": "Analyze market competitors and produce an executive summary.",
+        "visibility": "shared",
+        "steps": [
+            {
+                "id": "step_research",
+                "name": "Research Competitors",
+                "agent_id": "researcher",
+                "instructions": "Investigate key competitors in the domain: {{inputs.domain}}. Goal: {{goal}}",
+                "tool_ids": [tool_id],
+                "depends_on": []
+            },
+            {
+                "id": "step_synthesize",
+                "name": "Synthesize Findings",
+                "agent_id": "synthesizer",
+                "instructions": "Synthesize the findings from research: {{steps.step_research.output.text}}",
+                "tool_ids": [],
+                "depends_on": ["step_research"]
+            }
+        ],
+        "edges": [
+            {"source": "step_research", "target": "step_synthesize"}
+        ]
+    }
+    res = client.post("/api/workflows", json=workflow_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Create workflow failed: {res.text}"
+    wf = res.json()
+    wf_id = wf["id"]
+    share_slug = wf["share_slug"]
+    assert len(wf["steps"]) == 2
+    assert wf["visibility"] == "shared"
+    print(f"PASS: POST /api/workflows -> Created '{wf['title']}' (id: {wf_id}, slug: {share_slug})")
+
+    # 21. Test Knowledge File Attachment
+    knowledge_payload = {
+        "file_name": "market_context.md",
+        "content_text": "# Market Context\nKey competitor A has 34% market share. Competitor B has 22%.",
+        "file_type": "text/markdown"
+    }
+    res = client.post(f"/api/workflows/{wf_id}/knowledge/upload", json=knowledge_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Upload knowledge failed: {res.text}"
+    k_doc = res.json()
+    assert k_doc["file_name"] == "market_context.md"
+    print(f"PASS: POST /api/workflows/{wf_id}/knowledge/upload -> Attached document '{k_doc['file_name']}' ({k_doc['file_size']} bytes)")
+
+    # 22. Test Step Unit Testing in Isolation
+    unit_test_payload = {
+        "step_id": "step_research",
+        "mock_inputs": {"domain": "Autonomous Cloud Agents", "text": "Sample text for word counter"},
+        "mock_previous_outputs": {}
+    }
+    res = client.post(f"/api/workflows/{wf_id}/steps/step_research/test", json=unit_test_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Unit test failed: {res.text}"
+    unit_res = res.json()
+    assert unit_res["status"] == "completed"
+    assert unit_res["step_id"] == "step_research"
+    assert unit_res["tokens_used"] > 0
+    print(f"PASS: POST /api/workflows/{wf_id}/steps/step_research/test -> Unit test passed (tokens: {unit_res['tokens_used']}, latency: {unit_res['duration_ms']}ms)")
+
+    # 23. Test Full Workflow System Execution
+    run_payload = {
+        "inputs": {"domain": "Cloud Infrastructure AI", "text": "Testing word count string"}
+    }
+    res = client.post(f"/api/workflows/{wf_id}/run", json=run_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Run workflow failed: {res.text}"
+    run_res = res.json()
+    run_id = run_res["id"]
+    assert run_res["status"] == "completed"
+    assert len(run_res["step_runs"]) == 2
+    assert run_res["total_tokens"] > 0
+    print(f"PASS: POST /api/workflows/{wf_id}/run -> System test completed! (run_id: {run_id}, duration: {run_res['duration_ms']}ms, tokens: {run_res['total_tokens']})")
+
+    # Inspect runs endpoint
+    res = client.get(f"/api/workflows/{wf_id}/runs", headers=auth_headers)
+    assert res.status_code == 200
+    runs_list = res.json()
+    assert len(runs_list) >= 1
+    print(f"PASS: GET /api/workflows/{wf_id}/runs -> Verified {len(runs_list)} historical execution runs")
+
+    # 24. Test Shared Workflow Access & Forking
+    # Unauthenticated / different user access to shared slug
+    res = client.get(f"/api/workflows/shared/{share_slug}")
+    assert res.status_code == 200, f"Shared workflow access failed: {res.text}"
+    shared_wf = res.json()
+    assert shared_wf["id"] == wf_id
+    assert shared_wf["visibility"] in ("shared", "public")
+    print(f"PASS: GET /api/workflows/shared/{share_slug} -> View-only shared access confirmed")
+
+    # Unauthorized edit rejection
+    other_headers = {"Authorization": "Bearer test-other-user"}
+    res = client.put(f"/api/workflows/{wf_id}", json=workflow_payload, headers=other_headers)
+    assert res.status_code == 403, f"Expected 403 forbidden for non-owner edit, got {res.status_code}"
+    print("PASS: Unauthorized edit on shared workflow rejected with 403 Forbidden")
+
+    # Fork workflow
+    res = client.post(f"/api/workflows/{wf_id}/fork", headers=other_headers)
+    assert res.status_code == 200, f"Fork failed: {res.text}"
+    forked = res.json()
+    assert "(Forked)" in forked["title"]
+    assert forked["user_id"] == "test-other-user" or "other" in forked["user_id"] or forked["visibility"] == "private"
+    print(f"PASS: POST /api/workflows/{wf_id}/fork -> Forked as '{forked['title']}' (id: {forked['id']})")
+
+    # 25. Test Chat Invocation of Autonomous Workflow
+    chat_wf_payload = {
+        "messages": [{"role": "user", "content": f"/workflow {wf_id}"}],
+        "workflow_id": wf_id,
+        "workflow_inputs": {"domain": "Enterprise Kubernetes Swarms"}
+    }
+    res = client.post("/api/chat", json=chat_wf_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Chat workflow invocation failed: {res.text}"
+    chat_msg = res.json()
+    assert chat_msg["metadata"]["mode"] == "workflow_execution"
+    assert chat_msg["metadata"]["workflow_id"] == wf_id
+    assert len(chat_msg["metadata"]["step_runs"]) == 2
+    print(f"PASS: POST /api/chat (workflow invocation) -> Executed workflow, generated progress metadata: {chat_msg['metadata']['agent_name']}")
+
     print("\n========================================")
-    print("ALL 17 MODULAR ENDPOINT TESTS PASSED SUCCESSFULLY!")
+    print("ALL 25 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":
+    import os
+    os.environ["TESTING"] = "true"
+    os.environ["MOCK_GEMINI"] = "true"
     from unittest.mock import MagicMock, patch
 
     mock_resp = MagicMock()

@@ -3,7 +3,7 @@
   "name": "Data Analyst Agent",
   "role": "Numerical modeling, statistical aggregations, and tabular intelligence",
   "status": "active",
-  "model": "gemini-2.5-flash",
+  "model": "gemini-3.8-flash",
   "temperature": 0.2,
   "is_orchestrator": false,
   "icon": "bar-chart",

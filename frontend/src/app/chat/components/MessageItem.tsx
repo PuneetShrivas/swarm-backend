@@ -130,6 +130,41 @@ export default function MessageItem({
               : "bg-card border border-border/80 text-card-foreground rounded-tl-sm"
           }`}
         >
+          {/* Autonomous Workflow Progress Banner */}
+          {node.metadata?.mode === "workflow_execution" && (
+            <div className="mb-3 p-3 rounded-xl bg-background/80 border border-primary/30 space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold">
+                <span className="flex items-center gap-1.5 text-primary">
+                  <Layers size={14} /> {String(node.metadata.workflow_title || "Autonomous Workflow")}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 font-medium">
+                  Completed
+                </span>
+              </div>
+
+              {Boolean(node.metadata.workflow_goal) && (
+                <p className="text-[11px] text-muted-foreground line-clamp-2 font-mono">
+                  Goal: {String(node.metadata.workflow_goal)}
+                </p>
+              )}
+
+              {/* Step Badges */}
+              {Array.isArray(node.metadata.step_runs) && (node.metadata.step_runs as Array<{ step_id?: string; agent_id?: string; duration_ms?: number }>).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-border/50">
+                  {(node.metadata.step_runs as Array<{ step_id?: string; agent_id?: string; duration_ms?: number }>).map((st, sIdx) => (
+                    <span
+                      key={sIdx}
+                      className="px-2 py-0.5 rounded-lg bg-card border border-border text-[10px] text-foreground font-mono flex items-center gap-1"
+                    >
+                      <Bot size={10} className="text-primary" />
+                      {st.step_id || `Step ${sIdx + 1}`}: {st.agent_id} ({st.duration_ms}ms)
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Orchestrator Delegation Trace Banner */}
           {isDelegated && (
             <div className="mb-2.5 pb-2 border-b border-border/50 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono">

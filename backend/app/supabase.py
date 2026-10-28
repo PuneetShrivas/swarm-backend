@@ -45,6 +45,12 @@ class MemoryStore:
         self.sessions: Dict[str, Dict[str, Any]] = {}
         self.messages: Dict[str, List[Dict[str, Any]]] = {}
         self.usage: Dict[str, List[Dict[str, Any]]] = {}
+        self.user_agents: Dict[str, Dict[str, Any]] = {}
+        self.workflow_tools: Dict[str, Dict[str, Any]] = {}
+        self.workflows: Dict[str, Dict[str, Any]] = {}
+        self.knowledge_files: Dict[str, Dict[str, Any]] = {}
+        self.workflow_runs: Dict[str, Dict[str, Any]] = {}
+        self.workflow_step_runs: Dict[str, List[Dict[str, Any]]] = {}
 
     def get_sessions(self, user_id: str) -> List[Dict[str, Any]]:
         user_sessions = [s for s in self.sessions.values() if s.get("user_id") == user_id]
@@ -99,5 +105,166 @@ class MemoryStore:
 
     def get_usage(self, user_id: str) -> List[Dict[str, Any]]:
         return self.usage.get(user_id, [])
+
+    # ---------------- User Custom Agents ----------------
+    def get_user_agents(self, user_id: str) -> List[Dict[str, Any]]:
+        agents = [
+            a for a in self.user_agents.values()
+            if a.get("user_id") == user_id or a.get("is_public")
+        ]
+        return sorted(agents, key=lambda a: a.get("updated_at", ""), reverse=True)
+
+    def get_user_agent(self, agent_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        a = self.user_agents.get(agent_id.lower())
+        if not a:
+            return None
+        if user_id and a.get("user_id") != user_id and not a.get("is_public"):
+            return None
+        return a
+
+    def create_user_agent(self, agent_data: Dict[str, Any]) -> Dict[str, Any]:
+        aid = agent_data["id"].lower()
+        self.user_agents[aid] = agent_data
+        return agent_data
+
+    def update_user_agent(self, agent_id: str, user_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        a = self.get_user_agent(agent_id, user_id)
+        if not a:
+            return None
+        a.update(updates)
+        return a
+
+    def delete_user_agent(self, agent_id: str, user_id: str) -> bool:
+        a = self.get_user_agent(agent_id, user_id)
+        if not a:
+            return False
+        del self.user_agents[agent_id.lower()]
+        return True
+
+    # ---------------- Workflow Tools ----------------
+    def get_tools(self, user_id: str) -> List[Dict[str, Any]]:
+        tools = [
+            t for t in self.workflow_tools.values()
+            if t.get("user_id") == user_id or t.get("is_public")
+        ]
+        return sorted(tools, key=lambda t: t.get("updated_at", ""), reverse=True)
+
+    def get_tool(self, tool_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        t = self.workflow_tools.get(tool_id)
+        if not t:
+            return None
+        if user_id and t.get("user_id") != user_id and not t.get("is_public"):
+            return None
+        return t
+
+    def create_tool(self, tool_data: Dict[str, Any]) -> Dict[str, Any]:
+        self.workflow_tools[tool_data["id"]] = tool_data
+        return tool_data
+
+    def update_tool(self, tool_id: str, user_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        t = self.get_tool(tool_id, user_id)
+        if not t:
+            return None
+        t.update(updates)
+        return t
+
+    def delete_tool(self, tool_id: str, user_id: str) -> bool:
+        t = self.get_tool(tool_id, user_id)
+        if not t:
+            return False
+        del self.workflow_tools[tool_id]
+        return True
+
+    # ---------------- Workflows ----------------
+    def get_workflows(self, user_id: str) -> List[Dict[str, Any]]:
+        wfs = [
+            w for w in self.workflows.values()
+            if w.get("user_id") == user_id or w.get("visibility") in ("shared", "public")
+        ]
+        return sorted(wfs, key=lambda w: w.get("updated_at", ""), reverse=True)
+
+    def get_workflow(self, workflow_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        w = self.workflows.get(workflow_id)
+        if not w:
+            return None
+        if user_id and w.get("user_id") != user_id and w.get("visibility") not in ("shared", "public"):
+            return None
+        return w
+
+    def get_shared_workflow(self, share_slug: str) -> Optional[Dict[str, Any]]:
+        for w in self.workflows.values():
+            if w.get("share_slug") == share_slug and w.get("visibility") in ("shared", "public"):
+                return w
+        return None
+
+    def create_workflow(self, wf_data: Dict[str, Any]) -> Dict[str, Any]:
+        self.workflows[wf_data["id"]] = wf_data
+        return wf_data
+
+    def update_workflow(self, workflow_id: str, user_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        w = self.workflows.get(workflow_id)
+        if not w or w.get("user_id") != user_id:
+            return None
+        w.update(updates)
+        return w
+
+    def delete_workflow(self, workflow_id: str, user_id: str) -> bool:
+        w = self.workflows.get(workflow_id)
+        if not w or w.get("user_id") != user_id:
+            return False
+        del self.workflows[workflow_id]
+        # Clean up related runs and knowledge
+        to_del_k = [kid for kid, k in self.knowledge_files.items() if k.get("workflow_id") == workflow_id]
+        for kid in to_del_k:
+            del self.knowledge_files[kid]
+        return True
+
+    # ---------------- Knowledge Base Files ----------------
+    def get_knowledge_files(self, workflow_id: str) -> List[Dict[str, Any]]:
+        files = [f for f in self.knowledge_files.values() if f.get("workflow_id") == workflow_id]
+        return sorted(files, key=lambda f: f.get("created_at", ""), reverse=False)
+
+    def add_knowledge_file(self, file_data: Dict[str, Any]) -> Dict[str, Any]:
+        self.knowledge_files[file_data["id"]] = file_data
+        return file_data
+
+    def delete_knowledge_file(self, file_id: str, user_id: str) -> bool:
+        f = self.knowledge_files.get(file_id)
+        if not f or f.get("user_id") != user_id:
+            return False
+        del self.knowledge_files[file_id]
+        return True
+
+    # ---------------- Workflow Runs & Step Runs ----------------
+    def create_workflow_run(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        self.workflow_runs[run_data["id"]] = run_data
+        if run_data["id"] not in self.workflow_step_runs:
+            self.workflow_step_runs[run_data["id"]] = []
+        return run_data
+
+    def update_workflow_run(self, run_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        r = self.workflow_runs.get(run_id)
+        if not r:
+            return None
+        r.update(updates)
+        return r
+
+    def get_workflow_runs(self, workflow_id: str) -> List[Dict[str, Any]]:
+        runs = [r for r in self.workflow_runs.values() if r.get("workflow_id") == workflow_id]
+        return sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True)
+
+    def get_workflow_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        return self.workflow_runs.get(run_id)
+
+    def add_step_run(self, step_run_data: Dict[str, Any]) -> Dict[str, Any]:
+        rid = step_run_data["run_id"]
+        if rid not in self.workflow_step_runs:
+            self.workflow_step_runs[rid] = []
+        self.workflow_step_runs[rid].append(step_run_data)
+        return step_run_data
+
+    def get_step_runs(self, run_id: str) -> List[Dict[str, Any]]:
+        runs = self.workflow_step_runs.get(run_id, [])
+        return sorted(runs, key=lambda s: s.get("step_index", 0))
 
 memory_store = MemoryStore()

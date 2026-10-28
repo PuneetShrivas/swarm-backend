@@ -22,6 +22,25 @@ from app.agents import (
     MCPServerConfig,
     BaseAgent,
 )
+from app.workflows import (
+    Workflow,
+    WorkflowStep,
+    ScriptTool,
+    KnowledgeFile,
+    WorkflowRun,
+    WorkflowStepRun,
+    StepUnitTestRequest,
+    StepUnitTestResponse,
+    WorkflowRunRequest,
+    ScriptToolTestRequest,
+    ScriptToolTestResponse,
+    UserAgentProfile,
+    execute_tool_script,
+    validate_tool_code,
+    extract_file_content,
+    workflow_engine,
+)
+from app.workflows.models import WorkflowCreateUpdatePayload
 
 # Load environment variables from .env
 load_dotenv()
@@ -68,6 +87,8 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Active Supabase chat session ID")
     parent_message_id: Optional[str] = Field(None, description="Parent message ID for conversation branching")
     user_message_id: Optional[str] = Field(None, description="Client-assigned user message ID")
+    workflow_id: Optional[str] = Field(None, description="Optional workflow ID to execute in this turn")
+    workflow_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input arguments for workflow execution")
 
 # Session & History Models
 class ChatSessionCreate(BaseModel):
@@ -570,6 +591,78 @@ def chat(
             token=current_user.token,
         )
 
+    # Check if this chat turn invokes an autonomous workflow
+    invoked_workflow_id = request.workflow_id
+    if not invoked_workflow_id and last_user_message.content.strip().startswith("/workflow"):
+        parts = last_user_message.content.strip().split(maxsplit=1)
+        if len(parts) > 1:
+            invoked_workflow_id = parts[1].strip()
+
+    if invoked_workflow_id:
+        user_uid = current_user.id if current_user else "guest-user"
+        wf_data = None
+        if is_supabase_configured() and not user_uid.startswith("test-"):
+            db_client = get_user_supabase_client(current_user.token if current_user else None)
+            if db_client:
+                try:
+                    res = db_client.table("workflows").select("*").eq("id", invoked_workflow_id).single().execute()
+                    wf_data = res.data
+                except Exception:
+                    pass
+        if not wf_data:
+            wf_data = memory_store.get_workflow(invoked_workflow_id, user_uid)
+            if not wf_data:
+                for w in memory_store.workflows.values():
+                    if (
+                        w.get("title", "").lower() == invoked_workflow_id.lower()
+                        or w.get("share_slug") == invoked_workflow_id
+                        or w.get("id") == invoked_workflow_id
+                    ):
+                        wf_data = w
+                        break
+
+        if wf_data:
+            wf_inputs = request.workflow_inputs or {"prompt": last_user_message.content}
+            run_result = workflow_engine.execute_workflow(
+                workflow_data=wf_data,
+                inputs=wf_inputs,
+                user_id=user_uid,
+                trigger_type="chat",
+                session_id=request.session_id,
+            )
+            final_res = run_result.get("output_data", {}).get("final_result") or "Workflow execution completed."
+            agent_node_id = f"agent-wf-{int(time.time()*1000)}"
+            wf_metadata = {
+                "agent_state": "completed",
+                "agent_id": "orchestrator",
+                "agent_name": f"Workflow: {wf_data.get('title', 'Autonomous Workflow')}",
+                "workflow_run_id": run_result.get("id"),
+                "workflow_id": wf_data.get("id"),
+                "workflow_title": wf_data.get("title"),
+                "workflow_goal": wf_data.get("goal"),
+                "step_runs": run_result.get("step_runs", []),
+                "tokens_used": run_result.get("total_tokens", 0),
+                "duration_ms": run_result.get("duration_ms", 0),
+                "mode": "workflow_execution",
+                "node_id": agent_node_id,
+            }
+            if current_user and request.session_id:
+                db_save_message(
+                    user_id=current_user.id,
+                    session_id=request.session_id,
+                    msg_id=agent_node_id,
+                    parent_id=user_node_id,
+                    role="agent",
+                    content=final_res,
+                    metadata=wf_metadata,
+                    token=current_user.token,
+                )
+            return Message(
+                role="agent",
+                content=final_res,
+                metadata=wf_metadata,
+            )
+
     # 1. LIVE GEMINI API GENERATION
     if client:
         try:
@@ -791,3 +884,520 @@ def chat(
         content=fallback_content,
         metadata=demo_metadata,
     )
+
+
+# =========================================================
+# Workflows, Custom Agents, Tools & Knowledge Endpoints
+# =========================================================
+
+# ----------------- User Custom Agents -----------------
+
+@app.get("/api/custom-agents", response_model=List[UserAgentProfile])
+def list_custom_agents(current_user: AuthUser = Depends(get_current_user)):
+    """Lists custom agents created by or accessible to the user."""
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("user_agents").select("*").or_(f"user_id.eq.{current_user.id},is_public.eq.true").order("updated_at", desc=True).execute()
+                return res.data or []
+            except Exception as e:
+                print(f"Supabase list_custom_agents error: {e}")
+    return memory_store.get_user_agents(current_user.id)
+
+
+@app.post("/api/custom-agents", response_model=UserAgentProfile)
+def create_custom_agent(
+    payload: UserAgentProfile,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Creates a new persistent custom agent profile."""
+    agent_id = payload.id.strip().lower()
+    if not agent_id:
+        agent_id = f"agent-{uuid.uuid4().hex[:8]}"
+
+    # Prevent collision with prebuilt agents
+    prebuilt = agent_registry.get(agent_id)
+    if prebuilt:
+        raise HTTPException(status_code=400, detail=f"Cannot overwrite prebuilt agent '{agent_id}'.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    agent_dict = payload.model_dump()
+    agent_dict["id"] = agent_id
+    agent_dict["user_id"] = current_user.id
+    agent_dict["created_at"] = now_iso
+    agent_dict["updated_at"] = now_iso
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("user_agents").upsert(agent_dict).execute()
+                if res.data:
+                    # Sync to registry
+                    agent_registry.register_custom(AgentProfile(
+                        id=agent_id,
+                        name=payload.name,
+                        role=payload.role,
+                        description=payload.description,
+                        model=payload.model,
+                        temperature=payload.temperature,
+                        is_orchestrator=False,
+                        icon=payload.icon,
+                    ))
+                    return res.data[0]
+            except Exception as e:
+                print(f"Supabase create_custom_agent error: {e}")
+
+    saved = memory_store.create_user_agent(agent_dict)
+    agent_registry.register_custom(AgentProfile(
+        id=agent_id,
+        name=payload.name,
+        role=payload.role,
+        description=payload.description,
+        model=payload.model,
+        temperature=payload.temperature,
+        is_orchestrator=False,
+        icon=payload.icon,
+    ))
+    return saved
+
+
+@app.get("/api/custom-agents/{agent_id}", response_model=UserAgentProfile)
+def get_custom_agent(
+    agent_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Retrieves details of a specific user custom agent."""
+    agent = None
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("user_agents").select("*").eq("id", agent_id.lower()).single().execute()
+                agent = res.data
+            except Exception:
+                pass
+    if not agent:
+        agent = memory_store.get_user_agent(agent_id, current_user.id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Custom agent '{agent_id}' not found.")
+    return agent
+
+
+@app.delete("/api/custom-agents/{agent_id}")
+def delete_custom_agent(
+    agent_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Deletes a custom agent created by the user."""
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("user_agents").delete().eq("id", agent_id.lower()).eq("user_id", current_user.id).execute()
+                return {"message": f"Agent '{agent_id}' deleted successfully."}
+            except Exception as e:
+                print(f"Supabase delete_custom_agent error: {e}")
+    success = memory_store.delete_user_agent(agent_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Custom agent not found or unauthorized.")
+    return {"message": f"Agent '{agent_id}' deleted successfully."}
+
+
+# ----------------- Workflow Script Tools -----------------
+
+@app.get("/api/workflow-tools", response_model=List[ScriptTool])
+def list_workflow_tools(current_user: AuthUser = Depends(get_current_user)):
+    """Lists script tools belonging to the user or marked public."""
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_tools").select("*").or_(f"user_id.eq.{current_user.id},is_public.eq.true").order("updated_at", desc=True).execute()
+                return res.data or []
+            except Exception as e:
+                print(f"Supabase list_workflow_tools error: {e}")
+    return memory_store.get_tools(current_user.id)
+
+
+@app.post("/api/workflow-tools", response_model=ScriptTool)
+def create_workflow_tool(
+    payload: ScriptTool,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Creates a new user-submitted Python script tool with AST security validation."""
+    is_valid, validation_error = validate_tool_code(payload.code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Tool validation failed: {validation_error}")
+
+    tool_id = payload.id or str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    tool_dict = payload.model_dump()
+    tool_dict["id"] = tool_id
+    tool_dict["user_id"] = current_user.id
+    tool_dict["created_at"] = now_iso
+    tool_dict["updated_at"] = now_iso
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflow_tools").insert(tool_dict).execute()
+                if res.data:
+                    return res.data[0]
+            except Exception as e:
+                print(f"Supabase create_workflow_tool error: {e}")
+
+    return memory_store.create_tool(tool_dict)
+
+
+@app.get("/api/workflow-tools/{tool_id}", response_model=ScriptTool)
+def get_workflow_tool(
+    tool_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Retrieves details and Python code of a specific script tool."""
+    tool = memory_store.get_tool(tool_id, current_user.id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Script tool not found.")
+    return tool
+
+
+@app.put("/api/workflow-tools/{tool_id}", response_model=ScriptTool)
+def update_workflow_tool(
+    tool_id: str,
+    payload: ScriptTool,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Updates an existing script tool after validating code changes."""
+    is_valid, validation_error = validate_tool_code(payload.code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Tool validation failed: {validation_error}")
+
+    updates = {
+        "name": payload.name,
+        "description": payload.description,
+        "code": payload.code,
+        "input_schema": payload.input_schema,
+        "output_schema": payload.output_schema,
+        "is_public": payload.is_public,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    updated = memory_store.update_tool(tool_id, current_user.id, updates)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Script tool not found or unauthorized.")
+    return updated
+
+
+@app.delete("/api/workflow-tools/{tool_id}")
+def delete_workflow_tool(
+    tool_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Deletes a user script tool."""
+    success = memory_store.delete_tool(tool_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Script tool not found or unauthorized.")
+    return {"message": "Script tool deleted successfully."}
+
+
+@app.post("/api/workflow-tools/{tool_id}/test", response_model=ScriptToolTestResponse)
+def test_workflow_tool(
+    tool_id: str,
+    payload: ScriptToolTestRequest,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Directly executes a script tool with test input arguments inside the AST sandbox."""
+    tool = memory_store.get_tool(tool_id, current_user.id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Script tool not found.")
+
+    res = execute_tool_script(
+        code=tool["code"],
+        input_data=payload.input_data,
+        context=payload.context or {},
+        timeout_seconds=5.0
+    )
+    return ScriptToolTestResponse(
+        status=res.get("status", "error"),
+        result=res.get("result"),
+        stdout=res.get("stdout"),
+        duration_ms=res.get("duration_ms", 0.0),
+        error=res.get("error"),
+    )
+
+
+# ----------------- Workflows CRUD & Sharing -----------------
+
+@app.get("/api/workflows", response_model=List[Workflow])
+def list_workflows(current_user: AuthUser = Depends(get_current_user)):
+    """Lists workflows owned by the user or shared publicly."""
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflows").select("*").or_(f"user_id.eq.{current_user.id},visibility.in.(shared,public)").order("updated_at", desc=True).execute()
+                return res.data or []
+            except Exception as e:
+                print(f"Supabase list_workflows error: {e}")
+    return memory_store.get_workflows(current_user.id)
+
+
+@app.post("/api/workflows", response_model=Workflow)
+def create_workflow(
+    payload: WorkflowCreateUpdatePayload,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Creates a new workflow definition with goal and steps."""
+    wf_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    share_slug = f"wf-{uuid.uuid4().hex[:8]}"
+
+    wf_dict = {
+        "id": wf_id,
+        "user_id": current_user.id,
+        "title": payload.title,
+        "description": payload.description or "",
+        "goal": payload.goal,
+        "steps": [s.model_dump() for s in payload.steps],
+        "edges": payload.edges or [],
+        "visibility": payload.visibility or "private",
+        "share_slug": share_slug,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("workflows").insert(wf_dict).execute()
+                if res.data:
+                    return res.data[0]
+            except Exception as e:
+                print(f"Supabase create_workflow error: {e}")
+
+    return memory_store.create_workflow(wf_dict)
+
+
+@app.get("/api/workflows/{workflow_id}", response_model=Workflow)
+def get_workflow(
+    workflow_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Retrieves a workflow by ID if owned or shared."""
+    wf = memory_store.get_workflow(workflow_id, current_user.id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    return wf
+
+
+@app.put("/api/workflows/{workflow_id}", response_model=Workflow)
+def update_workflow(
+    workflow_id: str,
+    payload: WorkflowCreateUpdatePayload,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Updates an existing workflow definition (owner only)."""
+    existing = memory_store.get_workflow(workflow_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    if existing.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot modify another user's workflow.")
+
+    updates = {
+        "title": payload.title,
+        "description": payload.description or "",
+        "goal": payload.goal,
+        "steps": [s.model_dump() for s in payload.steps],
+        "edges": payload.edges or [],
+        "visibility": payload.visibility or existing.get("visibility", "private"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    updated = memory_store.update_workflow(workflow_id, current_user.id, updates)
+    return updated
+
+
+@app.delete("/api/workflows/{workflow_id}")
+def delete_workflow(
+    workflow_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Deletes a workflow definition (owner only)."""
+    existing = memory_store.get_workflow(workflow_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    if existing.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot delete another user's workflow.")
+
+    memory_store.delete_workflow(workflow_id, current_user.id)
+    return {"message": "Workflow deleted successfully."}
+
+
+@app.get("/api/workflows/shared/{share_slug}", response_model=Workflow)
+def get_shared_workflow(
+    share_slug: str,
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
+):
+    """Provides view-only access to a shared workflow without allowing mutations."""
+    wf = memory_store.get_shared_workflow(share_slug)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Shared workflow not found or has been made private.")
+    return wf
+
+
+@app.post("/api/workflows/{workflow_id}/fork", response_model=Workflow)
+def fork_workflow(
+    workflow_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Forks/clones a shared or accessible workflow into the current user's library."""
+    original = memory_store.get_workflow(workflow_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+
+    forked_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    forked_data = dict(original)
+    forked_data["id"] = forked_id
+    forked_data["user_id"] = current_user.id
+    forked_data["title"] = f"{original.get('title', 'Workflow')} (Forked)"
+    forked_data["visibility"] = "private"
+    forked_data["share_slug"] = f"wf-{uuid.uuid4().hex[:8]}"
+    forked_data["created_at"] = now_iso
+    forked_data["updated_at"] = now_iso
+
+    return memory_store.create_workflow(forked_data)
+
+
+# ----------------- Knowledge Base Documents -----------------
+
+class KnowledgeUploadPayload(BaseModel):
+    file_name: str
+    content_text: str
+    file_type: Optional[str] = "text/plain"
+
+
+@app.get("/api/workflows/{workflow_id}/knowledge", response_model=List[KnowledgeFile])
+def list_knowledge_files(
+    workflow_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Lists attached knowledge base documents for a workflow."""
+    return memory_store.get_knowledge_files(workflow_id)
+
+
+@app.post("/api/workflows/{workflow_id}/knowledge/upload", response_model=KnowledgeFile)
+def upload_knowledge_file(
+    workflow_id: str,
+    payload: KnowledgeUploadPayload,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Uploads and attaches a knowledge base document to a workflow."""
+    wf = memory_store.get_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    if wf.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot modify this workflow's knowledge base.")
+
+    file_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    content_clean = extract_file_content(payload.file_name, payload.content_text.encode("utf-8"), payload.file_type)
+
+    doc_dict = {
+        "id": file_id,
+        "workflow_id": workflow_id,
+        "user_id": current_user.id,
+        "file_name": payload.file_name,
+        "file_type": payload.file_type or "text/plain",
+        "file_size": len(content_clean.encode("utf-8")),
+        "content_text": content_clean,
+        "metadata": {},
+        "created_at": now_iso,
+    }
+    return memory_store.add_knowledge_file(doc_dict)
+
+
+@app.delete("/api/workflows/{workflow_id}/knowledge/{file_id}")
+def delete_knowledge_file(
+    workflow_id: str,
+    file_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Deletes an attached knowledge base file."""
+    success = memory_store.delete_knowledge_file(file_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Knowledge file not found or unauthorized.")
+    return {"message": "Knowledge document deleted successfully."}
+
+
+# ----------------- Testing & Execution Endpoints -----------------
+
+@app.post("/api/workflows/{workflow_id}/steps/{step_id}/test", response_model=StepUnitTestResponse)
+def unit_test_step(
+    workflow_id: str,
+    step_id: str,
+    payload: StepUnitTestRequest,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Executes a single step in isolation with mock input parameters for unit testing."""
+    wf = memory_store.get_workflow(workflow_id, current_user.id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+
+    res = workflow_engine.execute_unit_test(
+        workflow_data=wf,
+        step_id=step_id,
+        mock_inputs=payload.mock_inputs,
+        mock_previous_outputs=payload.mock_previous_outputs,
+        user_id=current_user.id,
+    )
+    return res
+
+
+@app.post("/api/workflows/{workflow_id}/run", response_model=WorkflowRun)
+def run_workflow(
+    workflow_id: str,
+    payload: WorkflowRunRequest,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Executes the entire workflow DAG end-to-end (system test or manual trigger)."""
+    wf = memory_store.get_workflow(workflow_id, current_user.id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+
+    run_record = workflow_engine.execute_workflow(
+        workflow_data=wf,
+        inputs=payload.inputs,
+        user_id=current_user.id,
+        trigger_type="system_test",
+        session_id=payload.session_id,
+    )
+    return run_record
+
+
+@app.get("/api/workflows/{workflow_id}/runs", response_model=List[WorkflowRun])
+def list_workflow_runs(
+    workflow_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Lists historical execution runs and telemetry for this workflow."""
+    return memory_store.get_workflow_runs(workflow_id)
+
+
+@app.get("/api/workflows/{workflow_id}/runs/{run_id}", response_model=WorkflowRun)
+def get_workflow_run(
+    workflow_id: str,
+    run_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Retrieves granular details of a specific workflow run including all step runs."""
+    run = memory_store.get_workflow_run(run_id)
+    if not run or run.get("workflow_id") != workflow_id:
+        raise HTTPException(status_code=404, detail="Workflow run not found.")
+    run_copy = dict(run)
+    run_copy["step_runs"] = memory_store.get_step_runs(run_id)
+    return run_copy
+

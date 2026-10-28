@@ -7,6 +7,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-28
 
 ### Added
+- **Multi-Agent Workflow Builder & Visual DAG Studio**:
+  - Full-stack workflow creation and debugging platform accessible at `/workflows`.
+  - Dual-mode editor switching between **Structured Card Editor** and **Visual React Flow DAG Editor** (`@xyflow/react`) with bidirectional state synchronization.
+  - Custom React Flow node components (`GoalNode`, `StepNode`) with dynamic input/output handles and dependency edge connections.
+  - Multi-tab workflow studio: Steps editor, Python Script Tools, Knowledge Base Documents, and Runs Debugger.
+- **Sandboxed Python Script Tool Runner**:
+  - In-process execution runner enforcing AST security validation preventing dangerous imports (`os`, `sys`, `subprocess`, `shutil`, `socket`).
+  - Standardized tool interface: `def execute(input_data: dict, context: dict) -> dict`.
+  - Strict 5-second timeout, memory protection, and stdout/stderr capture with live test console.
+- **Workflow Knowledge Base Context Ingestion**:
+  - Document attachment support for `.txt`, `.md`, `.csv`, `.json`, and `.pdf` files.
+  - Automatic text extraction and context prompt formatting injected into step agents.
+- **User Custom Agents**:
+  - Ability for users to create and manage custom agents beyond the 6 prebuilt agents (`user_agents` table and dynamic registration in `AgentRegistry`).
+- **Two-Tier Testing Framework**:
+  - **Step Unit Testing**: Isolated single-step unit test drawer with mock variables and immediate latency/token feedback.
+  - **System Testing**: Full topological DAG pipeline execution with variable interpolation (`{{inputs.*}}`, `{{steps.*.output}}`).
+- **Workflow Runs & Telemetry Debugger**:
+  - Detailed runs history, step-by-step latency timelines, per-agent token usage, and tool output traces.
+- **View-Only Sharing & Workflow Forking**:
+  - Shareable URLs (`/workflows/share/<shareSlug>`) enforced with read-only database policies.
+  - 1-click **Fork Workflow** action cloning workflows into user's personal studio.
+- **Chat Workflow Invocation**:
+  - Dedicated "Run Workflow" modal launcher and `/workflow` slash command in `/chat`.
+  - Interactive workflow execution card in conversation message history showing real-time step badges and execution summary.
 - **Modular Agent Package Architecture**: Standardized filesystem-based agent packages (`backend/app/agents/<agent_id>/`) with isolated asset files (`config.json`, `prompt.md`, `tools.py`, `skills.json`, `mcp.json`).
 - **Autonomous Swarm Orchestrator**: Refactored the orchestrator into a first-class agent (`orchestrator`) with goal decomposition and delegation tools (`swarm_router`, `swarm_delegate`).
 - **Expanded Core Swarm Roster (6 Agents)**:

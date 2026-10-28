@@ -149,7 +149,7 @@ export default function SessionSidebar({
       </div>
 
       {/* Action Button: + New Chat */}
-      <div className="p-3">
+      <div className="p-3 pb-1.5">
         <button
           type="button"
           onClick={onCreateSession}
@@ -158,6 +158,20 @@ export default function SessionSidebar({
           <Plus size={15} />
           <span>New Chat</span>
         </button>
+      </div>
+
+      {/* Workflows Studio Navigation Link */}
+      <div className="px-3 pb-2">
+        <Link
+          href="/workflows"
+          className="w-full flex items-center justify-between py-2 px-3 bg-card border border-border/80 hover:border-primary/40 hover:bg-muted text-foreground rounded-xl text-xs font-semibold shadow-subtle transition-all group"
+        >
+          <div className="flex items-center gap-2">
+            <Layers size={14} className="text-primary group-hover:scale-110 transition-transform" />
+            <span>Workflows Studio</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors">→</span>
+        </Link>
       </div>
 
       {/* Chat Sessions History */}

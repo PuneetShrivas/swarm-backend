@@ -1,20 +1,22 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Square } from "lucide-react";
+import { Send, Square, Layers } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (content: string) => void;
   isLoading: boolean;
   onStop?: () => void;
   placeholder?: string;
+  onOpenWorkflowPicker?: () => void;
 }
 
 export default function ChatInput({
   onSend,
   isLoading,
   onStop,
-  placeholder = "Message the swarm...",
+  placeholder = "Message the swarm or type /workflow...",
+  onOpenWorkflowPicker,
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -63,7 +65,18 @@ export default function ChatInput({
             disabled={isLoading}
           />
 
-          <div className="absolute right-2.5 bottom-2.5 flex items-center">
+          <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5">
+            {onOpenWorkflowPicker && (
+              <button
+                type="button"
+                onClick={onOpenWorkflowPicker}
+                className="p-2 text-muted-foreground hover:text-primary hover:bg-muted/70 rounded-xl transition"
+                title="Run Autonomous Workflow"
+              >
+                <Layers size={16} />
+              </button>
+            )}
+
             {isLoading && onStop ? (
               <button
                 type="button"

@@ -26,6 +26,7 @@ import ChatHeader from "./components/ChatHeader";
 import SessionSidebar from "./components/SessionSidebar";
 import UsageModal from "./components/UsageModal";
 import AgentDetailsModal from "./components/AgentDetailsModal";
+import WorkflowPickerModal from "./components/WorkflowPickerModal";
 
 export default function Chat() {
   const [conversation, setConversation] = useState<ConversationState>(() =>
@@ -50,6 +51,9 @@ export default function Chat() {
   // Agent Inspection Modal State
   const [inspectingAgent, setInspectingAgent] = useState<Agent | null>(null);
   const [isAgentDetailsOpen, setIsAgentDetailsOpen] = useState(false);
+
+  // Workflow Launcher State
+  const [isWorkflowPickerOpen, setIsWorkflowPickerOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -192,7 +196,9 @@ export default function Chat() {
     chatHistory: { role: string; content: string; metadata?: Record<string, unknown> }[],
     userMessageNodeId: string,
     targetSessionId?: string | null,
-    userParentNodeId?: string | null
+    userParentNodeId?: string | null,
+    workflowId?: string,
+    workflowInputs?: Record<string, unknown>
   ) => {
     setIsLoading(true);
     abortControllerRef.current = new AbortController();
@@ -224,6 +230,8 @@ export default function Chat() {
           session_id: targetSessionId || activeSessionId || null,
           user_message_id: userMessageNodeId,
           parent_message_id: cleanUserParentId,
+          workflow_id: workflowId || null,
+          workflow_inputs: workflowInputs || {},
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -402,6 +410,49 @@ export default function Chat() {
     setConversation(newState);
     const updatedPath = getActivePath(newState.nodes, newNodeId);
     requestSwarmResponse(updatedPath, newNodeId, targetSessionId, userParent);
+  };
+
+  // Handle invoking an autonomous workflow inside chat
+  const handleRunWorkflow = async (
+    workflowId: string,
+    inputs: Record<string, unknown>
+  ) => {
+    let targetSessionId = activeSessionId;
+    if (!targetSessionId && session?.access_token) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${apiUrl}/api/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ title: `Workflow Run: ${workflowId.slice(0, 8)}` }),
+        });
+        if (res.ok) {
+          const newSession = await res.json();
+          setSessions((prev) => [newSession, ...prev]);
+          setActiveSessionId(newSession.id);
+          targetSessionId = newSession.id;
+        }
+      } catch (err) {
+        console.error("Auto session creation error for workflow:", err);
+      }
+    }
+
+    const userParent = conversation.currentLeafId;
+    const promptText = `/workflow ${workflowId}`;
+    const { newState, newNodeId } = addMessageNode(
+      conversation,
+      "user",
+      promptText,
+      conversation.currentLeafId,
+      { workflow_id: workflowId, workflow_inputs: inputs }
+    );
+
+    setConversation(newState);
+    const updatedPath = getActivePath(newState.nodes, newNodeId);
+    requestSwarmResponse(updatedPath, newNodeId, targetSessionId, userParent, workflowId, inputs);
   };
 
   // Handle editing an existing user prompt (creates a sibling branch)
@@ -594,6 +645,7 @@ export default function Chat() {
           onSend={handleSend}
           isLoading={isLoading}
           onStop={handleStop}
+          onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}
         />
       </div>
 
@@ -611,6 +663,13 @@ export default function Chat() {
         agent={inspectingAgent}
         isOpen={isAgentDetailsOpen}
         onClose={() => setIsAgentDetailsOpen(false)}
+      />
+
+      {/* Workflow Launcher Modal */}
+      <WorkflowPickerModal
+        isOpen={isWorkflowPickerOpen}
+        onClose={() => setIsWorkflowPickerOpen(false)}
+        onRunWorkflow={handleRunWorkflow}
       />
     </div>
   );
