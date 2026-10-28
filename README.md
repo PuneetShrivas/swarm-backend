@@ -160,4 +160,15 @@ swarm-backend/
 Configured for serverless deployment on Vercel:
 - **Backend:** `backend/vercel.json` deploys `backend/app/main.py` via `@vercel/python`.
 - **Frontend:** Standard Next.js serverless build.
-- **State Note:** Persistent swarm state and conversation trees should be stored in Supabase as detailed in [`agent-instructions/backend-review.md`](agent-instructions/backend-review.md).
+- **State Note:** Persistent swarm state, conversation trees, and usage telemetry are stored in Supabase tables (`chat_sessions`, `chat_messages`, `user_usage`) protected with Row Level Security (RLS). Apply the migration script in `supabase/migrations/20261028_chat_sessions_history_usage.sql`.
+
+---
+
+## 📝 Changelog
+
+### [2026-10-28] Supabase Chat Sessions, History, and Usage Telemetry
+- **Database**: Created SQL migration `supabase/migrations/20261028_chat_sessions_history_usage.sql` establishing `chat_sessions`, `chat_messages` (with adjacency-list tree branching), and `user_usage` tables with complete RLS policies and performance indexes.
+- **Backend API**: Added FastAPI endpoints for session CRUD (`GET`, `POST`, `PATCH`, `DELETE /api/sessions`) and usage aggregation (`GET /api/usage`).
+- **Auth Integration**: Created `backend/app/auth.py` verifying Supabase access tokens via `Authorization: Bearer <token>` while retaining guest mode demo fallback.
+- **Frontend UI**: Integrated conversation sidebar with session switching, title editing, session deletion, token telemetry modal (`UsageModal`), user profile footer, and dynamic tree state hydration (`reconstructTreeFromMessages`).
+- **Automated Verification**: Added 13-stage test suite in `backend/test_endpoints.py` verifying all endpoints, sessions, message persistence, and token telemetry. Full pass on frontend linter and production build.

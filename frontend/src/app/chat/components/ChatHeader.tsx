@@ -1,7 +1,7 @@
 'use client';
 
 import { Agent } from '../types';
-import { Download, Trash2, Bot } from 'lucide-react';
+import { Download, Trash2, Bot, Zap } from 'lucide-react';
 
 interface ChatHeaderProps {
   agents: Agent[];
@@ -10,6 +10,9 @@ interface ChatHeaderProps {
   onClearChat: () => void;
   onExportChat: () => void;
   activePathCount: number;
+  sessionTitle?: string;
+  totalTokensUsed?: number;
+  onOpenUsage?: () => void;
 }
 
 export default function ChatHeader({
@@ -19,36 +22,53 @@ export default function ChatHeader({
   onClearChat,
   onExportChat,
   activePathCount,
+  sessionTitle,
+  totalTokensUsed,
+  onOpenUsage,
 }: ChatHeaderProps) {
   const currentAgent = agents.find((a) => a.id === selectedAgentId);
 
   return (
     <header className="h-16 border-b border-slate-200/80 bg-white/80 backdrop-blur-md px-4 md:px-8 flex items-center justify-between sticky top-0 z-20">
-      {/* Left: Swarm / Agent Selector */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+      {/* Left: Swarm / Session Title */}
+      <div className="flex items-center gap-3 truncate max-w-sm sm:max-w-md">
+        <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs shrink-0">
           <Bot size={18} />
         </div>
 
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-800 text-sm">
-              {currentAgent ? currentAgent.name : 'Autonomous Agent Swarm'}
+        <div className="truncate">
+          <div className="flex items-center gap-2 truncate">
+            <span className="font-semibold text-slate-800 text-sm truncate">
+              {sessionTitle || (currentAgent ? currentAgent.name : 'Autonomous Agent Swarm')}
             </span>
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+            <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               {agents.length > 0 ? `${agents.length} Online` : 'Ready'}
             </span>
           </div>
 
-          <div className="text-[11px] text-slate-400">
-            {currentAgent ? currentAgent.role : 'Distributed multi-agent routing'}
+          <div className="text-[11px] text-slate-400 truncate">
+            {currentAgent ? `${currentAgent.name} · ${currentAgent.role}` : 'Distributed multi-agent routing with Supabase history'}
           </div>
         </div>
       </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
+        {/* Token Usage Badge */}
+        {totalTokensUsed !== undefined && onOpenUsage && (
+          <button
+            type="button"
+            onClick={onOpenUsage}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100/70 border border-amber-200/70 text-amber-800 rounded-lg text-xs font-medium transition"
+            title="View token telemetry & usage data"
+          >
+            <Zap size={13} className="text-amber-600" />
+            <span className="font-mono">{totalTokensUsed.toLocaleString()}</span>
+            <span className="text-[10px] text-amber-600 hidden sm:inline">tks</span>
+          </button>
+        )}
+
         {/* Agent Selector */}
         {agents.length > 0 && (
           <div className="hidden sm:flex items-center gap-1.5">

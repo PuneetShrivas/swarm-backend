@@ -243,3 +243,90 @@ export function exportToMarkdown(path: ChatNode[]): string {
 
   return md;
 }
+
+export interface ChatSession {
+  id: string;
+  user_id: string;
+  title: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DBMessage {
+  id: string;
+  session_id: string;
+  user_id: string;
+  parent_id: string | null;
+  role: 'user' | 'agent' | 'system';
+  content: string;
+  metadata?: MessageMetadata;
+  rating?: 'up' | 'down' | null;
+  created_at: string;
+}
+
+export interface UserUsageSummary {
+  total_tokens: number;
+  total_requests: number;
+  models: Record<string, number>;
+  agents: Record<string, number>;
+  recent_activity: Array<{
+    id: string;
+    model: string;
+    agent_id: string;
+    total_tokens: number;
+    latency_ms?: number;
+    created_at: string;
+  }>;
+}
+
+/**
+ * Reconstructs the multi-branch ConversationState tree from flat DB messages.
+ */
+export function reconstructTreeFromMessages(
+  messages: DBMessage[],
+  defaultGreeting: string = 'Hello! I am part of the agent swarm. How can I help you today?'
+): ConversationState {
+  if (!messages || messages.length === 0) {
+    return createInitialState(defaultGreeting);
+  }
+
+  const nodes: Record<string, ChatNode> = {};
+
+  messages.forEach((m) => {
+    nodes[m.id] = {
+      id: m.id,
+      parentId: m.parent_id,
+      childrenIds: [],
+      role: m.role,
+      content: m.content,
+      metadata: m.metadata || {},
+      rating: m.rating,
+      createdAt: new Date(m.created_at).getTime() || Date.now(),
+    };
+  });
+
+  let rootId: string | null = null;
+  let lastLeafId: string | null = null;
+
+  messages.forEach((m) => {
+    if (m.parent_id && nodes[m.parent_id]) {
+      if (!nodes[m.parent_id].childrenIds.includes(m.id)) {
+        nodes[m.parent_id].childrenIds.push(m.id);
+      }
+    } else if (!rootId) {
+      rootId = m.id;
+    }
+    lastLeafId = m.id;
+  });
+
+  if (!rootId && messages.length > 0) {
+    rootId = messages[0].id;
+  }
+
+  return {
+    nodes,
+    rootId,
+    currentLeafId: lastLeafId || rootId,
+  };
+}

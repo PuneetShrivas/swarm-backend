@@ -1,13 +1,16 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import { Bot, ArrowLeft, Loader2, Sparkles } from 'lucide-react';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
+import { Bot, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import {
   Agent,
   ConversationState,
+  ChatSession,
+  UserUsageSummary,
   createInitialState,
   getActivePath,
   getSiblingInfo,
@@ -15,10 +18,13 @@ import {
   switchBranch,
   setNodeRating,
   exportToMarkdown,
+  reconstructTreeFromMessages,
 } from './types';
 import MessageItem from './components/MessageItem';
 import ChatInput from './components/ChatInput';
 import ChatHeader from './components/ChatHeader';
+import SessionSidebar from './components/SessionSidebar';
+import UsageModal from './components/UsageModal';
 
 export default function Chat() {
   const [conversation, setConversation] = useState<ConversationState>(() =>
@@ -27,6 +33,19 @@ export default function Chat() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Authentication & Sessions State
+  const [session, setSession] = useState<Session | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+  // Usage Telemetry State
+  const [usage, setUsage] = useState<UserUsageSummary | null>(null);
+  const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
+  const [isLoadingUsage, setIsLoadingUsage] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -42,6 +61,107 @@ export default function Chat() {
   useEffect(() => {
     scrollToBottom();
   }, [conversation.currentLeafId, activePath.length, scrollToBottom]);
+
+  // Load single session message tree
+  const loadSessionMessages = useCallback(
+    async (sessionId: string, token: string) => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const reconstructed = reconstructTreeFromMessages(data.messages);
+          setConversation(reconstructed);
+        }
+      } catch (err) {
+        console.error('Failed to load session messages', err);
+      }
+    },
+    []
+  );
+
+  // Fetch user usage summary
+  const fetchUsage = useCallback(async (token: string) => {
+    setIsLoadingUsage(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/usage`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data: UserUsageSummary = await res.json();
+        setUsage(data);
+      }
+    } catch (err) {
+      console.error('Failed to load usage stats', err);
+    } finally {
+      setIsLoadingUsage(false);
+    }
+  }, []);
+
+  // Fetch all chat sessions for the authenticated user
+  const fetchSessions = useCallback(
+    async (token: string) => {
+      setIsLoadingSessions(true);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiUrl}/api/sessions`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data: ChatSession[] = await res.json();
+          setSessions(data);
+          if (data.length > 0 && !activeSessionId) {
+            setActiveSessionId(data[0].id);
+            await loadSessionMessages(data[0].id, token);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch sessions', error);
+      } finally {
+        setIsLoadingSessions(false);
+      }
+    },
+    [activeSessionId, loadSessionMessages]
+  );
+
+  // Initialize Supabase Auth & Session Listeners
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        if (initialSession) {
+          setSession(initialSession);
+          setUserEmail(initialSession.user.email || null);
+          fetchSessions(initialSession.access_token);
+          fetchUsage(initialSession.access_token);
+        }
+      } catch (err) {
+        console.warn('Supabase auth getSession notice:', err);
+      }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, currentSession) => {
+        setSession(currentSession);
+        setUserEmail(currentSession?.user.email || null);
+        if (currentSession) {
+          fetchSessions(currentSession.access_token);
+          fetchUsage(currentSession.access_token);
+        } else {
+          setSessions([]);
+          setActiveSessionId(null);
+          setUsage(null);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [fetchSessions, fetchUsage]);
 
   // Fetch active agents from FastAPI backend
   useEffect(() => {
@@ -60,25 +180,43 @@ export default function Chat() {
     fetchAgents();
   }, []);
 
-  // Send request to FastAPI /api/chat
+  // Send request to FastAPI /api/chat with session linking
   const requestSwarmResponse = async (
     chatHistory: { role: string; content: string; metadata?: Record<string, unknown> }[],
-    parentUserNodeId: string
+    userMessageNodeId: string,
+    targetSessionId?: string | null,
+    userParentNodeId?: string | null
   ) => {
     setIsLoading(true);
     abortControllerRef.current = new AbortController();
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      // Sanitize user parent: root-greeting is a client placeholder, not a DB record
+      const cleanUserParentId =
+        userParentNodeId && userParentNodeId !== 'root-greeting'
+          ? userParentNodeId
+          : null;
+
       const res = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           messages: chatHistory.map((m) => ({
             role: m.role,
             content: m.content,
             metadata: m.metadata || {},
           })),
+          session_id: targetSessionId || activeSessionId || null,
+          user_message_id: userMessageNodeId,
+          parent_message_id: cleanUserParentId,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -94,11 +232,16 @@ export default function Chat() {
           latestState,
           'agent',
           data.content || 'I have completed processing.',
-          parentUserNodeId,
+          userMessageNodeId,
           data.metadata || { agent_state: 'completed' }
         );
         return newState;
       });
+
+      // Refresh usage summary after successful turn
+      if (session?.access_token) {
+        fetchUsage(session.access_token);
+      }
     } catch (error: unknown) {
       if ((error as { name?: string })?.name === 'AbortError') {
         console.log('Chat generation aborted by user.');
@@ -110,7 +253,7 @@ export default function Chat() {
           latestState,
           'agent',
           'Sorry, I encountered an error communicating with the agent swarm. Please try again.',
-          parentUserNodeId,
+          userMessageNodeId,
           { agent_state: 'error' }
         );
         return newState;
@@ -121,10 +264,126 @@ export default function Chat() {
     }
   };
 
-  // Handle standard user prompt submission
-  const handleSend = (content: string) => {
+  // Switch active session
+  const handleSelectSession = (sessionId: string) => {
+    if (sessionId === activeSessionId) return;
+    setActiveSessionId(sessionId);
+    if (session?.access_token) {
+      loadSessionMessages(sessionId, session.access_token);
+    }
+  };
+
+  // Create new session
+  const handleCreateSession = async () => {
+    if (!session?.access_token) {
+      setActiveSessionId(null);
+      setConversation(createInitialState());
+      return;
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ title: 'New Conversation' }),
+      });
+      if (res.ok) {
+        const newSession: ChatSession = await res.json();
+        setSessions((prev) => [newSession, ...prev]);
+        setActiveSessionId(newSession.id);
+        setConversation(createInitialState());
+      }
+    } catch (err) {
+      console.error('Failed to create session', err);
+    }
+  };
+
+  // Delete session
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!session?.access_token) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+        if (activeSessionId === sessionId) {
+          const remaining = sessions.filter((s) => s.id !== sessionId);
+          if (remaining.length > 0) {
+            setActiveSessionId(remaining[0].id);
+            loadSessionMessages(remaining[0].id, session.access_token);
+          } else {
+            setActiveSessionId(null);
+            setConversation(createInitialState());
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete session', err);
+    }
+  };
+
+  // Rename session
+  const handleRenameSession = async (sessionId: string, newTitle: string) => {
+    if (!session?.access_token) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      if (res.ok) {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s))
+        );
+      }
+    } catch (err) {
+      console.error('Failed to rename session', err);
+    }
+  };
+
+  // Handle standard user prompt submission (with auto-session creation)
+  const handleSend = async (content: string) => {
     if (isLoading) return;
 
+    let targetSessionId = activeSessionId;
+
+    // Auto-create session if authenticated user is on a new unsaved chat
+    if (session?.access_token && !targetSessionId) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const cleanTitle =
+          content.trim().slice(0, 32) + (content.length > 32 ? '...' : '');
+        const res = await fetch(`${apiUrl}/api/sessions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ title: cleanTitle }),
+        });
+        if (res.ok) {
+          const newSession: ChatSession = await res.json();
+          setSessions((prev) => [newSession, ...prev]);
+          setActiveSessionId(newSession.id);
+          targetSessionId = newSession.id;
+        }
+      } catch (err) {
+        console.error('Auto session creation error:', err);
+      }
+    }
+
+    const userParent = conversation.currentLeafId;
     const { newState, newNodeId } = addMessageNode(
       conversation,
       'user',
@@ -134,9 +393,8 @@ export default function Chat() {
     );
 
     setConversation(newState);
-
     const updatedPath = getActivePath(newState.nodes, newNodeId);
-    requestSwarmResponse(updatedPath, newNodeId);
+    requestSwarmResponse(updatedPath, newNodeId, targetSessionId, userParent);
   };
 
   // Handle editing an existing user prompt (creates a sibling branch)
@@ -145,8 +403,8 @@ export default function Chat() {
 
     const targetNode = conversation.nodes[nodeId];
     if (!targetNode) return;
+    const userParent = targetNode.parentId;
 
-    // Sibling of targetNode gets same parentId
     const { newState, newNodeId } = addMessageNode(
       conversation,
       'user',
@@ -156,9 +414,8 @@ export default function Chat() {
     );
 
     setConversation(newState);
-
     const updatedPath = getActivePath(newState.nodes, newNodeId);
-    requestSwarmResponse(updatedPath, newNodeId);
+    requestSwarmResponse(updatedPath, newNodeId, activeSessionId, userParent);
   };
 
   // Handle regenerating an agent response (creates a sibling agent variant)
@@ -172,7 +429,12 @@ export default function Chat() {
     if (!userParentNode) return;
 
     const pathUpToUser = getActivePath(conversation.nodes, userParentNode.id);
-    requestSwarmResponse(pathUpToUser, userParentNode.id);
+    requestSwarmResponse(
+      pathUpToUser,
+      userParentNode.id,
+      activeSessionId,
+      userParentNode.parentId
+    );
   };
 
   // Handle branch navigation (< 1 / 2 >)
@@ -204,6 +466,17 @@ export default function Chat() {
     }
   };
 
+  // Sign out handler
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setUserEmail(null);
+    setSessions([]);
+    setActiveSessionId(null);
+    setUsage(null);
+    setConversation(createInitialState());
+  };
+
   // Export conversation to Markdown
   const handleExportChat = () => {
     const md = exportToMarkdown(activePath);
@@ -218,82 +491,30 @@ export default function Chat() {
     URL.revokeObjectURL(url);
   };
 
+  const currentSessionObj = sessions.find((s) => s.id === activeSessionId);
+
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans">
-      {/* Sidebar for Agents */}
-      <aside className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col shadow-sm z-10 hidden md:flex">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-xs">
-            <Bot size={20} className="text-white" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold tracking-tight text-slate-800">
-              Active Swarm
-            </h2>
-            <div className="text-[11px] text-slate-400">Agent Roster</div>
-          </div>
-        </div>
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* Session History & Swarm Sidebar */}
+      <SessionSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={handleSelectSession}
+        onCreateSession={handleCreateSession}
+        onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+        userEmail={userEmail}
+        onSignOut={handleSignOut}
+        onOpenUsage={() => setIsUsageModalOpen(true)}
+        totalTokensUsed={usage?.total_tokens ?? 0}
+        agents={agents}
+        selectedAgentId={selectedAgentId}
+        onSelectAgent={setSelectedAgentId}
+        isLoadingSessions={isLoadingSessions}
+      />
 
-        {/* Swarm Roster */}
-        <div className="flex-1 overflow-y-auto space-y-2">
-          {agents.length === 0 ? (
-            <div className="text-center p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-              <p className="text-slate-500 text-xs">No active agents online.</p>
-              <span className="text-[10px] text-slate-400 mt-1 block">
-                Backend API: /api/agents
-              </span>
-            </div>
-          ) : (
-            <ul className="space-y-2">
-              {agents.map((agent) => {
-                const isSelected = selectedAgentId === agent.id;
-                return (
-                  <li
-                    key={agent.id}
-                    onClick={() =>
-                      setSelectedAgentId(isSelected ? null : agent.id)
-                    }
-                    className={`p-3 border rounded-xl transition cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-50/70 border-blue-200 text-blue-900 shadow-xs'
-                        : 'bg-slate-50 hover:bg-slate-100 border-slate-100 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="font-medium text-xs text-slate-800 flex items-center gap-1.5">
-                        <Sparkles
-                          size={12}
-                          className={isSelected ? 'text-blue-600' : 'text-slate-400'}
-                        />
-                        {agent.name}
-                      </div>
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          agent.status === 'active'
-                            ? 'bg-emerald-500'
-                            : 'bg-amber-400'
-                        }`}
-                      />
-                    </div>
-                    <div className="text-[11px] text-slate-500">{agent.role}</div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        <Link
-          href="/"
-          className="mt-6 flex items-center text-xs font-medium text-slate-500 hover:text-slate-800 transition pt-4 border-t border-slate-100"
-        >
-          <ArrowLeft size={14} className="mr-2" />
-          Back to Overview
-        </Link>
-      </aside>
-
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-white/60 relative overflow-hidden">
+      {/* Main Chat Feed Area */}
+      <div className="flex-1 flex flex-col bg-white/60 relative overflow-hidden h-full">
         {/* Top Header */}
         <ChatHeader
           agents={agents}
@@ -302,6 +523,9 @@ export default function Chat() {
           onClearChat={handleClearChat}
           onExportChat={handleExportChat}
           activePathCount={activePath.length}
+          sessionTitle={currentSessionObj?.title}
+          totalTokensUsed={usage?.total_tokens}
+          onOpenUsage={() => setIsUsageModalOpen(true)}
         />
 
         {/* Message Feed */}
@@ -357,6 +581,15 @@ export default function Chat() {
           onStop={handleStop}
         />
       </div>
+
+      {/* Usage Telemetry Modal */}
+      <UsageModal
+        isOpen={isUsageModalOpen}
+        onClose={() => setIsUsageModalOpen(false)}
+        usage={usage}
+        isLoading={isLoadingUsage}
+        onRefresh={() => session?.access_token && fetchUsage(session.access_token)}
+      />
     </div>
   );
 }
