@@ -11,6 +11,27 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Linear Pure Design Tokens
+        canvas: "#010102",
+        "surface-1": "#0f1011",
+        "surface-2": "#141516",
+        "surface-3": "#18191a",
+        "surface-4": "#191a1b",
+        hairline: "#23252a",
+        "hairline-strong": "#34343a",
+        "hairline-tertiary": "#3e3e44",
+        "brand-secure": "#7a7fad",
+        "semantic-success": "#27a644",
+        "linear-primary": "#5e6ad2",
+        "linear-hover": "#828fff",
+        "linear-focus": "#5e69d1",
+        ink: {
+          DEFAULT: "#f7f8f8",
+          muted: "#d0d6e0",
+          subtle: "#8a8f98",
+          tertiary: "#62666d",
+        },
+        // Semantic Token Bindings
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
         card: {
@@ -24,6 +45,8 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary) / <alpha-value>)",
           foreground: "hsl(var(--primary-foreground) / <alpha-value>)",
+          hover: "#828fff",
+          focus: "#5e69d1",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
@@ -46,14 +69,30 @@ const config: Config = {
         ring: "hsl(var(--ring) / <alpha-value>)",
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xs: "4px",
+        sm: "6px",
+        md: "8px",
+        lg: "12px",
+        xl: "16px",
+        xxl: "24px",
+        pill: "9999px",
+      },
+      letterSpacing: {
+        "display-xl": "-3.0px",
+        "display-lg": "-1.8px",
+        "display-md": "-1.0px",
+        headline: "-0.6px",
+        "card-title": "-0.4px",
+        subhead: "-0.2px",
+        body: "-0.05px",
+        eyebrow: "0.4px",
       },
       fontFamily: {
         sans: [
+          "Inter",
           "-apple-system",
           "BlinkMacSystemFont",
+          "SF Pro Display",
           "Segoe UI",
           "Roboto",
           "Helvetica Neue",
@@ -61,8 +100,9 @@ const config: Config = {
           "sans-serif",
         ],
         mono: [
-          "ui-monospace",
+          "JetBrains Mono",
           "SFMono-Regular",
+          "ui-monospace",
           "Menlo",
           "Monaco",
           "Consolas",
@@ -70,9 +110,9 @@ const config: Config = {
         ],
       },
       boxShadow: {
-        subtle: "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
-        card: "0 4px 20px -2px rgba(0, 0, 0, 0.1), 0 2px 6px -1px rgba(0, 0, 0, 0.06)",
-        glow: "0 0 24px -4px var(--glow-color, rgba(99, 102, 241, 0.25))",
+        subtle: "0 1px 2px 0 rgba(0, 0, 0, 0.2)",
+        card: "0 4px 20px -2px rgba(0, 0, 0, 0.4)",
+        "hairline-top": "inset 0 1px 0 0 rgba(255, 255, 255, 0.05)",
       },
       keyframes: {
         "fade-in": {

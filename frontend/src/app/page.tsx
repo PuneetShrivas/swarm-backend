@@ -4,7 +4,6 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Bot,
-  Sparkles,
   ArrowRight,
   GitBranch,
   Activity,
@@ -12,34 +11,41 @@ import {
   ShieldCheck,
   ChevronRight,
   ExternalLink,
+  Workflow,
 } from "lucide-react";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 export default function Home() {
   const capabilities = [
     {
-      icon: <Layers className="w-5 h-5 text-primary" />,
+      icon: <Layers className="w-4 h-4 text-linear-primary" />,
       title: "Hierarchical Agent Swarm",
       description:
         "Orchestrator dynamically delegates complex multi-step objectives to specialized researcher, coder, and reviewer agents.",
       badge: "Gemini 2.5 Engine",
     },
     {
-      icon: <GitBranch className="w-5 h-5 text-primary" />,
+      icon: <Workflow className="w-4 h-4 text-linear-primary" />,
+      title: "Autonomous Workflow Studio",
+      description:
+        "Build, test, and visually compose multi-step agent pipelines with DAG visualization, python tools, and isolated runs.",
+      badge: "Visual DAG Editor",
+    },
+    {
+      icon: <GitBranch className="w-4 h-4 text-linear-primary" />,
       title: "Tree Conversation Branching",
       description:
         "Branch prompts at any node in the dialogue tree. Compare responses side-by-side with full context isolation.",
       badge: "Non-Linear History",
     },
     {
-      icon: <Activity className="w-5 h-5 text-primary" />,
+      icon: <Activity className="w-4 h-4 text-linear-primary" />,
       title: "Live Token Telemetry",
       description:
         "Real-time token usage, latency metrics, and agent delegation counters tracked in Supabase with user RLS isolation.",
       badge: "Audited Usage",
     },
     {
-      icon: <ShieldCheck className="w-5 h-5 text-primary" />,
+      icon: <ShieldCheck className="w-4 h-4 text-linear-primary" />,
       title: "Enterprise Row-Level Security",
       description:
         "Fully authenticated Supabase user sessions with encrypted state persistence and instant session switching.",
@@ -48,72 +54,59 @@ export default function Home() {
   ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col relative overflow-hidden transition-colors duration-300">
-      {/* Background Grids & Radial Glow Mesh */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--foreground)/0.03)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--foreground)/0.03)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-      <div
-        className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full blur-[120px] pointer-events-none opacity-40 transition-colors duration-500"
-        style={{
-          background: "radial-gradient(circle, var(--glow-color) 0%, transparent 70%)",
-        }}
-      />
-
-      {/* Top Glass Navbar */}
-      <header className="sticky top-0 z-40 w-full glass-header">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-canvas text-ink flex flex-col font-sans selection:bg-linear-primary/25 selection:text-ink">
+      {/* Top Linear Nav */}
+      <header className="sticky top-0 z-40 w-full bg-canvas/90 backdrop-blur-md border-b border-hairline h-14">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shadow-subtle group-hover:scale-105 transition-transform">
-              <Bot className="w-5 h-5" />
+            <div className="w-7 h-7 rounded-md bg-surface-1 border border-hairline flex items-center justify-center text-linear-primary group-hover:border-hairline-strong transition-colors">
+              <Bot className="w-4 h-4" />
             </div>
-            <div className="flex flex-col">
-              <span className="font-semibold text-sm tracking-tight text-foreground flex items-center gap-1.5">
-                Swarm Intelligence
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20">
-                  v2.0
-                </span>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm tracking-tight text-ink">
+                Swarm
               </span>
-              <span className="text-[11px] text-muted-foreground hidden sm:block">
-                Autonomous Multi-Agent Architecture
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-surface-2 text-ink-subtle border border-hairline">
+                v2.0
               </span>
             </div>
           </Link>
 
           {/* Center Navigation Links */}
-          <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-muted-foreground">
+          <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-ink-subtle">
             <a
               href="#architecture"
-              className="hover:text-foreground transition-colors"
+              className="hover:text-ink transition-colors"
             >
               Architecture
             </a>
             <a
               href="#capabilities"
-              className="hover:text-foreground transition-colors"
+              className="hover:text-ink transition-colors"
             >
               Capabilities
             </a>
-            <a
-              href="#telemetry"
-              className="hover:text-foreground transition-colors"
+            <Link
+              href="/workflows"
+              className="hover:text-ink transition-colors"
             >
-              Telemetry
-            </a>
+              Workflows
+            </Link>
           </nav>
 
           {/* Right Header Actions */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <ThemeSwitcher />
             <Link
               href="/login"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-accent/60 transition-colors hidden sm:block"
+              className="text-xs font-medium text-ink-subtle hover:text-ink px-3 py-1.5 rounded-md hover:bg-surface-1 transition-colors hidden sm:block"
             >
               Sign In
             </Link>
             <Link
               href="/chat"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 shadow-sm transition-all"
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-1.5 rounded-md bg-linear-primary hover:bg-linear-hover text-white transition-colors"
             >
-              <span>Launch Swarm</span>
+              <span>Launch Chat</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
@@ -121,160 +114,164 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-20 flex flex-col items-center text-center relative z-10">
+      <main className="flex-1 max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-24 flex flex-col items-center text-center">
         <motion.div
-          initial={{ opacity: 0, y: 18 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
           className="flex flex-col items-center max-w-3xl"
         >
-          {/* Status Pill */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/80 px-3.5 py-1 text-xs font-medium text-muted-foreground mb-8 backdrop-blur-md shadow-subtle">
-            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Agent Swarm 2.0 • Gemini 2.5 & Supabase Tree Sessions</span>
-            <ChevronRight className="w-3 h-3 text-muted-foreground" />
+          {/* Linear Status Pill */}
+          <div className="inline-flex items-center gap-2 rounded-pill border border-hairline bg-surface-1 px-3 py-1 text-xs font-normal text-ink-muted mb-8">
+            <span className="h-1.5 w-1.5 rounded-full bg-semantic-success" />
+            <span>Swarm 2.0 • Autonomous Multi-Agent Pipelines & Visual Studio</span>
+            <ChevronRight className="w-3 h-3 text-ink-tertiary" />
           </div>
 
-          {/* Main Title */}
-          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-[1.1]">
-            Orchestrate Autonomous{" "}
-            <span className="bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
-              AI Agent Swarms
-            </span>{" "}
-            with Precision
+          {/* Main Title with Linear Display Tracking */}
+          <h1 className="text-4xl sm:text-6xl font-semibold tracking-display-lg sm:tracking-display-xl mb-6 leading-[1.08] text-ink">
+            Linear Intelligence for Multi-Agent Swarms
           </h1>
 
-          <p className="text-base sm:text-lg text-muted-foreground mb-10 max-w-2xl font-normal leading-relaxed">
-            Deploy collaborative AI networks with dynamic supervisor routing, tree-structured
-            branching conversation memory, Supabase persistence, and live token usage telemetry.
+          <p className="text-base sm:text-lg text-ink-muted mb-10 max-w-2xl font-normal tracking-subhead leading-relaxed">
+            Stateless HTTP orchestration, visual DAG workflow pipelines, tree-structured
+            branching conversation memory, and audited Supabase telemetry.
           </p>
 
           {/* Action CTAs */}
-          <div className="flex flex-col sm:flex-row items-center gap-3.5 w-full sm:w-auto mb-16">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto mb-16">
             <Link
               href="/chat"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:opacity-95 shadow-md shadow-primary/20 transition-all group"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-linear-primary hover:bg-linear-hover text-white font-medium text-sm transition-colors group"
             >
-              <span>Open Swarm Workspace</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              <span>Open Chat Interface</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </Link>
+
+            <Link
+              href="/workflows"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-hairline bg-surface-1 hover:bg-surface-2 hover:border-hairline-strong text-ink font-medium text-sm transition-colors"
+            >
+              <Workflow className="w-4 h-4 text-linear-primary" />
+              <span>Workflow Studio</span>
+            </Link>
+
             <Link
               href="/login"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl border border-border bg-card/70 hover:bg-accent/70 text-foreground font-medium text-sm transition-all backdrop-blur-sm"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-hairline bg-canvas hover:bg-surface-1 text-ink-muted hover:text-ink font-medium text-sm transition-colors"
             >
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span>Connect Supabase Account</span>
+              <span>Sign In / Account</span>
             </Link>
           </div>
         </motion.div>
 
-        {/* Live Swarm Dispatch Mock / Blueprint Preview */}
+        {/* Linear Product Screenshot Frame */}
         <motion.div
           id="architecture"
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.15, ease: "easeOut" }}
-          className="w-full max-w-4xl rounded-2xl border border-border/80 bg-card/60 backdrop-blur-xl shadow-card overflow-hidden text-left mb-20"
+          transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}
+          className="w-full rounded-xl border border-hairline bg-surface-1 shadow-card overflow-hidden text-left mb-24"
         >
-          {/* Terminal / Workspace Title Bar */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/40">
+          {/* Surface Bar */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-hairline bg-surface-2">
             <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-destructive/60" />
-              <span className="w-3 h-3 rounded-full bg-amber-500/60" />
-              <span className="w-3 h-3 rounded-full bg-emerald-500/60" />
-              <span className="text-xs font-mono text-muted-foreground ml-2 font-medium">
-                swarm-orchestrator :: live-dispatch
+              <span className="w-2.5 h-2.5 rounded-full bg-hairline-strong" />
+              <span className="w-2.5 h-2.5 rounded-full bg-hairline-strong" />
+              <span className="w-2.5 h-2.5 rounded-full bg-hairline-strong" />
+              <span className="text-xs font-mono text-ink-subtle ml-2">
+                swarm-orchestrator :: live-dag-pipeline
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                Auto Routing
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-xs bg-surface-1 text-ink-muted border border-hairline">
+                HTTP REST • GEMINI 2.5
               </span>
             </div>
           </div>
 
-          {/* Interactive Agent Routing Flow Diagram Preview */}
+          {/* Clean Technical Terminal Mock */}
           <div className="p-6 sm:p-8 space-y-4 font-mono text-xs">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-lg bg-background/80 border border-border/60">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-md bg-canvas border border-hairline">
               <div className="flex items-center gap-3">
-                <span className="px-2 py-1 rounded bg-primary/15 text-primary font-semibold">
-                  USER_PROMPT
+                <span className="px-2 py-0.5 rounded-xs bg-surface-2 text-linear-primary font-medium text-[11px] border border-hairline">
+                  OBJECTIVE
                 </span>
-                <span className="text-foreground">
-                  &quot;Analyze quarterly performance data and generate an executive summary.&quot;
+                <span className="text-ink">
+                  &quot;Synthesize latest technical spec, execute python tool test, and output verified briefing.&quot;
                 </span>
               </div>
-              <span className="text-muted-foreground text-[11px]">session_018f..</span>
+              <span className="text-ink-tertiary text-[11px]">workflow_019a..</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-              <div className="p-3.5 rounded-lg bg-card border border-border/60">
+              <div className="p-3.5 rounded-md bg-surface-2 border border-hairline">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-primary">1. Orchestrator</span>
-                  <span className="text-[10px] text-emerald-500 font-medium">Dispatched</span>
+                  <span className="font-medium text-ink">1. Orchestrator</span>
+                  <span className="text-[10px] text-semantic-success font-medium">Dispatched</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground font-sans">
-                  Evaluates intent, checks permissions, plans execution DAG.
+                <p className="text-[11px] text-ink-subtle font-sans">
+                  Evaluates intent, validates step inputs, resolves dependency DAG.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-lg bg-card border border-border/60">
+              <div className="p-3.5 rounded-md bg-surface-2 border border-hairline">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-primary">2. Researcher</span>
-                  <span className="text-[10px] text-blue-500 font-medium">Active</span>
+                  <span className="font-medium text-ink">2. Python Tool</span>
+                  <span className="text-[10px] text-linear-primary font-medium">Executing</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground font-sans">
-                  Queries vector stores, synthesizes evidence, verifies facts.
+                <p className="text-[11px] text-ink-subtle font-sans">
+                  Sandboxed mathematical computation with strict JSON input/output schema.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-lg bg-card border border-border/60">
+              <div className="p-3.5 rounded-md bg-surface-2 border border-hairline">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-primary">3. Synthesizer</span>
-                  <span className="text-[10px] text-amber-500 font-medium">Queued</span>
+                  <span className="font-medium text-ink">3. Synthesizer</span>
+                  <span className="text-[10px] text-ink-subtle font-medium">Queued</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground font-sans">
-                  Generates markdown report with branching options.
+                <p className="text-[11px] text-ink-subtle font-sans">
+                  Compiles verified briefing and records execution metrics into Supabase.
                 </p>
               </div>
             </div>
           </div>
         </motion.div>
 
-        {/* Feature Capabilities Grid */}
-        <div id="capabilities" className="w-full max-w-5xl">
-          <div className="text-center mb-10">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-3">
+        {/* Feature Grid */}
+        <div id="capabilities" className="w-full">
+          <div className="text-center mb-12">
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-headline text-ink mb-3">
               Engineered for Autonomous Multi-Agent Operations
             </h2>
-            <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+            <p className="text-sm text-ink-subtle max-w-xl mx-auto tracking-body">
               Every component is built around enterprise standards: stateless HTTP APIs,
               persistent PostgreSQL session trees, and live streaming telemetry.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-left">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
             {capabilities.map((item, index) => (
               <motion.div
                 key={index}
-                initial={{ opacity: 0, y: 16 }}
+                initial={{ opacity: 0, y: 12 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: index * 0.1 }}
-                className="p-6 rounded-2xl border border-border/70 bg-card/60 backdrop-blur-md hover:bg-card/90 hover:border-primary/40 hover:shadow-card transition-all group"
+                transition={{ duration: 0.35, delay: index * 0.06 }}
+                className="p-5 rounded-lg border border-hairline bg-surface-1 hover:bg-surface-2 hover:border-hairline-strong transition-colors"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                <div className="flex items-center justify-between mb-3.5">
+                  <div className="w-8 h-8 rounded-md bg-surface-2 border border-hairline flex items-center justify-center text-linear-primary">
                     {item.icon}
                   </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/40">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-xs bg-surface-2 text-ink-muted border border-hairline">
                     {item.badge}
                   </span>
                 </div>
-                <h3 className="text-base font-semibold text-foreground mb-2">
+                <h3 className="text-sm font-medium text-ink mb-1.5 tracking-card-title">
                   {item.title}
                 </h3>
-                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                <p className="text-xs text-ink-subtle leading-relaxed tracking-body">
                   {item.description}
                 </p>
               </motion.div>
@@ -283,28 +280,31 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="w-full border-t border-border/60 bg-card/40 backdrop-blur-md py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
+      {/* Linear Footer */}
+      <footer className="w-full border-t border-hairline bg-canvas py-12">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-ink-subtle">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>All swarm agents operational</span>
-            <span className="text-border">|</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-semantic-success" />
+            <span className="text-ink-muted">All swarm agents operational</span>
+            <span className="text-hairline">|</span>
             <span>FastAPI + Gemini 2.5 + Supabase</span>
           </div>
 
           <div className="flex items-center gap-6">
-            <Link href="/chat" className="hover:text-foreground transition-colors">
+            <Link href="/chat" className="hover:text-ink transition-colors">
               Chat Interface
             </Link>
-            <Link href="/login" className="hover:text-foreground transition-colors">
+            <Link href="/workflows" className="hover:text-ink transition-colors">
+              Workflows
+            </Link>
+            <Link href="/login" className="hover:text-ink transition-colors">
               Authentication
             </Link>
             <a
               href="https://github.com/PuneetShrivas/swarm-backend"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 hover:text-foreground transition-colors"
+              className="flex items-center gap-1 hover:text-ink transition-colors"
             >
               <span>GitHub</span>
               <ExternalLink className="w-3 h-3" />

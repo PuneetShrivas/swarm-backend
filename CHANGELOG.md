@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-28
 
 ### Added
+- **Chat `/workflows` Slash Command & Command Palette**:
+  - Interactive floating command menu in `ChatInput.tsx` triggered by typing `/`, with keyboard navigation (`ArrowUp`, `ArrowDown`, `Enter`, `Tab`, `Escape`).
+  - Instant command execution: typing or selecting `/workflows` or `/workflow` immediately opens the `WorkflowPickerModal` to launch multi-agent pipelines directly from chat.
+  - Added direct command interceptor in chat submission handler to prevent accidental prompt submissions.
+- **Linear Design System Compliance (`DESIGN.md`)**:
+  - Configured pure Linear palette tokens: `#010102` canvas, 4-step surface ladder (`#0f1011` to `#191a1b`), 1px `#23252a` hairline borders, and signature `#5e6ad2` Linear lavender-blue accent.
+  - Set default theme to Linear dark canvas across `:root` and `.dark` in `globals.css` and extended `tailwind.config.ts`.
+  - Reskinned Landing Page (`/`): Replaced atmospheric gradients with technical charcoal panels, hairline borders, negative display tracking, and direct workflows links.
+  - Reskinned Chat Workspace (`/chat`): Charcoal sidebar, surface-2 active highlights, Linear header, and surface-lifted message bubbles with semantic ratings.
+  - Reskinned Workflows Dashboard (`/workflows`) and Studio (`/workflows/[id]`): Linear pill toggles, card grid, and modal styling.
+  - Reskinned Login Page (`/login`): Charcoal authentication container with matching Supabase ThemeSupa lavender variables.
+- **Rich Visual DAG Studio & Data Flow Edges**:
+  - `DataFlowEdge`: Custom React Flow edge rendering smooth Bezier curves in `#5e6ad2`, animated pulse, and centered data flow pills displaying exact variable bindings (`{{inputs.query}}` or `{{steps.<id>.output.text}}`), with hover disconnect action.
+  - Upgraded `GoalNode`: Displays root objective, input parameters schema, and output data handles.
+  - Upgraded `StepNode`: Displays agent avatar, step number pill, inline variable token syntax highlighting for `{{variable}}` bindings, attached tools & docs badges, and on-node unit test and deletion actions.
+  - Topological DAG Auto-Layout ("Tidy Up"): Algorithmic depth ranking and centered layering that automatically organizes the workflow graph into clear hierarchical stages.
+  - Floating Canvas Inserter ("+ Add Step"): One-click action to append new steps directly on the DAG canvas.
 - **Multi-Agent Workflow Builder & Visual DAG Studio**:
   - Full-stack workflow creation and debugging platform accessible at `/workflows`.
   - Dual-mode editor switching between **Structured Card Editor** and **Visual React Flow DAG Editor** (`@xyflow/react`) with bidirectional state synchronization.

@@ -24,7 +24,6 @@ import {
   LogOut,
   AlertCircle,
 } from "lucide-react";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { supabase, getAuthHeaders } from "@/lib/supabase";
 
 export default function WorkflowsDashboardPage() {
@@ -190,27 +189,24 @@ export default function WorkflowsDashboardPage() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-canvas text-ink flex flex-col font-sans selection:bg-linear-primary/25 selection:text-ink">
       {/* Top Navbar */}
-      <header className="h-16 border-b border-border/80 bg-card/70 backdrop-blur-xl px-4 md:px-8 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shadow-subtle">
-            <Layers size={18} />
+      <header className="h-14 border-b border-hairline bg-canvas/90 backdrop-blur-md px-4 md:px-8 flex items-center justify-between sticky top-0 z-30">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-md bg-surface-1 border border-hairline flex items-center justify-center text-linear-primary">
+            <Layers size={15} />
           </div>
           <div>
-            <h1 className="text-sm md:text-base font-bold text-foreground">
-              Autonomous Workflows
+            <h1 className="text-xs sm:text-sm font-medium text-ink tracking-tight">
+              Workflows Studio
             </h1>
-            <p className="text-[11px] text-muted-foreground hidden sm:block">
-              Build, test, debug & share multi-agent autonomous pipelines
-            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5">
           <Link
             href="/chat"
-            className="px-3 py-1.5 text-xs font-medium border border-border bg-card hover:bg-muted text-foreground rounded-xl transition flex items-center gap-1.5 shadow-subtle"
+            className="px-3 py-1.5 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-md transition-colors flex items-center gap-1.5"
           >
             <MessageSquare size={13} /> Chat Workspace
           </Link>
@@ -222,67 +218,66 @@ export default function WorkflowsDashboardPage() {
               setCreateError(null);
               setIsCreateOpen(true);
             }}
-            className="px-3.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition flex items-center gap-1.5 shadow-subtle"
+            className="px-3.5 py-1.5 text-xs font-medium bg-linear-primary hover:bg-linear-hover text-white rounded-md transition-colors flex items-center gap-1.5"
           >
-            <Plus size={14} /> New Workflow
+            <Plus size={13} /> New Workflow
           </button>
           {userEmail ? (
-            <div className="flex items-center gap-1.5 pl-1.5 border-l border-border/60">
-              <span className="text-[11px] text-muted-foreground hidden lg:inline max-w-[140px] truncate" title={userEmail}>
+            <div className="flex items-center gap-1.5 pl-2 border-l border-hairline">
+              <span className="text-[11px] text-ink-subtle hidden lg:inline max-w-[140px] truncate" title={userEmail}>
                 {userEmail}
               </span>
               <button
                 onClick={handleSignOut}
                 title="Sign out"
-                className="p-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                className="p-1.5 rounded-md border border-hairline bg-surface-1 text-ink-subtle hover:text-ink hover:bg-surface-2 transition-colors"
               >
-                <LogOut size={13} />
+                <LogOut size={12} />
               </button>
             </div>
           ) : (
             <Link
               href="/login"
-              className="px-2.5 py-1.5 text-xs border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 rounded-xl transition flex items-center gap-1"
+              className="px-2.5 py-1.5 text-xs border border-hairline bg-surface-1 text-ink-muted hover:text-ink rounded-md transition-colors flex items-center gap-1"
             >
-              <LogIn size={13} /> Sign In
+              <LogIn size={12} /> Sign In
             </Link>
           )}
-          <ThemeSwitcher />
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto space-y-6">
+      <main className="flex-1 p-4 md:p-8 max-w-6xl w-full mx-auto space-y-6">
         {/* Search & Tabs Toolbar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          {/* Tabs */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-card border border-border self-start">
+          {/* Tabs in Linear pill toggle style */}
+          <div className="flex items-center gap-1 p-0.5 rounded-pill bg-surface-1 border border-hairline self-start">
             <button
               onClick={() => setActiveFilter("all")}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
+              className={`px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
                 activeFilter === "all"
-                  ? "bg-primary text-primary-foreground shadow-subtle"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-surface-2 text-ink border border-hairline-strong shadow-none"
+                  : "text-ink-subtle hover:text-ink"
               }`}
             >
-              All Workflows ({workflows.length})
+              All ({workflows.length})
             </button>
             <button
               onClick={() => setActiveFilter("mine")}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
+              className={`px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
                 activeFilter === "mine"
-                  ? "bg-primary text-primary-foreground shadow-subtle"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-surface-2 text-ink border border-hairline-strong shadow-none"
+                  : "text-ink-subtle hover:text-ink"
               }`}
             >
-              My Private
+              My Workflows
             </button>
             <button
               onClick={() => setActiveFilter("shared")}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
+              className={`px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
                 activeFilter === "shared"
-                  ? "bg-primary text-primary-foreground shadow-subtle"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-surface-2 text-ink border border-hairline-strong shadow-none"
+                  : "text-ink-subtle hover:text-ink"
               }`}
             >
               Shared
@@ -292,41 +287,41 @@ export default function WorkflowsDashboardPage() {
           {/* Search Box */}
           <div className="relative max-w-xs w-full">
             <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-tertiary"
             />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search workflows by goal..."
-              className="w-full text-xs bg-card border border-border rounded-xl pl-9 pr-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full text-xs bg-surface-1 border border-hairline hover:border-hairline-strong rounded-md pl-8 pr-3 py-1.5 text-ink placeholder:text-ink-tertiary focus:outline-none focus:ring-1 focus:ring-linear-focus font-sans"
             />
           </div>
         </div>
 
         {/* Workflows Cards Grid */}
         {isLoading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3">
-            <Loader2 size={28} className="animate-spin text-primary" />
-            <span className="text-xs text-muted-foreground">Loading workflows...</span>
+          <div className="py-20 flex flex-col items-center justify-center gap-2">
+            <Loader2 size={24} className="animate-spin text-linear-primary" />
+            <span className="text-xs text-ink-subtle">Loading workflows...</span>
           </div>
         ) : filteredWorkflows.length === 0 ? (
-          <div className="p-16 text-center border-2 border-dashed border-border/80 rounded-3xl bg-card/40 max-w-lg mx-auto">
-            <Layers className="w-12 h-12 text-muted-foreground opacity-40 mx-auto mb-3" />
-            <h3 className="text-base font-semibold text-foreground">No workflows found</h3>
-            <p className="text-xs text-muted-foreground mt-1 mb-6">
-              Create your first multi-agent workflow to automate complex research, coding, or analytics pipelines.
+          <div className="p-12 text-center border border-hairline rounded-lg bg-surface-1 max-w-md mx-auto">
+            <Layers className="w-10 h-10 text-ink-tertiary mx-auto mb-3" />
+            <h3 className="text-sm font-medium text-ink">No workflows found</h3>
+            <p className="text-xs text-ink-subtle mt-1 mb-5">
+              Create your first multi-agent workflow to automate complex pipelines.
             </p>
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="px-4 py-2 bg-primary text-primary-foreground text-xs font-medium rounded-xl hover:opacity-90 transition shadow-subtle inline-flex items-center gap-1.5"
+              className="px-3.5 py-1.5 bg-linear-primary hover:bg-linear-hover text-white text-xs font-medium rounded-md transition-colors inline-flex items-center gap-1.5"
             >
-              <Plus size={14} /> Create Workflow
+              <Plus size={13} /> Create Workflow
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredWorkflows.map((wf) => {
               const isShared = wf.visibility === "shared" || wf.visibility === "public";
               const stepCount = wf.steps?.length || 0;
@@ -335,42 +330,42 @@ export default function WorkflowsDashboardPage() {
                 <div
                   key={wf.id}
                   onClick={() => router.push(`/workflows/${wf.id}`)}
-                  className="p-5 rounded-2xl bg-card border border-border/80 shadow-subtle hover:border-primary/40 hover:shadow-medium transition cursor-pointer flex flex-col justify-between group"
+                  className="p-5 rounded-lg bg-surface-1 border border-hairline hover:border-hairline-strong hover:bg-surface-2 transition-colors cursor-pointer flex flex-col justify-between group"
                 >
                   <div>
                     {/* Card Header */}
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0">
-                          <Sparkles size={14} />
+                        <span className="w-6 h-6 rounded-md bg-surface-2 text-linear-primary border border-hairline flex items-center justify-center shrink-0">
+                          <Sparkles size={12} />
                         </span>
-                        <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition line-clamp-1">
+                        <h3 className="text-sm font-medium text-ink group-hover:text-linear-primary transition-colors line-clamp-1 tracking-card-title">
                           {wf.title}
                         </h3>
                       </div>
 
                       {isShared ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium flex items-center gap-1 shrink-0">
-                          <Globe size={10} /> Shared
+                        <span className="text-[10px] px-2 py-0.5 rounded-pill bg-surface-2 text-linear-primary border border-hairline font-mono flex items-center gap-1 shrink-0">
+                          <Globe size={9} /> Shared
                         </span>
                       ) : (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium flex items-center gap-1 shrink-0">
-                          <Lock size={10} /> Private
+                        <span className="text-[10px] px-2 py-0.5 rounded-pill bg-surface-2 text-ink-subtle border border-hairline font-mono flex items-center gap-1 shrink-0">
+                          <Lock size={9} /> Private
                         </span>
                       )}
                     </div>
 
                     {/* Goal Snippet */}
-                    <p className="text-xs text-muted-foreground line-clamp-3 mb-4 leading-relaxed">
+                    <p className="text-xs text-ink-subtle line-clamp-3 mb-4 leading-relaxed tracking-body">
                       {wf.goal}
                     </p>
                   </div>
 
                   {/* Card Footer */}
-                  <div className="pt-3 border-t border-border/60 flex items-center justify-between text-[11px] text-muted-foreground">
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex items-center gap-1">
-                        <Bot size={11} className="text-primary" /> {stepCount} steps
+                  <div className="pt-3 border-t border-hairline flex items-center justify-between text-[11px] text-ink-subtle">
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-1 font-mono text-[10px]">
+                        <Bot size={11} className="text-linear-primary" /> {stepCount} steps
                       </span>
                     </div>
 
@@ -378,22 +373,22 @@ export default function WorkflowsDashboardPage() {
                       {wf.share_slug && (
                         <button
                           onClick={(e) => handleCopyShare(wf.share_slug!, e)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                          className="p-1 rounded-md text-ink-subtle hover:text-ink hover:bg-surface-3 transition-colors"
                           title="Copy share link"
                         >
                           {copiedSlug === wf.share_slug ? (
-                            <Check size={13} className="text-emerald-500" />
+                            <Check size={12} className="text-semantic-success" />
                           ) : (
-                            <Share2 size={13} />
+                            <Share2 size={12} />
                           )}
                         </button>
                       )}
                       <button
                         onClick={(e) => handleDelete(wf.id, e)}
-                        className="p-1.5 rounded-lg text-destructive/80 hover:text-destructive hover:bg-destructive/10 transition"
+                        className="p-1 rounded-md text-ink-subtle hover:text-red-400 hover:bg-surface-3 transition-colors"
                         title="Delete workflow"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={12} />
                       </button>
                     </div>
                   </div>
@@ -406,16 +401,16 @@ export default function WorkflowsDashboardPage() {
 
       {/* Create Workflow Modal */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
-            <h3 className="text-base font-bold text-foreground">Create Autonomous Workflow</h3>
-            <p className="text-xs text-muted-foreground">
-              Define the title and primary goal. You will be redirected to the Workflow Studio to visually configure agents and steps.
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in font-sans">
+          <div className="bg-surface-1 border border-hairline rounded-lg w-full max-w-lg p-6 space-y-4 shadow-card">
+            <h3 className="text-sm font-medium text-ink tracking-card-title">Create Autonomous Workflow</h3>
+            <p className="text-xs text-ink-subtle leading-relaxed">
+              Define the title and primary goal. You will be redirected to the Workflow Studio to configure agents and steps.
             </p>
 
             <div className="space-y-3 pt-2">
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
+                <label className="text-xs font-medium text-ink-subtle block mb-1">
                   Workflow Title
                 </label>
                 <input
@@ -423,12 +418,12 @@ export default function WorkflowsDashboardPage() {
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="e.g. Competitive Intel & Threat Analysis"
-                  className="w-full text-xs bg-background border border-border rounded-xl px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full text-xs bg-canvas border border-hairline hover:border-hairline-strong rounded-md px-3 py-1.5 text-ink placeholder:text-ink-tertiary focus:outline-none focus:ring-1 focus:ring-linear-focus font-sans"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
+                <label className="text-xs font-medium text-ink-subtle block mb-1">
                   Primary Workflow Goal
                 </label>
                 <textarea
@@ -436,32 +431,32 @@ export default function WorkflowsDashboardPage() {
                   value={newGoal}
                   onChange={(e) => setNewGoal(e.target.value)}
                   placeholder="What should this multi-agent workflow accomplish?"
-                  className="w-full text-xs bg-background border border-border rounded-xl p-3 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full text-xs bg-canvas border border-hairline hover:border-hairline-strong rounded-md p-3 text-ink placeholder:text-ink-tertiary focus:outline-none focus:ring-1 focus:ring-linear-focus font-sans"
                 />
               </div>
             </div>
 
             {createError && (
-              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-start gap-2">
-                <AlertCircle size={15} className="shrink-0 mt-0.5" />
+              <div className="p-2.5 rounded-md bg-surface-2 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                <AlertCircle size={14} className="shrink-0 mt-0.5" />
                 <span>{createError}</span>
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-hairline">
               <button
                 onClick={() => setIsCreateOpen(false)}
-                className="px-3.5 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+                className="px-3 py-1.5 text-xs text-ink-subtle hover:text-ink transition-colors"
               >
                 Cancel
               </button>
               <button
                 disabled={!newTitle.trim() || !newGoal.trim() || isCreating}
                 onClick={handleCreate}
-                className="px-4 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50 transition shadow-subtle flex items-center gap-1.5"
+                className="px-3.5 py-1.5 text-xs font-medium bg-linear-primary hover:bg-linear-hover text-white rounded-md disabled:opacity-40 transition-colors flex items-center gap-1.5"
               >
                 {isCreating ? "Creating..." : "Create & Open Studio"}
-                <ArrowRight size={13} />
+                <ArrowRight size={12} />
               </button>
             </div>
           </div>

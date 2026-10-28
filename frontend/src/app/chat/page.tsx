@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { Bot, Loader2 } from "lucide-react";
+import { Bot, Loader2, Workflow, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import AppNavigationRail from "../components/AppNavigationRail";
 
 import {
   Agent,
@@ -371,6 +372,16 @@ export default function Chat() {
   const handleSend = async (content: string) => {
     if (isLoading) return;
 
+    const trimmed = content.trim();
+    if (trimmed.toLowerCase() === "/workflows" || trimmed.toLowerCase() === "/workflow") {
+      setIsWorkflowPickerOpen(true);
+      return;
+    }
+    if (trimmed.toLowerCase() === "/clear") {
+      handleClearChat();
+      return;
+    }
+
     let targetSessionId = activeSessionId;
 
     // Auto-create session if authenticated user is on a new unsaved chat
@@ -552,101 +563,164 @@ export default function Chat() {
   const currentSessionObj = sessions.find((s) => s.id === activeSessionId);
 
   return (
-    <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden transition-colors duration-200">
-      {/* Session History & Swarm Sidebar */}
-      <SessionSidebar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelectSession={handleSelectSession}
-        onCreateSession={handleCreateSession}
-        onDeleteSession={handleDeleteSession}
-        onRenameSession={handleRenameSession}
+    <div className="flex flex-col h-screen bg-canvas text-ink font-sans overflow-hidden">
+      {/* Unified 3-Pillar Navigation Bar */}
+      <AppNavigationRail
+        currentTab="chat"
+        totalTokensUsed={usage?.total_tokens ?? 0}
+        onOpenUsage={() => setIsUsageModalOpen(true)}
         userEmail={userEmail}
         onSignOut={handleSignOut}
-        onOpenUsage={() => setIsUsageModalOpen(true)}
-        totalTokensUsed={usage?.total_tokens ?? 0}
-        agents={agents}
-        selectedAgentId={selectedAgentId}
-        onSelectAgent={setSelectedAgentId}
-        isLoadingSessions={isLoadingSessions}
-        onInspectAgent={(ag) => {
-          setInspectingAgent(ag);
-          setIsAgentDetailsOpen(true);
-        }}
       />
 
-      {/* Main Chat Feed Area */}
-      <div className="flex-1 flex flex-col bg-background relative overflow-hidden h-full">
-        {/* Top Header */}
-        <ChatHeader
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Session History & Swarm Sidebar */}
+        <SessionSidebar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={handleSelectSession}
+          onCreateSession={handleCreateSession}
+          onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+          userEmail={userEmail}
+          onSignOut={handleSignOut}
+          onOpenUsage={() => setIsUsageModalOpen(true)}
+          totalTokensUsed={usage?.total_tokens ?? 0}
           agents={agents}
           selectedAgentId={selectedAgentId}
           onSelectAgent={setSelectedAgentId}
-          onClearChat={handleClearChat}
-          onExportChat={handleExportChat}
-          activePathCount={activePath.length}
-          sessionTitle={currentSessionObj?.title}
-          totalTokensUsed={usage?.total_tokens}
-          onOpenUsage={() => setIsUsageModalOpen(true)}
+          isLoadingSessions={isLoadingSessions}
           onInspectAgent={(ag) => {
             setInspectingAgent(ag);
             setIsAgentDetailsOpen(true);
           }}
         />
 
-        {/* Message Feed */}
-        <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth bg-background">
-          <AnimatePresence initial={false}>
-            {activePath.map((node) => {
-              const siblingInfo = getSiblingInfo(
-                conversation.nodes,
-                node.id
-              );
+        {/* Main Chat Feed Area */}
+        <div className="flex-1 flex flex-col bg-canvas relative overflow-hidden h-full">
+          {/* Top Header */}
+          <ChatHeader
+            agents={agents}
+            selectedAgentId={selectedAgentId}
+            onSelectAgent={setSelectedAgentId}
+            onClearChat={handleClearChat}
+            onExportChat={handleExportChat}
+            activePathCount={activePath.length}
+            sessionTitle={currentSessionObj?.title}
+            totalTokensUsed={usage?.total_tokens}
+            onOpenUsage={() => setIsUsageModalOpen(true)}
+            onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}
+            onInspectAgent={(ag) => {
+              setInspectingAgent(ag);
+              setIsAgentDetailsOpen(true);
+            }}
+          />
 
-              return (
-                <MessageItem
-                  key={node.id}
-                  node={node}
-                  siblingInfo={siblingInfo}
-                  onSwitchBranch={handleSwitchBranch}
-                  onEdit={handleEdit}
-                  onRegenerate={handleRegenerate}
-                  onRate={handleRate}
-                  isGenerating={isLoading}
-                />
-              );
-            })}
+          {/* Message Feed */}
+          <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth bg-canvas">
+            <AnimatePresence initial={false}>
+              {activePath.map((node) => {
+                const siblingInfo = getSiblingInfo(
+                  conversation.nodes,
+                  node.id
+                );
 
-            {/* In-flight Processing Bubble */}
-            {isLoading && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 5 }}
-                className="flex gap-3 md:gap-4 flex-row"
-              >
-                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-subtle bg-card border border-border text-primary">
-                  <Bot size={15} />
+                return (
+                  <MessageItem
+                    key={node.id}
+                    node={node}
+                    siblingInfo={siblingInfo}
+                    onSwitchBranch={handleSwitchBranch}
+                    onEdit={handleEdit}
+                    onRegenerate={handleRegenerate}
+                    onRate={handleRate}
+                    isGenerating={isLoading}
+                  />
+                );
+              })}
+
+              {/* Inspiration Chips when only root greeting exists */}
+              {activePath.length <= 1 && (
+                <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSend(
+                        "Explain how the autonomous agent swarm routes complex tasks and executes Python tools."
+                      )
+                    }
+                    className="p-3.5 rounded-lg bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong text-left transition-colors group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-ink group-hover:text-linear-primary transition-colors">
+                      <Sparkles size={13} className="text-linear-primary" />
+                      <span>Ask Swarm Specialist</span>
+                    </div>
+                    <p className="text-[11px] text-ink-subtle mt-1 line-clamp-2">
+                      Routing architecture, tool executions, and state orchestration.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsWorkflowPickerOpen(true)}
+                    className="p-3.5 rounded-lg bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong text-left transition-colors group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-ink group-hover:text-linear-primary transition-colors">
+                      <Workflow size={13} className="text-linear-primary" />
+                      <span>Run Workflow Pipeline</span>
+                    </div>
+                    <p className="text-[11px] text-ink-subtle mt-1 line-clamp-2">
+                      Execute a multi-step deterministic DAG with isolated agent handoffs.
+                    </p>
+                  </button>
+
+                  <a
+                    href="/agents"
+                    className="p-3.5 rounded-lg bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong text-left transition-colors group block cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-ink group-hover:text-linear-primary transition-colors">
+                      <Bot size={13} className="text-linear-primary" />
+                      <span>Open Agents Studio</span>
+                    </div>
+                    <p className="text-[11px] text-ink-subtle mt-1 line-clamp-2">
+                      Create custom agents, configure models, and test in playground.
+                    </p>
+                  </a>
                 </div>
-                <div className="px-5 py-4 rounded-2xl bg-card border border-border/80 text-foreground rounded-tl-sm flex items-center gap-2.5 shadow-subtle">
-                  <Loader2 size={16} className="animate-spin text-primary" />
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Swarm agent reasoning...
-                  </span>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <div ref={messagesEndRef} />
-        </main>
+              )}
 
-        {/* Bottom Input Area */}
-        <ChatInput
-          onSend={handleSend}
-          isLoading={isLoading}
-          onStop={handleStop}
-          onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}
-        />
+              {/* In-flight Processing Bubble */}
+              {isLoading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 5 }}
+                  className="flex gap-3 md:gap-4 flex-row"
+                >
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-surface-1 border border-hairline text-linear-primary">
+                    <Bot size={13} />
+                  </div>
+                  <div className="px-4 py-3 rounded-lg bg-surface-1 border border-hairline text-ink rounded-tl-xs flex items-center gap-2.5">
+                    <Loader2 size={14} className="animate-spin text-linear-primary" />
+                    <span className="text-xs font-medium text-ink-subtle font-mono">
+                      Swarm agent reasoning...
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div ref={messagesEndRef} />
+          </main>
+
+          {/* Bottom Input Area */}
+          <ChatInput
+            onSend={handleSend}
+            isLoading={isLoading}
+            onStop={handleStop}
+            onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}
+            onClearChat={handleClearChat}
+          />
+        </div>
       </div>
 
       {/* Usage Telemetry Modal */}

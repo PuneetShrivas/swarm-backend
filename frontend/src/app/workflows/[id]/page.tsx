@@ -17,6 +17,7 @@ import { getAuthHeaders } from "@/lib/supabase";
 import KnowledgeBaseManager from "../components/KnowledgeBaseManager";
 import WorkflowRunsDebugger from "../components/WorkflowRunsDebugger";
 import StepUnitTestModal from "../components/StepUnitTestModal";
+import WorkflowSystemTestModal from "../components/WorkflowSystemTestModal";
 import {
   ArrowLeft,
   Save,
@@ -57,9 +58,10 @@ export default function WorkflowStudioPage() {
 
   // Studio UI states
   const [activeTab, setActiveTab] = useState<StudioTab>("editor");
-  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [viewMode, setViewMode] = useState<ViewMode>("graph");
   const [unitTestStep, setUnitTestStep] = useState<WorkflowStep | null>(null);
   const [isUnitTestModalOpen, setIsUnitTestModalOpen] = useState(false);
+  const [isSystemTestModalOpen, setIsSystemTestModalOpen] = useState(false);
 
   // Form states
   const [title, setTitle] = useState("");
@@ -229,27 +231,27 @@ export default function WorkflowStudioPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 size={28} className="animate-spin text-primary" />
-          <span className="text-xs text-muted-foreground font-medium">Loading Workflow Studio...</span>
+      <div className="flex h-screen items-center justify-center bg-canvas text-ink font-sans">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 size={24} className="animate-spin text-linear-primary" />
+          <span className="text-xs text-ink-subtle">Loading Workflow Studio...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-canvas text-ink flex flex-col font-sans selection:bg-linear-primary/25 selection:text-ink">
       {/* Top Studio Navbar */}
-      <header className="h-16 border-b border-border/80 bg-card/70 backdrop-blur-xl px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+      <header className="h-14 border-b border-hairline bg-canvas/90 backdrop-blur-md px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
         {/* Left: Back & Title */}
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <Link
             href="/workflows"
-            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition"
+            className="p-1.5 rounded-md text-ink-subtle hover:text-ink hover:bg-surface-1 transition-colors border border-hairline"
             title="Back to Workflows"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={14} />
           </Link>
 
           <div className="min-w-0">
@@ -258,9 +260,9 @@ export default function WorkflowStudioPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Workflow Title"
-              className="text-sm md:text-base font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none px-1 py-0.5 truncate transition max-w-[200px] sm:max-w-xs md:max-w-md"
+              className="text-xs md:text-sm font-medium text-ink bg-transparent border-b border-transparent hover:border-hairline focus:border-linear-focus focus:outline-none px-1 py-0.5 truncate transition-colors max-w-[180px] sm:max-w-xs md:max-w-md font-sans"
             />
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
+            <div className="flex items-center gap-1.5 text-[10px] text-ink-subtle px-1 font-mono">
               <span>{steps.length} steps</span>
               <span>•</span>
               <span>{tools.length} tools</span>
@@ -273,16 +275,16 @@ export default function WorkflowStudioPage() {
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
           {/* Visibility selector */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-card border border-border text-xs">
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-1 border border-hairline text-xs">
             {visibility === "shared" ? (
-              <Globe size={13} className="text-primary" />
+              <Globe size={12} className="text-linear-primary" />
             ) : (
-              <Lock size={13} className="text-muted-foreground" />
+              <Lock size={12} className="text-ink-subtle" />
             )}
             <select
               value={visibility}
               onChange={(e) => setVisibility(e.target.value as "private" | "shared" | "public")}
-              className="bg-transparent text-xs text-foreground focus:outline-none"
+              className="bg-transparent text-xs text-ink focus:outline-none cursor-pointer"
             >
               <option value="private">Private</option>
               <option value="shared">Shared (Link Only)</option>
@@ -293,16 +295,16 @@ export default function WorkflowStudioPage() {
           {visibility !== "private" && (
             <button
               onClick={handleCopyShareLink}
-              className="px-2.5 py-1.5 text-xs font-medium border border-border bg-card hover:bg-muted text-foreground rounded-xl transition flex items-center gap-1.5"
+              className="px-2.5 py-1.5 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-md transition-colors flex items-center gap-1.5"
               title="Copy view-only share link"
             >
               {copiedShare ? (
                 <>
-                  <Check size={13} className="text-emerald-500" /> Copied
+                  <Check size={12} className="text-semantic-success" /> Copied
                 </>
               ) : (
                 <>
-                  <Share2 size={13} /> Share
+                  <Share2 size={12} /> Share
                 </>
               )}
             </button>
@@ -310,29 +312,26 @@ export default function WorkflowStudioPage() {
 
           {/* System Test Trigger */}
           <button
-            disabled={isRunningSystemTest}
-            onClick={handleRunSystemTest}
-            className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-500 rounded-xl transition flex items-center gap-1.5 shadow-subtle disabled:opacity-50"
-            title="Execute entire workflow end-to-end"
+            onClick={() => setIsSystemTestModalOpen(true)}
+            className="px-3 py-1.5 text-xs font-medium bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong text-ink rounded-md transition-colors flex items-center gap-1.5"
+            title="Execute entire workflow end-to-end with custom inputs"
           >
-            <Play size={13} className="fill-current" />
-            <span className="hidden sm:inline">
-              {isRunningSystemTest ? "Running..." : "System Test"}
-            </span>
+            <Play size={11} className="fill-current text-semantic-success" />
+            <span className="hidden sm:inline">System Test</span>
           </button>
 
           {/* Save Button */}
           <button
             disabled={isSaving}
             onClick={handleSave}
-            className="px-3.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition flex items-center gap-1.5 shadow-subtle disabled:opacity-50"
+            className="px-3.5 py-1.5 text-xs font-medium bg-linear-primary hover:bg-linear-hover text-white rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-40"
           >
             {isSaving ? (
-              <Loader2 size={13} className="animate-spin" />
+              <Loader2 size={12} className="animate-spin" />
             ) : saveSuccess ? (
-              <Check size={13} className="text-primary-foreground" />
+              <Check size={12} className="text-white" />
             ) : (
-              <Save size={13} />
+              <Save size={12} />
             )}
             <span>{saveSuccess ? "Saved!" : "Save"}</span>
           </button>
@@ -341,99 +340,99 @@ export default function WorkflowStudioPage() {
 
       {/* Alert Banners */}
       {errorMessage && (
-        <div className="bg-destructive/10 border-b border-destructive/20 text-destructive text-xs px-6 py-2.5 flex items-center gap-2">
-          <AlertCircle size={14} className="shrink-0" />
+        <div className="bg-surface-2 border-b border-red-500/30 text-red-400 text-xs px-6 py-2 flex items-center gap-2 font-sans">
+          <AlertCircle size={13} className="shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
 
       {/* Studio Tab Navigation */}
-      <div className="px-4 md:px-6 border-b border-border bg-card/40 flex items-center justify-between">
-        <div className="flex items-center gap-1">
+      <div className="px-4 md:px-6 border-b border-hairline bg-canvas flex items-center justify-between h-11">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab("editor")}
-            className={`px-4 py-2.5 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1.5 ${
               activeTab === "editor"
-                ? "border-primary text-primary font-semibold"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-surface-2 text-ink border border-hairline-strong"
+                : "text-ink-subtle hover:text-ink"
             }`}
           >
-            <Sparkles size={13} /> Workflow Editor
+            <Sparkles size={12} className="text-linear-primary" /> Workflow Editor
           </button>
           <button
             onClick={() => setActiveTab("tools")}
-            className={`px-4 py-2.5 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1.5 ${
               activeTab === "tools"
-                ? "border-primary text-primary font-semibold"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-surface-2 text-ink border border-hairline-strong"
+                : "text-ink-subtle hover:text-ink"
             }`}
           >
-            <Code2 size={13} /> Python Tools ({tools.length})
+            <Code2 size={12} /> Python Tools ({tools.length})
           </button>
           <button
             onClick={() => setActiveTab("knowledge")}
-            className={`px-4 py-2.5 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1.5 ${
               activeTab === "knowledge"
-                ? "border-primary text-primary font-semibold"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-surface-2 text-ink border border-hairline-strong"
+                : "text-ink-subtle hover:text-ink"
             }`}
           >
-            <FolderOpen size={13} /> Knowledge Base ({knowledgeFiles.length})
+            <FolderOpen size={12} /> Knowledge ({knowledgeFiles.length})
           </button>
           <button
             onClick={() => setActiveTab("runs")}
-            className={`px-4 py-2.5 text-xs font-medium border-b-2 transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1.5 ${
               activeTab === "runs"
-                ? "border-primary text-primary font-semibold"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-surface-2 text-ink border border-hairline-strong"
+                : "text-ink-subtle hover:text-ink"
             }`}
           >
-            <Activity size={13} /> Runs & Debugging ({runs.length})
+            <Activity size={12} /> Runs ({runs.length})
           </button>
         </div>
 
         {/* View Mode Toggle (Active in Editor Tab) */}
         {activeTab === "editor" && (
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-card border border-border">
+          <div className="flex items-center gap-1 p-0.5 rounded-pill bg-surface-1 border border-hairline">
             <button
               onClick={() => setViewMode("cards")}
-              className={`px-2.5 py-1 text-xs rounded-lg font-medium transition flex items-center gap-1.5 ${
+              className={`px-2.5 py-0.5 text-xs rounded-pill font-medium transition-colors flex items-center gap-1.5 ${
                 viewMode === "cards"
-                  ? "bg-primary text-primary-foreground shadow-subtle"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-surface-2 text-ink border border-hairline-strong shadow-none"
+                  : "text-ink-subtle hover:text-ink"
               }`}
             >
-              <LayoutList size={13} /> Structured Cards
+              <LayoutList size={12} /> Cards
             </button>
             <button
               onClick={() => setViewMode("graph")}
-              className={`px-2.5 py-1 text-xs rounded-lg font-medium transition flex items-center gap-1.5 ${
+              className={`px-2.5 py-0.5 text-xs rounded-pill font-medium transition-colors flex items-center gap-1.5 ${
                 viewMode === "graph"
-                  ? "bg-primary text-primary-foreground shadow-subtle"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-surface-2 text-ink border border-hairline-strong shadow-none"
+                  : "text-ink-subtle hover:text-ink"
               }`}
             >
-              <Network size={13} /> Visual Graph (DAG)
+              <Network size={12} className="text-linear-primary" /> Visual DAG
             </button>
           </div>
         )}
       </div>
 
       {/* Main Studio Body */}
-      <main className="flex-1 p-4 md:p-6 max-w-7xl w-full mx-auto space-y-6">
+      <main className="flex-1 p-4 md:p-6 max-w-6xl w-full mx-auto space-y-6">
         {activeTab === "editor" && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Goal Configuration Card */}
-            <div className="p-5 rounded-2xl bg-card border border-border/80 shadow-subtle space-y-3">
-              <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <Sparkles size={14} className="text-primary" /> Primary Workflow Goal & Objective
+            <div className="p-4 rounded-lg bg-surface-1 border border-hairline space-y-2">
+              <label className="text-xs font-medium text-ink flex items-center gap-1.5 tracking-card-title">
+                <Sparkles size={13} className="text-linear-primary" /> Primary Workflow Goal & Objective
               </label>
               <textarea
                 rows={2}
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
                 placeholder="Describe the ultimate objective of this workflow..."
-                className="w-full text-xs bg-background/80 border border-border rounded-xl p-3 text-foreground focus:outline-none focus:ring-1 focus:ring-primary leading-relaxed resize-y"
+                className="w-full text-xs bg-canvas border border-hairline hover:border-hairline-strong rounded-md p-2.5 text-ink focus:outline-none focus:ring-1 focus:ring-linear-focus leading-relaxed font-sans"
               />
             </div>
 
@@ -449,6 +448,7 @@ export default function WorkflowStudioPage() {
                   setUnitTestStep(st);
                   setIsUnitTestModalOpen(true);
                 }}
+                onRunSystemTest={() => setIsSystemTestModalOpen(true)}
               />
             ) : (
               <VisualGraphEditor
@@ -464,6 +464,7 @@ export default function WorkflowStudioPage() {
                   setUnitTestStep(st);
                   setIsUnitTestModalOpen(true);
                 }}
+                onRunSystemTest={() => setIsSystemTestModalOpen(true)}
               />
             )}
           </div>
@@ -498,11 +499,24 @@ export default function WorkflowStudioPage() {
       <StepUnitTestModal
         workflowId={workflowId}
         step={unitTestStep}
+        workflowGoal={goal}
         isOpen={isUnitTestModalOpen}
         onClose={() => {
           setIsUnitTestModalOpen(false);
           setUnitTestStep(null);
         }}
+      />
+
+      {/* Workflow End-to-End System Test Modal */}
+      <WorkflowSystemTestModal
+        workflowId={workflowId}
+        workflowTitle={title}
+        workflowGoal={goal}
+        steps={steps}
+        isOpen={isSystemTestModalOpen}
+        onClose={() => setIsSystemTestModalOpen(false)}
+        onRunComplete={fetchAuxiliary}
+        onNavigateToRuns={() => setActiveTab("runs")}
       />
     </div>
   );

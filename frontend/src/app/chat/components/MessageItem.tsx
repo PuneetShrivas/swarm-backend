@@ -19,7 +19,6 @@ import {
   ChevronUp,
   Layers,
   Sparkles,
-  Server,
   Zap,
 } from "lucide-react";
 import { ChatNode } from "../types";
@@ -96,24 +95,24 @@ export default function MessageItem({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className={`group flex gap-3 md:gap-4 ${
+      transition={{ duration: 0.15 }}
+      className={`group flex gap-3 ${
         isUser ? "flex-row-reverse" : "flex-row"
       }`}
     >
       {/* Avatar */}
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-subtle border ${
+        className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 border ${
           isUser
-            ? "bg-primary border-primary/40 text-primary-foreground"
+            ? "bg-surface-2 border-hairline-strong text-ink"
             : isDelegated
-            ? "bg-card border-primary/40 text-primary"
-            : "bg-card border-border/80 text-primary"
+            ? "bg-surface-1 border-hairline text-linear-primary"
+            : "bg-surface-1 border-hairline text-ink-subtle"
         }`}
       >
-        {isUser ? <User size={15} /> : isDelegated ? <Layers size={15} /> : <Bot size={15} />}
+        {isUser ? <User size={13} /> : isDelegated ? <Layers size={13} /> : <Bot size={13} />}
       </div>
 
       {/* Message Body & Actions Container */}
@@ -124,39 +123,39 @@ export default function MessageItem({
       >
         {/* Main Content Bubble */}
         <div
-          className={`px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-subtle transition-all relative ${
+          className={`px-4 py-3 rounded-lg text-[14px] leading-relaxed transition-colors relative border ${
             isUser
-              ? "bg-primary text-primary-foreground rounded-tr-sm"
-              : "bg-card border border-border/80 text-card-foreground rounded-tl-sm"
+              ? "bg-surface-2 border-hairline-strong text-ink rounded-tr-xs"
+              : "bg-surface-1 border-hairline text-ink rounded-tl-xs"
           }`}
         >
           {/* Autonomous Workflow Progress Banner */}
           {node.metadata?.mode === "workflow_execution" && (
-            <div className="mb-3 p-3 rounded-xl bg-background/80 border border-primary/30 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold">
-                <span className="flex items-center gap-1.5 text-primary">
-                  <Layers size={14} /> {String(node.metadata.workflow_title || "Autonomous Workflow")}
+            <div className="mb-3 p-3 rounded-md bg-canvas border border-hairline space-y-2">
+              <div className="flex items-center justify-between text-xs font-medium">
+                <span className="flex items-center gap-1.5 text-linear-primary">
+                  <Layers size={13} /> {String(node.metadata.workflow_title || "Autonomous Workflow")}
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 font-medium">
+                <span className="text-[10px] px-2 py-0.5 rounded-pill bg-surface-2 text-semantic-success border border-hairline font-mono">
                   Completed
                 </span>
               </div>
 
               {Boolean(node.metadata.workflow_goal) && (
-                <p className="text-[11px] text-muted-foreground line-clamp-2 font-mono">
+                <p className="text-[11px] text-ink-subtle line-clamp-2 font-mono">
                   Goal: {String(node.metadata.workflow_goal)}
                 </p>
               )}
 
               {/* Step Badges */}
               {Array.isArray(node.metadata.step_runs) && (node.metadata.step_runs as Array<{ step_id?: string; agent_id?: string; duration_ms?: number }>).length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-border/50">
+                <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-hairline">
                   {(node.metadata.step_runs as Array<{ step_id?: string; agent_id?: string; duration_ms?: number }>).map((st, sIdx) => (
                     <span
                       key={sIdx}
-                      className="px-2 py-0.5 rounded-lg bg-card border border-border text-[10px] text-foreground font-mono flex items-center gap-1"
+                      className="px-2 py-0.5 rounded-xs bg-surface-2 border border-hairline text-[10px] text-ink font-mono flex items-center gap-1"
                     >
-                      <Bot size={10} className="text-primary" />
+                      <Bot size={10} className="text-linear-primary" />
                       {st.step_id || `Step ${sIdx + 1}`}: {st.agent_id} ({st.duration_ms}ms)
                     </span>
                   ))}
@@ -167,16 +166,16 @@ export default function MessageItem({
 
           {/* Orchestrator Delegation Trace Banner */}
           {isDelegated && (
-            <div className="mb-2.5 pb-2 border-b border-border/50 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono">
+            <div className="mb-2.5 pb-2 border-b border-hairline flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-subtle font-mono">
               <div className="flex items-center gap-1.5">
-                <Layers size={13} className="text-primary shrink-0" />
+                <Layers size={12} className="text-linear-primary shrink-0" />
                 <span>Orchestrator dispatched to</span>
-                <span className="font-semibold text-foreground px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/25">
+                <span className="font-medium text-ink px-1.5 py-0.5 rounded-xs bg-surface-2 border border-hairline">
                   {node.metadata?.agent_name || node.metadata?.agent_id}
                 </span>
               </div>
               {node.metadata?.latency_ms && (
-                <span className="text-[10px] text-muted-foreground/70">
+                <span className="text-[10px] text-ink-tertiary">
                   {node.metadata.latency_ms}ms
                 </span>
               )}
@@ -184,12 +183,12 @@ export default function MessageItem({
           )}
 
           {isEditing ? (
-            <div className="w-full min-w-[280px] sm:min-w-[420px] text-foreground">
+            <div className="w-full min-w-[280px] sm:min-w-[420px] text-ink">
               <textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 rows={3}
-                className="w-full p-2.5 bg-background text-foreground border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
+                className="w-full p-2.5 bg-canvas text-ink border border-hairline rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-linear-focus transition-colors font-mono"
                 placeholder="Edit your message..."
                 autoFocus
                 onKeyDown={(e) => {
@@ -202,7 +201,7 @@ export default function MessageItem({
                 <button
                   type="button"
                   onClick={handleCancelEdit}
-                  className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 rounded-lg transition"
+                  className="px-2.5 py-1 text-xs text-ink-subtle hover:text-ink bg-surface-2 rounded-md transition"
                 >
                   Cancel
                 </button>
@@ -210,7 +209,7 @@ export default function MessageItem({
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={!editContent.trim()}
-                  className="px-3 py-1.5 text-xs font-medium text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-lg transition shadow-subtle"
+                  className="px-3 py-1 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover disabled:opacity-40 rounded-md transition"
                 >
                   Save & Submit
                 </button>
@@ -218,18 +217,12 @@ export default function MessageItem({
             </div>
           ) : (
             <>
-              <div
-                className={`prose prose-sm max-w-none break-words ${
-                  isUser
-                    ? "prose-invert"
-                    : "prose-neutral dark:prose-invert"
-                }`}
-              >
+              <div className="prose prose-sm max-w-none break-words text-ink">
                 <ReactMarkdown
                   components={{
                     pre({ children }) {
                       return (
-                        <pre className="not-prose my-3 overflow-x-auto rounded-xl bg-zinc-950 p-3 text-xs text-zinc-100 border border-zinc-800 shadow-subtle">
+                        <pre className="not-prose my-2.5 overflow-x-auto rounded-md bg-canvas p-3 text-xs text-ink-muted border border-hairline font-mono">
                           {children}
                         </pre>
                       );
@@ -239,7 +232,7 @@ export default function MessageItem({
                       if (isInline) {
                         return (
                           <code
-                            className="rounded bg-muted px-1.5 py-0.5 font-mono text-[13px] text-foreground border border-border/40"
+                            className="rounded-xs bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-ink border border-hairline"
                             {...props}
                           >
                             {children}
@@ -260,13 +253,13 @@ export default function MessageItem({
 
               {/* Tool Calls Accordion */}
               {hasToolCalls && (
-                <div className="mt-3 pt-3 border-t border-border/50">
+                <div className="mt-2.5 pt-2 border-t border-hairline">
                   <button
                     type="button"
                     onClick={() => setShowTools(!showTools)}
-                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/60 hover:bg-muted px-2.5 py-1.5 rounded-lg border border-border/70 transition-all"
+                    className="flex items-center gap-1.5 text-[11px] font-mono text-ink-subtle hover:text-ink bg-surface-1 hover:bg-surface-2 px-2.5 py-0.5 rounded-pill border border-hairline transition-colors"
                   >
-                    <Wrench size={13} className="text-amber-500" />
+                    <Wrench size={11} className="text-linear-primary" />
                     <span>
                       {node.metadata?.tool_calls?.length}{" "}
                       {node.metadata?.tool_calls?.length === 1
@@ -274,9 +267,9 @@ export default function MessageItem({
                         : "tool executions"}
                     </span>
                     {showTools ? (
-                      <ChevronUp size={13} className="ml-0.5 text-muted-foreground" />
+                      <ChevronUp size={11} className="ml-0.5 text-ink-tertiary" />
                     ) : (
-                      <ChevronDown size={13} className="ml-0.5 text-muted-foreground" />
+                      <ChevronDown size={11} className="ml-0.5 text-ink-tertiary" />
                     )}
                   </button>
 
@@ -288,48 +281,34 @@ export default function MessageItem({
                         exit={{ opacity: 0, height: 0 }}
                         className="mt-2 space-y-2 overflow-hidden text-xs"
                       >
-                        {node.metadata?.tool_calls?.map((tc, idx) => {
-                          const resObj = tc.result as Record<string, unknown> | undefined;
-                          const hasMcp = Boolean(resObj?.mcp_servers && Array.isArray(resObj.mcp_servers) && resObj.mcp_servers.length > 0);
-
-                          return (
-                            <div
-                              key={idx}
-                              className="p-3 rounded-xl bg-zinc-950 text-zinc-200 font-mono text-[11px] overflow-x-auto border border-zinc-800 shadow-subtle"
-                            >
-                              <div className="flex items-center justify-between mb-1.5">
-                                <div className="text-amber-400 font-semibold flex items-center gap-1.5">
-                                  <Zap size={12} className="text-amber-400" />
-                                  <span>{tc.tool}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  {hasMcp ? (
-                                    <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded bg-violet-500/20 text-violet-400 border border-violet-500/30">
-                                      <Server size={10} />
-                                      <span>MCP Ready</span>
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25">
-                                      Swarm Tool
-                                    </span>
-                                  )}
-                                </div>
+                        {node.metadata?.tool_calls?.map((tc, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-md bg-canvas text-ink-muted font-mono text-[11px] overflow-x-auto border border-hairline"
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="text-ink font-medium flex items-center gap-1.5">
+                                <Zap size={11} className="text-linear-primary" />
+                                <span>{tc.tool}</span>
                               </div>
-                              {tc.args && (
-                                <div className="text-zinc-400 mt-1">
-                                  <span className="text-zinc-500">args: </span>
-                                  {JSON.stringify(tc.args)}
-                                </div>
-                              )}
-                              {tc.result !== undefined && (
-                                <div className="text-emerald-400 mt-1.5 pt-1.5 border-t border-zinc-800">
-                                  <span className="text-zinc-500">result: </span>
-                                  {JSON.stringify(tc.result)}
-                                </div>
-                              )}
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-xs bg-surface-2 text-ink-subtle border border-hairline">
+                                Swarm Tool
+                              </span>
                             </div>
-                          );
-                        })}
+                            {tc.args && (
+                              <div className="text-ink-subtle mt-1">
+                                <span className="text-ink-tertiary">args: </span>
+                                {JSON.stringify(tc.args)}
+                              </div>
+                            )}
+                            {tc.result !== undefined && (
+                              <div className="text-semantic-success mt-1.5 pt-1.5 border-t border-hairline">
+                                <span className="text-ink-tertiary">result: </span>
+                                {JSON.stringify(tc.result)}
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -338,13 +317,13 @@ export default function MessageItem({
 
               {/* Agent Execution Metadata Badges */}
               {node.metadata?.agent_state && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="inline-flex items-center gap-1.5 text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-md border border-border/60 text-[11px]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="inline-flex items-center gap-1 text-ink-subtle bg-surface-2 px-1.5 py-0.5 rounded-xs border border-hairline text-[10px] font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-semantic-success" />
                     State: {String(node.metadata.agent_state)}
                   </span>
                   {node.metadata?.agent_id && (
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-[10px] text-ink-subtle font-mono">
                       via {String(node.metadata.agent_name || node.metadata.agent_id)}
                     </span>
                   )}
@@ -354,9 +333,9 @@ export default function MessageItem({
                     node.metadata.skills_invoked.map((sk: string, i: number) => (
                       <span
                         key={i}
-                        className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
+                        className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-xs bg-surface-2 text-ink-muted border border-hairline"
                       >
-                        <Sparkles size={9} />
+                        <Sparkles size={8} className="text-linear-primary" />
                         <span>{sk}</span>
                       </span>
                     ))}
@@ -369,35 +348,35 @@ export default function MessageItem({
         {/* Message Action Bar & Branch Switcher */}
         {!isEditing && (
           <div
-            className={`flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground select-none ${
+            className={`flex items-center gap-1 mt-1 text-xs text-ink-subtle select-none ${
               isUser ? "flex-row-reverse" : "flex-row"
             }`}
           >
             {/* Sibling Branch Switcher (< 1 / 2 >) */}
             {hasMultipleVersions && (
-              <div className="flex items-center bg-muted/70 hover:bg-muted rounded-lg px-1.5 py-0.5 text-[11px] font-medium text-foreground border border-border/60 transition-all shadow-subtle">
+              <div className="flex items-center bg-surface-1 rounded-md px-1 py-0.5 text-[11px] font-mono text-ink border border-hairline">
                 <button
                   type="button"
                   onClick={handlePrevBranch}
                   disabled={siblingInfo.index <= 1}
-                  className="p-0.5 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="p-0.5 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition"
                   title="Previous version"
                   aria-label="Previous version"
                 >
-                  <ChevronLeft size={13} />
+                  <ChevronLeft size={12} />
                 </button>
-                <span className="px-1.5 text-[11px] font-mono">
+                <span className="px-1 text-[10px] text-ink-muted">
                   {siblingInfo.index} / {siblingInfo.total}
                 </span>
                 <button
                   type="button"
                   onClick={handleNextBranch}
                   disabled={siblingInfo.index >= siblingInfo.total}
-                  className="p-0.5 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="p-0.5 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition"
                   title="Next version"
                   aria-label="Next version"
                 >
-                  <ChevronRight size={13} />
+                  <ChevronRight size={12} />
                 </button>
               </div>
             )}
@@ -406,14 +385,14 @@ export default function MessageItem({
             <button
               type="button"
               onClick={handleCopy}
-              className="p-1 hover:text-foreground hover:bg-muted/80 rounded-md transition"
+              className="p-1 hover:text-ink hover:bg-surface-1 rounded-md transition"
               title="Copy message"
               aria-label="Copy message"
             >
               {copied ? (
-                <Check size={14} className="text-emerald-500" />
+                <Check size={13} className="text-semantic-success" />
               ) : (
-                <Copy size={14} />
+                <Copy size={13} />
               )}
             </button>
 
@@ -422,11 +401,11 @@ export default function MessageItem({
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                className="p-1 hover:text-foreground hover:bg-muted/80 rounded-md transition"
+                className="p-1 hover:text-ink hover:bg-surface-1 rounded-md transition"
                 title="Edit message"
                 aria-label="Edit message"
               >
-                <Pencil size={14} />
+                <Pencil size={13} />
               </button>
             )}
 
@@ -438,11 +417,11 @@ export default function MessageItem({
                   type="button"
                   onClick={() => onRegenerate(node.id)}
                   disabled={isGenerating}
-                  className="p-1 hover:text-foreground hover:bg-muted/80 rounded-md transition disabled:opacity-30"
+                  className="p-1 hover:text-ink hover:bg-surface-1 rounded-md transition disabled:opacity-30"
                   title="Regenerate response"
                   aria-label="Regenerate response"
                 >
-                  <RotateCcw size={14} />
+                  <RotateCcw size={13} />
                 </button>
 
                 {/* Thumbs Up Button */}
@@ -453,13 +432,13 @@ export default function MessageItem({
                   }
                   className={`p-1 rounded-md transition ${
                     node.rating === "up"
-                      ? "text-emerald-500 bg-emerald-500/10"
-                      : "hover:text-foreground hover:bg-muted/80"
+                      ? "text-semantic-success bg-surface-2"
+                      : "hover:text-ink hover:bg-surface-1"
                   }`}
                   title="Helpful / Good response"
                   aria-label="Thumbs up"
                 >
-                  <ThumbsUp size={14} />
+                  <ThumbsUp size={13} />
                 </button>
 
                 {/* Thumbs Down Button */}
@@ -470,13 +449,13 @@ export default function MessageItem({
                   }
                   className={`p-1 rounded-md transition ${
                     node.rating === "down"
-                      ? "text-destructive bg-destructive/10"
-                      : "hover:text-foreground hover:bg-muted/80"
+                      ? "text-red-400 bg-surface-2"
+                      : "hover:text-ink hover:bg-surface-1"
                   }`}
                   title="Unhelpful / Bad response"
                   aria-label="Thumbs down"
                 >
-                  <ThumbsDown size={14} />
+                  <ThumbsDown size={13} />
                 </button>
               </>
             )}

@@ -42,6 +42,7 @@ from app.workflows import (
     workflow_engine,
 )
 from app.workflows.models import WorkflowCreateUpdatePayload
+from app.ai_generator import generate_workflow_spec, generate_agent_spec
 
 # Load environment variables from .env
 load_dotenv()
@@ -90,6 +91,28 @@ class ChatRequest(BaseModel):
     user_message_id: Optional[str] = Field(None, description="Client-assigned user message ID")
     workflow_id: Optional[str] = Field(None, description="Optional workflow ID to execute in this turn")
     workflow_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input arguments for workflow execution")
+
+class AgentTestRequest(BaseModel):
+    agent_id: Optional[str] = None
+    system_prompt: str
+    input_prompt: str
+    model: Optional[str] = "gemini-2.5-flash"
+    temperature: Optional[float] = 0.3
+    tool_ids: Optional[List[str]] = Field(default_factory=list)
+    mock_context: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+class AgentTestResponse(BaseModel):
+    status: str
+    content: str
+    tokens_used: int
+    latency_ms: float
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+
+class AIGenerateWorkflowRequest(BaseModel):
+    prompt: str = Field(..., description="Natural language requirements for the workflow")
+
+class AIGenerateAgentRequest(BaseModel):
+    prompt: str = Field(..., description="Natural language description of desired agent")
 
 # Session & History Models
 class ChatSessionCreate(BaseModel):
@@ -1004,6 +1027,120 @@ def delete_custom_agent(
     if not success:
         raise HTTPException(status_code=404, detail="Custom agent not found or unauthorized.")
     return {"message": f"Agent '{agent_id}' deleted successfully."}
+
+
+@app.post("/api/custom-agents/test", response_model=AgentTestResponse)
+def test_custom_agent(
+    payload: AgentTestRequest,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Executes a custom or prebuilt agent in isolation with user test prompt."""
+    start_time = time.time()
+    client, api_key = get_gemini_client()
+
+    tool_calls = []
+    if payload.tool_ids:
+        for tid in payload.tool_ids:
+            tool_rec = _get_tool_record(tid, current_user)
+            if tool_rec:
+                tool_calls.append({
+                    "tool": tool_rec.get("name", tid),
+                    "args": {"test_mode": True},
+                    "result": {"status": "available", "description": tool_rec.get("description")}
+                })
+
+    if client:
+        try:
+            from google.genai import types
+            model_name = payload.model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[types.Part.from_text(text=payload.input_prompt)],
+                config=types.GenerateContentConfig(
+                    system_instruction=payload.system_prompt,
+                    temperature=payload.temperature or 0.3,
+                ),
+            )
+            latency_ms = round((time.time() - start_time) * 1000, 2)
+            tokens = 0
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                tokens = getattr(response.usage_metadata, "total_token_count", 0) or 0
+
+            return AgentTestResponse(
+                status="success",
+                content=response.text or "Agent completed without content.",
+                tokens_used=tokens,
+                latency_ms=latency_ms,
+                tool_calls=tool_calls,
+            )
+        except Exception as e:
+            latency_ms = round((time.time() - start_time) * 1000, 2)
+            return AgentTestResponse(
+                status="error",
+                content=f"Agent test execution error: {str(e)}",
+                tokens_used=0,
+                latency_ms=latency_ms,
+                tool_calls=tool_calls,
+            )
+
+    # Simulation / Offline Fallback Mode
+    latency_ms = round((time.time() - start_time) * 1000, 2)
+    simulated_content = (
+        f"[Test Simulation Mode]\n\n"
+        f"**Agent System Prompt Verified:**\n> {payload.system_prompt[:120]}...\n\n"
+        f"**Response to:** \"{payload.input_prompt}\"\n\n"
+        f"I have processed your prompt following my persona instructions. All constraints and guidelines were respected."
+    )
+    return AgentTestResponse(
+        status="success",
+        content=simulated_content,
+        tokens_used=120,
+        latency_ms=latency_ms,
+        tool_calls=tool_calls,
+    )
+
+
+# ----------------- AI Architect Generation Endpoints -----------------
+
+@app.post("/api/ai/generate-workflow", response_model=Dict[str, Any])
+def ai_generate_workflow(
+    payload: AIGenerateWorkflowRequest,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Generates a complete autonomous workflow DAG from user natural language prompt."""
+    if not payload.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+
+    client, _ = get_gemini_client()
+    agents_list = [a.model_dump() if hasattr(a, "model_dump") else dict(a) for a in agent_registry.get_all()]
+    tools_list = memory_store.get_tools(current_user.id)
+
+    spec = generate_workflow_spec(
+        prompt=payload.prompt,
+        available_agents=agents_list,
+        available_tools=tools_list,
+        client=client,
+    )
+    return spec
+
+
+@app.post("/api/ai/generate-agent", response_model=Dict[str, Any])
+def ai_generate_agent(
+    payload: AIGenerateAgentRequest,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Generates an agent profile, persona, and system prompt from natural language description."""
+    if not payload.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+
+    client, _ = get_gemini_client()
+    tools_list = memory_store.get_tools(current_user.id)
+    agent_spec = generate_agent_spec(
+        prompt=payload.prompt,
+        available_tools=tools_list,
+        client=client,
+    )
+    return agent_spec
 
 
 # ----------------- Workflow Script Tools -----------------

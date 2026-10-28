@@ -448,8 +448,47 @@ def execute(input_data: dict, context: dict) -> dict:
     assert len(chat_msg["metadata"]["step_runs"]) == 2
     print(f"PASS: POST /api/chat (workflow invocation) -> Executed workflow, generated progress metadata: {chat_msg['metadata']['agent_name']}")
 
+    # 26. Test Custom Agent Isolated Execution & Testing Playground
+    test_agent_payload = {
+        "system_prompt": "You are a financial risk analyst specializing in fraud detection.",
+        "input_prompt": "Analyze transaction pattern for potential structuring violation.",
+        "model": "gemini-2.5-flash",
+        "temperature": 0.2,
+        "tool_ids": [tool_id]
+    }
+    res = client.post("/api/custom-agents/test", json=test_agent_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Agent test failed: {res.text}"
+    agent_test_res = res.json()
+    assert agent_test_res["status"] == "success"
+    assert len(agent_test_res["content"]) > 0
+    assert len(agent_test_res["tool_calls"]) == 1
+    print(f"PASS: POST /api/custom-agents/test -> Verified agent isolated test: tokens={agent_test_res['tokens_used']}, latency={agent_test_res['latency_ms']}ms")
+
+    # 27. Test AI Workflow Generator
+    ai_wf_payload = {
+        "prompt": "Create an automated threat intelligence workflow to audit python packages and generate executive briefing"
+    }
+    res = client.post("/api/ai/generate-workflow", json=ai_wf_payload, headers=auth_headers)
+    assert res.status_code == 200, f"AI workflow generation failed: {res.text}"
+    gen_wf = res.json()
+    assert "title" in gen_wf and "steps" in gen_wf
+    assert len(gen_wf["steps"]) >= 2
+    assert len(gen_wf["edges"]) >= 1
+    print(f"PASS: POST /api/ai/generate-workflow -> Generated workflow: '{gen_wf['title']}' with {len(gen_wf['steps'])} steps and {len(gen_wf['edges'])} edges")
+
+    # 28. Test AI Agent Generator
+    ai_agent_payload = {
+        "prompt": "Create a database query optimization expert that inspects EXPLAIN ANALYZE execution plans"
+    }
+    res = client.post("/api/ai/generate-agent", json=ai_agent_payload, headers=auth_headers)
+    assert res.status_code == 200, f"AI agent generation failed: {res.text}"
+    gen_agent = res.json()
+    assert "name" in gen_agent and "system_prompt" in gen_agent
+    assert "optimizer" in gen_agent["name"].lower() or "database" in gen_agent["name"].lower() or "specialist" in gen_agent["name"].lower()
+    print(f"PASS: POST /api/ai/generate-agent -> Generated agent: '{gen_agent['name']}' ({gen_agent['id']})")
+
     print("\n========================================")
-    print("ALL 25 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 28 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":
