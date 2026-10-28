@@ -1,203 +1,361 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import ReactMarkdown from 'react-markdown';
-import { Send, Bot, User, ArrowLeft, Loader2 } from 'lucide-react';
+import { Bot, ArrowLeft, Loader2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface Message {
-  role: 'user' | 'agent';
-  content: string;
-  metadata?: Record<string, unknown>;
-}
-
-interface Agent {
-  id: string;
-  name: string;
-  role: string;
-  status: string;
-}
+import {
+  Agent,
+  ConversationState,
+  createInitialState,
+  getActivePath,
+  getSiblingInfo,
+  addMessageNode,
+  switchBranch,
+  setNodeRating,
+  exportToMarkdown,
+} from './types';
+import MessageItem from './components/MessageItem';
+import ChatInput from './components/ChatInput';
+import ChatHeader from './components/ChatHeader';
 
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'agent', content: 'Hello! I am part of the agent swarm. How can I help you today?' }
-  ]);
-  const [input, setInput] = useState('');
+  const [conversation, setConversation] = useState<ConversationState>(() =>
+    createInitialState()
+  );
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const activePath = getActivePath(
+    conversation.nodes,
+    conversation.currentLeafId
+  );
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [conversation.currentLeafId, activePath.length, scrollToBottom]);
 
+  // Fetch active agents from FastAPI backend
   useEffect(() => {
-    // Fetch agents from the backend
     const fetchAgents = async () => {
       try {
-        const res = await fetch(process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api/agents` : 'http://localhost:8000/api/agents');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiUrl}/api/agents`);
         if (res.ok) {
-          const data = await res.json();
+          const data: Agent[] = await res.json();
           setAgents(data);
         }
       } catch (error) {
-        console.error("Failed to fetch agents", error);
+        console.error('Failed to fetch agents', error);
       }
     };
     fetchAgents();
   }, []);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = { role: 'user', content: input };
-    const currentMessages = [...messages, userMessage];
-    setMessages(currentMessages);
-    setInput('');
+  // Send request to FastAPI /api/chat
+  const requestSwarmResponse = async (
+    chatHistory: { role: string; content: string; metadata?: Record<string, unknown> }[],
+    parentUserNodeId: string
+  ) => {
     setIsLoading(true);
+    abortControllerRef.current = new AbortController();
 
     try {
-      const res = await fetch(process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api/chat` : 'http://localhost:8000/api/chat', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: currentMessages })
+        body: JSON.stringify({
+          messages: chatHistory.map((m) => ({
+            role: m.role,
+            content: m.content,
+            metadata: m.metadata || {},
+          })),
+        }),
+        signal: abortControllerRef.current.signal,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setMessages((prev) => [...prev, data]);
-      } else {
-        throw new Error('Failed to send message');
+      if (!res.ok) {
+        throw new Error(`API responded with status ${res.status}`);
       }
-    } catch (error) {
-      console.error(error);
-      setMessages((prev) => [...prev, { role: 'agent', content: 'Sorry, I encountered an error.' }]);
+
+      const data = await res.json();
+
+      setConversation((latestState) => {
+        const { newState } = addMessageNode(
+          latestState,
+          'agent',
+          data.content || 'I have completed processing.',
+          parentUserNodeId,
+          data.metadata || { agent_state: 'completed' }
+        );
+        return newState;
+      });
+    } catch (error: unknown) {
+      if ((error as { name?: string })?.name === 'AbortError') {
+        console.log('Chat generation aborted by user.');
+        return;
+      }
+      console.error('Error invoking swarm chat API:', error);
+      setConversation((latestState) => {
+        const { newState } = addMessageNode(
+          latestState,
+          'agent',
+          'Sorry, I encountered an error communicating with the agent swarm. Please try again.',
+          parentUserNodeId,
+          { agent_state: 'error' }
+        );
+        return newState;
+      });
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  // Handle standard user prompt submission
+  const handleSend = (content: string) => {
+    if (isLoading) return;
+
+    const { newState, newNodeId } = addMessageNode(
+      conversation,
+      'user',
+      content,
+      conversation.currentLeafId,
+      selectedAgentId ? { target_agent_id: selectedAgentId } : undefined
+    );
+
+    setConversation(newState);
+
+    const updatedPath = getActivePath(newState.nodes, newNodeId);
+    requestSwarmResponse(updatedPath, newNodeId);
+  };
+
+  // Handle editing an existing user prompt (creates a sibling branch)
+  const handleEdit = (nodeId: string, newContent: string) => {
+    if (isLoading) return;
+
+    const targetNode = conversation.nodes[nodeId];
+    if (!targetNode) return;
+
+    // Sibling of targetNode gets same parentId
+    const { newState, newNodeId } = addMessageNode(
+      conversation,
+      'user',
+      newContent,
+      targetNode.parentId,
+      selectedAgentId ? { target_agent_id: selectedAgentId } : undefined
+    );
+
+    setConversation(newState);
+
+    const updatedPath = getActivePath(newState.nodes, newNodeId);
+    requestSwarmResponse(updatedPath, newNodeId);
+  };
+
+  // Handle regenerating an agent response (creates a sibling agent variant)
+  const handleRegenerate = (agentNodeId: string) => {
+    if (isLoading) return;
+
+    const agentNode = conversation.nodes[agentNodeId];
+    if (!agentNode || !agentNode.parentId) return;
+
+    const userParentNode = conversation.nodes[agentNode.parentId];
+    if (!userParentNode) return;
+
+    const pathUpToUser = getActivePath(conversation.nodes, userParentNode.id);
+    requestSwarmResponse(pathUpToUser, userParentNode.id);
+  };
+
+  // Handle branch navigation (< 1 / 2 >)
+  const handleSwitchBranch = (targetSiblingId: string) => {
+    setConversation((prev) => switchBranch(prev, targetSiblingId));
+  };
+
+  // Handle rating feedback
+  const handleRate = (nodeId: string, rating: 'up' | 'down' | null) => {
+    setConversation((prev) => setNodeRating(prev, nodeId, rating));
+  };
+
+  // Handle stopping in-progress generation
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+    }
+  };
+
+  // Clear conversation
+  const handleClearChat = () => {
+    if (
+      activePath.length <= 1 ||
+      window.confirm('Are you sure you want to clear the conversation?')
+    ) {
+      setConversation(createInitialState());
+    }
+  };
+
+  // Export conversation to Markdown
+  const handleExportChat = () => {
+    const md = exportToMarkdown(activePath);
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `swarm-conversation-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans">
       {/* Sidebar for Agents */}
-      <div className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col shadow-sm z-10 hidden md:flex">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+      <aside className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col shadow-sm z-10 hidden md:flex">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-xs">
             <Bot size={20} className="text-white" />
           </div>
-          <h2 className="text-xl font-bold tracking-tight text-slate-800">Active Swarm</h2>
+          <div>
+            <h2 className="text-lg font-bold tracking-tight text-slate-800">
+              Active Swarm
+            </h2>
+            <div className="text-[11px] text-slate-400">Agent Roster</div>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        {/* Swarm Roster */}
+        <div className="flex-1 overflow-y-auto space-y-2">
           {agents.length === 0 ? (
-            <div className="text-center p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-              <p className="text-slate-500 text-sm">No active agents online.</p>
+            <div className="text-center p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <p className="text-slate-500 text-xs">No active agents online.</p>
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Backend API: /api/agents
+              </span>
             </div>
           ) : (
-            <ul className="space-y-3">
-              {agents.map((agent) => (
-                <li key={agent.id} className="p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition cursor-default">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="font-semibold text-slate-800">{agent.name}</div>
-                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                  </div>
-                  <div className="text-xs text-slate-500">{agent.role}</div>
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {agents.map((agent) => {
+                const isSelected = selectedAgentId === agent.id;
+                return (
+                  <li
+                    key={agent.id}
+                    onClick={() =>
+                      setSelectedAgentId(isSelected ? null : agent.id)
+                    }
+                    className={`p-3 border rounded-xl transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50/70 border-blue-200 text-blue-900 shadow-xs'
+                        : 'bg-slate-50 hover:bg-slate-100 border-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="font-medium text-xs text-slate-800 flex items-center gap-1.5">
+                        <Sparkles
+                          size={12}
+                          className={isSelected ? 'text-blue-600' : 'text-slate-400'}
+                        />
+                        {agent.name}
+                      </div>
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          agent.status === 'active'
+                            ? 'bg-emerald-500'
+                            : 'bg-amber-400'
+                        }`}
+                      />
+                    </div>
+                    <div className="text-[11px] text-slate-500">{agent.role}</div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
-        <Link href="/" className="mt-6 flex items-center text-sm font-medium text-slate-500 hover:text-slate-800 transition">
-          <ArrowLeft size={16} className="mr-2" />
-          Back to Home
+
+        <Link
+          href="/"
+          className="mt-6 flex items-center text-xs font-medium text-slate-500 hover:text-slate-800 transition pt-4 border-t border-slate-100"
+        >
+          <ArrowLeft size={14} className="mr-2" />
+          Back to Overview
         </Link>
-      </div>
+      </aside>
 
-      {/* Chat Area */}
-      <div className="flex-1 flex flex-col bg-white/50 relative">
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth">
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col bg-white/60 relative overflow-hidden">
+        {/* Top Header */}
+        <ChatHeader
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={setSelectedAgentId}
+          onClearChat={handleClearChat}
+          onExportChat={handleExportChat}
+          activePathCount={activePath.length}
+        />
+
+        {/* Message Feed */}
+        <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth">
           <AnimatePresence initial={false}>
-            {messages.map((msg, idx) => (
-              <motion.div
-                key={idx}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm ${msg.role === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
-                  {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-                </div>
-                <div
-                  className={`max-w-2xl px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-tr-sm'
-                      : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm'
-                  }`}
-                >
-                  <div className={`prose prose-sm max-w-none ${msg.role === 'user' ? 'prose-invert' : 'prose-slate'}`}>
-                    <ReactMarkdown>
-                      {msg.content}
-                    </ReactMarkdown>
-                  </div>
+            {activePath.map((node) => {
+              const siblingInfo = getSiblingInfo(
+                conversation.nodes,
+                node.id
+              );
 
-                  {msg.metadata?.agent_state && typeof msg.metadata.agent_state === 'string' ? (
-                     <div className="mt-3 text-xs flex items-center gap-2 text-slate-400 bg-slate-50/50 p-2 rounded-lg border border-slate-100 inline-flex">
-                       <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                       Agent state: {msg.metadata.agent_state}
-                     </div>
-                  ) : null}
-                </div>
-              </motion.div>
-            ))}
+              return (
+                <MessageItem
+                  key={node.id}
+                  node={node}
+                  siblingInfo={siblingInfo}
+                  onSwitchBranch={handleSwitchBranch}
+                  onEdit={handleEdit}
+                  onRegenerate={handleRegenerate}
+                  onRate={handleRate}
+                  isGenerating={isLoading}
+                />
+              );
+            })}
+
+            {/* In-flight Processing Bubble */}
             {isLoading && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex gap-4 flex-row"
+                exit={{ opacity: 0, y: 5 }}
+                className="flex gap-3 md:gap-4 flex-row"
               >
-                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm bg-slate-100 text-slate-600">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm bg-white border border-slate-200 text-blue-600">
                   <Bot size={16} />
                 </div>
-                <div className="px-5 py-4 rounded-2xl bg-white border border-slate-200 text-slate-700 rounded-tl-sm flex items-center gap-2">
-                   <Loader2 size={16} className="animate-spin text-slate-400" />
-                   <span className="text-sm text-slate-500">Processing...</span>
+                <div className="px-5 py-4 rounded-2xl bg-white border border-slate-200 text-slate-700 rounded-tl-sm flex items-center gap-2 shadow-xs">
+                  <Loader2 size={16} className="animate-spin text-blue-600" />
+                  <span className="text-xs font-medium text-slate-600">
+                    Swarm agent reasoning...
+                  </span>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
           <div ref={messagesEndRef} />
-        </div>
+        </main>
 
-        <div className="p-4 md:p-6 bg-white/80 backdrop-blur-md border-t border-slate-200/60 sticky bottom-0">
-          <div className="max-w-4xl mx-auto">
-            <form onSubmit={handleSend} className="relative flex items-center">
-              <input
-                type="text"
-                className="flex-1 pl-5 pr-14 py-4 bg-slate-50 border border-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-[15px] shadow-sm"
-                placeholder="Message the swarm..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={isLoading}
-              />
-              <button
-                type="submit"
-                disabled={isLoading || !input.trim()}
-                className="absolute right-2 p-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-              >
-                <Send size={18} />
-              </button>
-            </form>
-            <div className="text-center mt-3">
-              <span className="text-[11px] text-slate-400 font-medium">Agent Swarm can make mistakes. Verify important info.</span>
-            </div>
-          </div>
-        </div>
+        {/* Bottom Input Area */}
+        <ChatInput
+          onSend={handleSend}
+          isLoading={isLoading}
+          onStop={handleStop}
+        />
       </div>
     </div>
   );

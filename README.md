@@ -1,41 +1,112 @@
 # Swarm Project Base
 
-A full-stack project base featuring a FastAPI backend and a Next.js (App Router) frontend, designed to manage and interact with a swarm of specialized agents. This project is tailored for easy deployment on Vercel.
+A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Google Gemini API** (`google-genai`) and a **Next.js 14** (App Router) frontend. Built to deploy, manage, and orchestrate an autonomous swarm of specialized AI agents with a rich, interactive chat experience.
 
-## Structure
+---
 
-The project is structured as a monorepo with two main directories:
+## 🚀 Key Features
 
-- `/backend`: The FastAPI application serving as the backend.
-- `/frontend`: The Next.js application providing the user interface.
+### Frontend (Next.js 14 + Tailwind CSS + Framer Motion)
+- **Interactive Chat Interface**:
+  - **Inline Message Editing**: Edit previous prompts in place with "Cancel" and "Save & Submit".
+  - **Conversation Tree Branching (`< 1 / 2 >`)**: Seamlessly navigate alternative branches and responses without losing conversation history.
+  - **Rating & Feedback**: Quick Thumbs Up 👍 / Thumbs Down 👎 toggles with visual accent states.
+  - **Response Regeneration**: Re-query the swarm for alternative agent turns.
+  - **One-Click Copy**: Copy message contents to clipboard with animated confirmation.
+  - **Swarm Tool Calls Disclosure**: Collapsible monospace accordion inspecting tool names, arguments, and execution outputs.
+  - **Ergonomic Multi-line Input**: Auto-resizing textarea with `Enter` (send) and `Shift+Enter` (newline) support.
+  - **Chat Management**: Real-time agent status badge, target agent routing selector, Markdown transcript export, and session reset.
 
-## Getting Started Locally
+### Backend (FastAPI + Google Gemini API)
+- **Google Gemini Integration**: Uses the official `google-genai` SDK for multi-turn conversational intelligence, agent-specific system instructions, and token usage tracking.
+- **Pre-populated Swarm Agents**:
+  - `researcher` (**Research Agent**): In-depth analytical investigation, structured syntheses, and factual reporting.
+  - `coder` (**Coder Agent**): Expert software engineering, clean code generation, debugging, and type safety.
+- **Dynamic Swarm Routing**: Automatically routes queries based on prompt intent (e.g. coding queries route to `coder`, analytical inquiries to `researcher`), or honors explicit target agent selection from the frontend.
+- **Graceful Demonstration Fallback**: Operates out-of-the-box with simulated tool calls and setup guidance if `GEMINI_API_KEY` is not yet configured.
+- **Agent Instructions Guide**: Dedicated architectural blueprint in [`agent-instructions/backend-review.md`](agent-instructions/backend-review.md).
 
-### Backend (FastAPI)
+---
+
+## 📁 Repository Structure
+
+```plaintext
+swarm-backend/
+├── agent-instructions/
+│   └── backend-review.md     # Architecture & compatibility guide for backend agents
+├── backend/                  # FastAPI Application
+│   ├── app/
+│   │   ├── main.py           # FastAPI routes, Gemini client, routing, and swarm models
+│   │   └── supabase.py       # Supabase client configuration
+│   ├── requirements.txt      # Python dependencies (fastapi, google-genai, etc.)
+│   ├── test_endpoints.py     # Automated endpoint integration tests
+│   ├── .env.example          # Environment variables template
+│   └── vercel.json           # Vercel deployment configuration
+└── frontend/                 # Next.js 14 Application
+    ├── src/
+    │   ├── app/
+    │   │   ├── chat/         # Rich chat interface & page orchestrator
+    │   │   │   ├── components/
+    │   │   │   │   ├── MessageItem.tsx  # Message bubble, actions, tools & branch switcher
+    │   │   │   │   ├── ChatInput.tsx    # Ergonomic auto-resizing input
+    │   │   │   │   └── ChatHeader.tsx   # Swarm indicator, agent selector & controls
+    │   │   │   ├── types.ts             # Conversation tree data structures & utilities
+    │   │   │   └── page.tsx             # Interactive chat page
+    │   │   ├── login/page.tsx           # Supabase Auth UI page
+    │   │   └── page.tsx                 # Landing page
+    └── package.json          # Node dependencies (pnpm / npm)
+```
+
+---
+
+## 🛠️ Getting Started Locally
+
+### 1. Backend (FastAPI)
 
 1. Navigate to the backend directory:
    ```bash
    cd backend
    ```
 
-2. Create a virtual environment and activate it:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+2. Create and activate a virtual environment:
+   - **Windows (PowerShell):**
+     ```powershell
+     python -m venv venv
+     .\venv\Scripts\Activate.ps1
+     ```
+   - **Linux / macOS:**
+     ```bash
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
 
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Run the development server:
-   ```bash
-   uvicorn app.main:app --reload
+4. Configure environment variables (`backend/.env`):
+   ```env
+   # Add your Google Gemini API key (from https://aistudio.google.com/)
+   GEMINI_API_KEY="your-gemini-api-key"
+   GEMINI_MODEL="gemini-2.5-flash"
    ```
-   The API will be available at `http://localhost:8000`.
 
-### Frontend (Next.js)
+5. Run endpoint integration tests:
+   ```bash
+   python test_endpoints.py
+   ```
+
+6. Start the development server:
+   ```bash
+   uvicorn app.main:app --reload --port 8000
+   ```
+   *Health check:* `http://localhost:8000/api/health`  
+   *API documentation:* `http://localhost:8000/docs`
+
+---
+
+### 2. Frontend (Next.js)
 
 1. Navigate to the frontend directory:
    ```bash
@@ -44,32 +115,49 @@ The project is structured as a monorepo with two main directories:
 
 2. Install dependencies:
    ```bash
+   pnpm install
+   # or
    npm install
    ```
 
-3. Run the development server:
+3. Configure environment variables (`frontend/.env.local`):
+   ```env
+   NEXT_PUBLIC_API_URL="http://localhost:8000"
+   ```
+
+4. Run the development server:
    ```bash
+   pnpm dev
+   # or
    npm run dev
    ```
-   The UI will be available at `http://localhost:3000`.
+   Open **`http://localhost:3000/chat`** in your browser.
 
-## Deployment to Vercel
+---
 
-This project is configured for deployment on Vercel.
+## 🧪 Testing
 
-1. Install the Vercel CLI if you haven't already:
-   ```bash
-   npm install -g vercel
-   ```
+- **Backend Integration Tests:**
+  ```bash
+  cd backend
+  python test_endpoints.py
+  ```
+- **Frontend Type Checking:**
+  ```bash
+  cd frontend
+  npx tsc --noEmit
+  ```
+- **Frontend Production Build:**
+  ```bash
+  cd frontend
+  pnpm build
+  ```
 
-2. From the root of the project, you can deploy the frontend or backend separately, or configure a single Vercel project with custom routing depending on your preference.
+---
 
-### Deploying the Backend
-Navigate to the `backend/` folder and run `vercel`. The included `vercel.json` file configures the `@vercel/python` builder to deploy the FastAPI app as serverless functions.
+## 🚢 Deployment to Vercel
 
-### Deploying the Frontend
-Navigate to the `frontend/` folder and run `vercel`. Vercel automatically detects Next.js projects and configures them accordingly.
-
-## Extending the Swarm
-- **Backend:** Add new endpoints in `backend/app/main.py` (or create separate router files) to handle complex agent logic, external API calls, or database interactions.
-- **Frontend:** The `/chat` route demonstrates a basic interaction pattern. Expand this by integrating Vercel AI SDK or state management libraries as your swarm logic grows.
+Configured for serverless deployment on Vercel:
+- **Backend:** `backend/vercel.json` deploys `backend/app/main.py` via `@vercel/python`.
+- **Frontend:** Standard Next.js serverless build.
+- **State Note:** Persistent swarm state and conversation trees should be stored in Supabase as detailed in [`agent-instructions/backend-review.md`](agent-instructions/backend-review.md).
