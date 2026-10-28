@@ -9,6 +9,7 @@ import {
 } from "../../types";
 import StepCardEditor from "../../components/StepCardEditor";
 import VisualGraphEditor from "../../components/VisualGraphEditor";
+import { getAuthHeaders } from "@/lib/supabase";
 import {
   ArrowLeft,
   GitFork,
@@ -72,8 +73,10 @@ export default function SharedWorkflowViewPage() {
     if (!workflow) return;
     setIsForking(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows/${workflow.id}/fork`, {
         method: "POST",
+        headers: authHeaders,
       });
       if (res.ok) {
         const forked: Workflow = await res.json();
@@ -91,9 +94,13 @@ export default function SharedWorkflowViewPage() {
     setIsRunningTest(true);
     setTestResult(null);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows/${workflow.id}/run`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ inputs: { query: workflow.goal } }),
       });
       if (res.ok) {

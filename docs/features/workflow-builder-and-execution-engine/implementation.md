@@ -119,4 +119,22 @@
   - `npm --prefix frontend run build`: Exit code 0 (Static and dynamic pages compiled successfully).
 - **Result:** All verification checks and builds passed with zero errors.
 
+### Step 7: Workflow API Authentication & Supabase JWT Forwarding (2026-10-28T19:29:00+05:30)
+- **Files Changed:**
+  - `frontend/src/lib/supabase.ts`: Added `getSession()`, `getAuthToken()`, and `getAuthHeaders()` to extract the active Supabase JWT session token (`Bearer <token>`) with seamless local development fallback.
+  - `frontend/src/app/workflows/page.tsx`: Wired `getAuthHeaders()` into `fetchWorkflows`, `handleCreate` (`POST /api/workflows`), and `handleDelete`. Added user session email indicator, sign in/out controls in the top bar, and inline modal error presentation.
+  - `frontend/src/app/workflows/[id]/page.tsx`: Added `authHeaders` to `fetchWorkflow`, `fetchAuxiliary`, `handleSave`, and `handleRunSystemTest`.
+  - `frontend/src/app/workflows/components/ToolScriptEditor.tsx`: Added `authHeaders` to script tool CRUD and execution test API calls.
+  - `frontend/src/app/workflows/components/KnowledgeBaseManager.tsx`: Added `authHeaders` to document file upload and deletion endpoints.
+  - `frontend/src/app/workflows/components/StepUnitTestModal.tsx`: Added `authHeaders` to step unit test execution endpoint.
+  - `frontend/src/app/workflows/share/[shareSlug]/page.tsx`: Added `authHeaders` to workflow fork and sample run endpoints.
+  - `frontend/src/app/chat/components/WorkflowPickerModal.tsx`: Added `authHeaders` to workflow fetch query.
+  - `backend/app/auth.py`: Enhanced `get_optional_user` with resilient JWT claims extraction for token payload decoding during network fallback and development parity.
+- **Reason:** Resolve `POST /api/workflows 401 Unauthorized` encountered when logged-in users created workflows due to missing `Authorization: Bearer <token>` headers in frontend workflow requests.
+- **Commands Run:**
+  - `& "backend\venv\Scripts\python.exe" -u backend/test_endpoints.py`: Exit code 0 (25 of 25 tests passed).
+  - `npm --prefix frontend run lint`: Exit code 0 (Clean, 0 errors).
+  - `npm --prefix frontend run build`: Exit code 0 (Compiled all static and dynamic routes).
+- **Result:** Complete resolution. Authenticated sessions correctly transmit Bearer tokens across all workflow endpoints.
+
 

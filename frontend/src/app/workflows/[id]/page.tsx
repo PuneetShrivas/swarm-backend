@@ -13,6 +13,7 @@ import {
 import StepCardEditor from "../components/StepCardEditor";
 import VisualGraphEditor from "../components/VisualGraphEditor";
 import ToolScriptEditor from "../components/ToolScriptEditor";
+import { getAuthHeaders } from "@/lib/supabase";
 import KnowledgeBaseManager from "../components/KnowledgeBaseManager";
 import WorkflowRunsDebugger from "../components/WorkflowRunsDebugger";
 import StepUnitTestModal from "../components/StepUnitTestModal";
@@ -73,7 +74,10 @@ export default function WorkflowStudioPage() {
   // Fetch workflow detail
   const fetchWorkflow = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/${workflowId}`);
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`${apiUrl}/api/workflows/${workflowId}`, {
+        headers: authHeaders,
+      });
       if (res.ok) {
         const data: Workflow = await res.json();
         setWorkflow(data);
@@ -95,6 +99,8 @@ export default function WorkflowStudioPage() {
   // Fetch agents, tools, knowledge, runs
   const fetchAuxiliary = useCallback(async () => {
     try {
+      const authHeaders = await getAuthHeaders();
+
       // 1. Agents (Prebuilt + Custom)
       const resAgents = await fetch(`${apiUrl}/api/agents`);
       if (resAgents.ok) {
@@ -103,21 +109,27 @@ export default function WorkflowStudioPage() {
       }
 
       // 2. Tools
-      const resTools = await fetch(`${apiUrl}/api/workflow-tools`);
+      const resTools = await fetch(`${apiUrl}/api/workflow-tools`, {
+        headers: authHeaders,
+      });
       if (resTools.ok) {
         const toolData = await resTools.json();
         setTools(toolData);
       }
 
       // 3. Knowledge
-      const resKb = await fetch(`${apiUrl}/api/workflows/${workflowId}/knowledge`);
+      const resKb = await fetch(`${apiUrl}/api/workflows/${workflowId}/knowledge`, {
+        headers: authHeaders,
+      });
       if (resKb.ok) {
         const kbData = await resKb.json();
         setKnowledgeFiles(kbData);
       }
 
       // 4. Runs
-      const resRuns = await fetch(`${apiUrl}/api/workflows/${workflowId}/runs`);
+      const resRuns = await fetch(`${apiUrl}/api/workflows/${workflowId}/runs`, {
+        headers: authHeaders,
+      });
       if (resRuns.ok) {
         const runData = await resRuns.json();
         setRuns(runData);
@@ -150,9 +162,13 @@ export default function WorkflowStudioPage() {
     };
 
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows/${workflowId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -177,9 +193,13 @@ export default function WorkflowStudioPage() {
     setErrorMessage(null);
 
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows/${workflowId}/run`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ inputs: { query: goal } }),
       });
 

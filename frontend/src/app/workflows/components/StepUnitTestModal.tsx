@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { WorkflowStep, StepUnitTestResponse } from "../types";
+import { getAuthHeaders } from "@/lib/supabase";
 import {
   Play,
   X,
@@ -58,9 +59,13 @@ export default function StepUnitTestModal({
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows/${workflowId}/steps/${step.id}/test`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({
           step_id: step.id,
           mock_inputs: parsedInputs,

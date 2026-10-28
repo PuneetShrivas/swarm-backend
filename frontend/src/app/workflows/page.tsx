@@ -20,8 +20,12 @@ import {
   Bot,
   Loader2,
   Share2,
+  LogIn,
+  LogOut,
+  AlertCircle,
 } from "lucide-react";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import { supabase, getAuthHeaders } from "@/lib/supabase";
 
 export default function WorkflowsDashboardPage() {
   const router = useRouter();
@@ -29,6 +33,7 @@ export default function WorkflowsDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "mine" | "shared">("all");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // Create Modal state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -36,14 +41,41 @@ export default function WorkflowsDashboardPage() {
   const [newGoal, setNewGoal] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+  // Check auth session
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserEmail(session?.user?.email || null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user?.email || null);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUserEmail(null);
+    fetchWorkflows();
+  };
+
   const fetchWorkflows = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/workflows`);
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`${apiUrl}/api/workflows`, {
+        headers: authHeaders,
+      });
       if (res.ok) {
         const data: Workflow[] = await res.json();
         setWorkflows(data);
@@ -62,6 +94,7 @@ export default function WorkflowsDashboardPage() {
   const handleCreate = async () => {
     if (!newTitle.trim() || !newGoal.trim()) return;
     setIsCreating(true);
+    setCreateError(null);
 
     try {
       const payload = {
@@ -92,9 +125,13 @@ export default function WorkflowsDashboardPage() {
         edges: [{ source: "step_1", target: "step_2" }],
       };
 
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -102,9 +139,17 @@ export default function WorkflowsDashboardPage() {
         const created: Workflow = await res.json();
         setIsCreateOpen(false);
         router.push(`/workflows/${created.id}`);
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          setCreateError("Your session expired or you are not signed in. Please sign in to create workflows.");
+        } else {
+          setCreateError(errJson.detail || `Failed to create workflow (${res.status})`);
+        }
       }
     } catch (err) {
       console.error("Create workflow error:", err);
+      setCreateError("Network or server connection failed. Please ensure the backend is running.");
     } finally {
       setIsCreating(false);
     }
@@ -114,7 +159,11 @@ export default function WorkflowsDashboardPage() {
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this workflow?")) return;
     try {
-      await fetch(`${apiUrl}/api/workflows/${id}`, { method: "DELETE" });
+      const authHeaders = await getAuthHeaders();
+      await fetch(`${apiUrl}/api/workflows/${id}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
       setWorkflows((prev) => prev.filter((w) => w.id !== id));
     } catch (err) {
       console.error("Delete workflow error:", err);
@@ -170,12 +219,34 @@ export default function WorkflowsDashboardPage() {
               setNewTitle("New Autonomous Workflow");
               setNewGoal("Define the primary goal of this workflow...");
               setNewDescription("");
+              setCreateError(null);
               setIsCreateOpen(true);
             }}
             className="px-3.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition flex items-center gap-1.5 shadow-subtle"
           >
             <Plus size={14} /> New Workflow
           </button>
+          {userEmail ? (
+            <div className="flex items-center gap-1.5 pl-1.5 border-l border-border/60">
+              <span className="text-[11px] text-muted-foreground hidden lg:inline max-w-[140px] truncate" title={userEmail}>
+                {userEmail}
+              </span>
+              <button
+                onClick={handleSignOut}
+                title="Sign out"
+                className="p-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition"
+              >
+                <LogOut size={13} />
+              </button>
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              className="px-2.5 py-1.5 text-xs border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 rounded-xl transition flex items-center gap-1"
+            >
+              <LogIn size={13} /> Sign In
+            </Link>
+          )}
           <ThemeSwitcher />
         </div>
       </header>
@@ -369,6 +440,13 @@ export default function WorkflowsDashboardPage() {
                 />
               </div>
             </div>
+
+            {createError && (
+              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                <span>{createError}</span>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
               <button

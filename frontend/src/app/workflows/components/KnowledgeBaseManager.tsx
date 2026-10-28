@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { KnowledgeFile } from "../types";
+import { getAuthHeaders } from "@/lib/supabase";
 import {
   FileText,
   Upload,
@@ -47,9 +48,13 @@ export default function KnowledgeBaseManager({
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
       try {
+        const authHeaders = await getAuthHeaders();
         const res = await fetch(`${apiUrl}/api/workflows/${workflowId}/knowledge/upload`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
           body: JSON.stringify({
             file_name: file.name,
             content_text: text,
@@ -79,9 +84,13 @@ export default function KnowledgeBaseManager({
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(`${apiUrl}/api/workflows/${workflowId}/knowledge/upload`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({
           file_name: fileName,
           content_text: contentText,
@@ -109,8 +118,10 @@ export default function KnowledgeBaseManager({
     if (readOnly || !confirm("Are you sure you want to remove this knowledge document?")) return;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     try {
+      const authHeaders = await getAuthHeaders();
       await fetch(`${apiUrl}/api/workflows/${workflowId}/knowledge/${fileId}`, {
         method: "DELETE",
+        headers: authHeaders,
       });
       onRefreshFiles();
     } catch (err) {

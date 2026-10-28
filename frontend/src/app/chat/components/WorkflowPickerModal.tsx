@@ -10,6 +10,7 @@ import {
   Search,
   Loader2,
 } from "lucide-react";
+import { getAuthHeaders } from "@/lib/supabase";
 
 interface WorkflowSummary {
   id: string;
@@ -42,7 +43,10 @@ export default function WorkflowPickerModal({
       setIsLoading(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       try {
-        const res = await fetch(`${apiUrl}/api/workflows`);
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch(`${apiUrl}/api/workflows`, {
+          headers: authHeaders,
+        });
         if (res.ok) {
           const data: WorkflowSummary[] = await res.json();
           setWorkflows(data);

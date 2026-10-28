@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { ScriptTool } from "../types";
+import { getAuthHeaders } from "@/lib/supabase";
 import {
   Code2,
   Plus,
@@ -114,9 +115,13 @@ export default function ToolScriptEditor({
         : `${apiUrl}/api/workflow-tools/${selectedTool?.id}`;
       const method = isCreating ? "POST" : "PUT";
 
+      const authHeaders = await getAuthHeaders();
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -137,7 +142,11 @@ export default function ToolScriptEditor({
     if (readOnly || !confirm("Are you sure you want to delete this script tool?")) return;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     try {
-      await fetch(`${apiUrl}/api/workflow-tools/${toolId}`, { method: "DELETE" });
+      const authHeaders = await getAuthHeaders();
+      await fetch(`${apiUrl}/api/workflow-tools/${toolId}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
       if (selectedTool?.id === toolId) setSelectedTool(null);
       onRefreshTools();
     } catch (err) {
@@ -164,9 +173,13 @@ export default function ToolScriptEditor({
     try {
       // If tool exists, test via endpoint; if drafting, save temporary or run endpoint
       if (selectedTool?.id) {
+        const authHeaders = await getAuthHeaders();
         const res = await fetch(`${apiUrl}/api/workflow-tools/${selectedTool.id}/test`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
           body: JSON.stringify({ input_data: parsedInput, context: {} }),
         });
         const data = await res.json();
