@@ -17,6 +17,10 @@ import {
   Wrench,
   ChevronDown,
   ChevronUp,
+  Layers,
+  Sparkles,
+  Server,
+  Zap,
 } from "lucide-react";
 import { ChatNode } from "../types";
 
@@ -48,6 +52,12 @@ export default function MessageItem({
   const hasMultipleVersions = siblingInfo.total > 1;
   const hasToolCalls =
     node.metadata?.tool_calls && node.metadata.tool_calls.length > 0;
+
+  const isDelegated =
+    !isUser &&
+    node.metadata?.agent_id &&
+    node.metadata.agent_id !== "orchestrator" &&
+    node.metadata?.tool_calls?.some((tc) => tc.tool === "swarm_router");
 
   const handleCopy = async () => {
     try {
@@ -98,10 +108,12 @@ export default function MessageItem({
         className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-subtle border ${
           isUser
             ? "bg-primary border-primary/40 text-primary-foreground"
+            : isDelegated
+            ? "bg-card border-primary/40 text-primary"
             : "bg-card border-border/80 text-primary"
         }`}
       >
-        {isUser ? <User size={15} /> : <Bot size={15} />}
+        {isUser ? <User size={15} /> : isDelegated ? <Layers size={15} /> : <Bot size={15} />}
       </div>
 
       {/* Message Body & Actions Container */}
@@ -118,6 +130,24 @@ export default function MessageItem({
               : "bg-card border border-border/80 text-card-foreground rounded-tl-sm"
           }`}
         >
+          {/* Orchestrator Delegation Trace Banner */}
+          {isDelegated && (
+            <div className="mb-2.5 pb-2 border-b border-border/50 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono">
+              <div className="flex items-center gap-1.5">
+                <Layers size={13} className="text-primary shrink-0" />
+                <span>Orchestrator dispatched to</span>
+                <span className="font-semibold text-foreground px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/25">
+                  {node.metadata?.agent_name || node.metadata?.agent_id}
+                </span>
+              </div>
+              {node.metadata?.latency_ms && (
+                <span className="text-[10px] text-muted-foreground/70">
+                  {node.metadata.latency_ms}ms
+                </span>
+              )}
+            </div>
+          )}
+
           {isEditing ? (
             <div className="w-full min-w-[280px] sm:min-w-[420px] text-foreground">
               <textarea
@@ -205,8 +235,8 @@ export default function MessageItem({
                     <span>
                       {node.metadata?.tool_calls?.length}{" "}
                       {node.metadata?.tool_calls?.length === 1
-                        ? "tool call"
-                        : "tool calls"}
+                        ? "tool execution"
+                        : "tool executions"}
                     </span>
                     {showTools ? (
                       <ChevronUp size={13} className="ml-0.5 text-muted-foreground" />
@@ -223,29 +253,48 @@ export default function MessageItem({
                         exit={{ opacity: 0, height: 0 }}
                         className="mt-2 space-y-2 overflow-hidden text-xs"
                       >
-                        {node.metadata?.tool_calls?.map((tc, idx) => (
-                          <div
-                            key={idx}
-                            className="p-3 rounded-xl bg-zinc-950 text-zinc-200 font-mono text-[11px] overflow-x-auto border border-zinc-800 shadow-subtle"
-                          >
-                            <div className="text-amber-400 font-semibold mb-1 flex items-center gap-1.5">
-                              <span>⚡</span>
-                              <span>{tc.tool}</span>
+                        {node.metadata?.tool_calls?.map((tc, idx) => {
+                          const resObj = tc.result as Record<string, unknown> | undefined;
+                          const hasMcp = Boolean(resObj?.mcp_servers && Array.isArray(resObj.mcp_servers) && resObj.mcp_servers.length > 0);
+
+                          return (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-xl bg-zinc-950 text-zinc-200 font-mono text-[11px] overflow-x-auto border border-zinc-800 shadow-subtle"
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="text-amber-400 font-semibold flex items-center gap-1.5">
+                                  <Zap size={12} className="text-amber-400" />
+                                  <span>{tc.tool}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {hasMcp ? (
+                                    <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded bg-violet-500/20 text-violet-400 border border-violet-500/30">
+                                      <Server size={10} />
+                                      <span>MCP Ready</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                                      Swarm Tool
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {tc.args && (
+                                <div className="text-zinc-400 mt-1">
+                                  <span className="text-zinc-500">args: </span>
+                                  {JSON.stringify(tc.args)}
+                                </div>
+                              )}
+                              {tc.result !== undefined && (
+                                <div className="text-emerald-400 mt-1.5 pt-1.5 border-t border-zinc-800">
+                                  <span className="text-zinc-500">result: </span>
+                                  {JSON.stringify(tc.result)}
+                                </div>
+                              )}
                             </div>
-                            {tc.args && (
-                              <div className="text-zinc-400 mt-1">
-                                <span className="text-zinc-500">args: </span>
-                                {JSON.stringify(tc.args)}
-                              </div>
-                            )}
-                            {tc.result !== undefined && (
-                              <div className="text-emerald-400 mt-1.5 pt-1.5 border-t border-zinc-800">
-                                <span className="text-zinc-500">result: </span>
-                                {JSON.stringify(tc.result)}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -261,9 +310,21 @@ export default function MessageItem({
                   </span>
                   {node.metadata?.agent_id && (
                     <span className="text-[11px] text-muted-foreground">
-                      via {String(node.metadata.agent_id)}
+                      via {String(node.metadata.agent_name || node.metadata.agent_id)}
                     </span>
                   )}
+                  {/* Skills Invoked Chips */}
+                  {node.metadata?.skills_invoked &&
+                    Array.isArray(node.metadata.skills_invoked) &&
+                    node.metadata.skills_invoked.map((sk: string, i: number) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
+                      >
+                        <Sparkles size={9} />
+                        <span>{sk}</span>
+                      </span>
+                    ))}
                 </div>
               )}
             </>

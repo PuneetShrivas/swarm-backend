@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "tools": ["read_file", "write_file", "list_directory", "get_file_info"]
+    },
+    {
+      "name": "git",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-git"],
+      "tools": ["git_status", "git_diff", "git_log"]
+    }
+  ]
+}

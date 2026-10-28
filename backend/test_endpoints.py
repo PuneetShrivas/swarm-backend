@@ -6,48 +6,82 @@ client = TestClient(app)
 
 def run_tests():
     print("========================================")
-    print("Testing Swarm Backend Endpoints")
+    print("Testing Modular Swarm Backend Endpoints")
     print("========================================\n")
 
     # 1. Test Root
     res = client.get("/")
     assert res.status_code == 200, f"Root failed: {res.status_code}"
-    print("PASS: GET / ->", res.json())
+    root_data = res.json()
+    assert root_data["version"] == "2.0.0"
+    assert root_data["agents_count"] >= 6
+    print("PASS: GET / ->", root_data)
 
-    # 2. Test Health
+    # 2. Test Health with 6 Agents
     res = client.get("/api/health")
     assert res.status_code == 200, f"Health check failed: {res.status_code}"
     health_data = res.json()
     assert health_data["status"] == "ok"
-    assert health_data["agents_online"] >= 2
+    assert health_data["agents_online"] >= 6
     assert "supabase_configured" in health_data
+    expected_agents = ["orchestrator", "researcher", "coder", "reviewer", "data_analyst", "synthesizer"]
+    for expected in expected_agents:
+        assert expected in health_data["active_agents"], f"Missing agent '{expected}' in health check"
     print("PASS: GET /api/health ->", health_data)
 
     # 3. Test Agents Roster
     res = client.get("/api/agents")
     assert res.status_code == 200, f"Get agents failed: {res.status_code}"
     agents = res.json()
-    assert len(agents) >= 2
+    assert len(agents) >= 6
     agent_ids = [a["id"] for a in agents]
-    assert "researcher" in agent_ids
-    assert "coder" in agent_ids
+    for expected in expected_agents:
+        assert expected in agent_ids, f"Agent '{expected}' missing from roster"
     print(f"PASS: GET /api/agents -> Found {len(agents)} agents: {agent_ids}")
 
-    # 4. Test Create Agent
+    # 4. Test Deep Agent Inspection (/api/agents/{agent_id})
+    res = client.get("/api/agents/orchestrator")
+    assert res.status_code == 200, f"Failed getting orchestrator: {res.status_code}"
+    orch = res.json()
+    assert orch["id"] == "orchestrator"
+    assert orch["is_orchestrator"] is True
+    assert len(orch["tools"]) >= 2
+    assert len(orch["skills"]) >= 3
+    assert len(orch["mcp_servers"]) >= 1
+    print(f"PASS: GET /api/agents/orchestrator -> {orch['name']} (tools: {len(orch['tools'])}, skills: {len(orch['skills'])}, mcp: {len(orch['mcp_servers'])})")
+
+    res = client.get("/api/agents/reviewer")
+    assert res.status_code == 200
+    rev = res.json()
+    assert rev["id"] == "reviewer"
+    assert len(rev["skills"]) >= 3
+    print(f"PASS: GET /api/agents/reviewer -> {rev['name']} (skills: {len(rev['skills'])})")
+
+    res = client.get("/api/agents/nonexistent-agent-id")
+    assert res.status_code == 404
+    print("PASS: GET /api/agents/nonexistent-agent-id -> 404 Not Found")
+
+    # 5. Test Create Custom Agent
     new_agent = {
         "id": "qa-tester",
         "name": "QA Specialist",
         "role": "Performs integration and automated regression testing",
         "status": "active",
+        "model": "gemini-2.5-flash",
+        "temperature": 0.1,
+        "is_orchestrator": False,
         "system_prompt": "You are a test engineer validating swarm APIs.",
+        "tools": [],
+        "skills": [],
+        "mcp_servers": [],
     }
     res = client.post("/api/agents", json=new_agent)
     assert res.status_code == 200, f"Create agent failed: {res.status_code}"
     created = res.json()
     assert created["id"] == "qa-tester"
-    print("PASS: POST /api/agents -> Created agent:", created["name"])
+    print("PASS: POST /api/agents -> Created custom agent:", created["name"])
 
-    # 5. Test Chat with Auto Routing (Coding query)
+    # 6. Test Chat with Auto Routing (Coding query)
     coding_chat = {
         "messages": [
             {
@@ -65,7 +99,55 @@ def run_tests():
     assert msg["metadata"]["agent_id"] == "coder"
     print(f"PASS: POST /api/chat (coding intent) -> Routed to {msg['metadata']['agent_id']}")
 
-    # 6. Test Chat with Explicit Target Agent ("researcher")
+    # 7. Test Chat with Auto Routing to Reviewer (Security audit query)
+    security_chat = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Can you perform a security audit on this code for vulnerabilities?",
+                "metadata": {}
+            }
+        ]
+    }
+    res = client.post("/api/chat", json=security_chat)
+    assert res.status_code == 200
+    msg = res.json()
+    assert msg["metadata"]["agent_id"] == "reviewer"
+    print(f"PASS: POST /api/chat (security audit intent) -> Routed to {msg['metadata']['agent_id']}")
+
+    # 8. Test Chat with Auto Routing to Data Analyst (Statistics query)
+    data_chat = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Please calculate the mean, median, and stdev for these statistics",
+                "metadata": {}
+            }
+        ]
+    }
+    res = client.post("/api/chat", json=data_chat)
+    assert res.status_code == 200
+    msg = res.json()
+    assert msg["metadata"]["agent_id"] == "data_analyst"
+    print(f"PASS: POST /api/chat (statistics intent) -> Routed to {msg['metadata']['agent_id']}")
+
+    # 9. Test Chat with Auto Routing to Swarm Orchestrator (Generic inquiry)
+    orch_chat = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Hello! Can you help plan our swarm workflow today?",
+                "metadata": {}
+            }
+        ]
+    }
+    res = client.post("/api/chat", json=orch_chat)
+    assert res.status_code == 200
+    msg = res.json()
+    assert msg["metadata"]["agent_id"] == "orchestrator"
+    print(f"PASS: POST /api/chat (generic intent) -> Routed to {msg['metadata']['agent_id']}")
+
+    # 10. Test Chat with Explicit Target Agent ("researcher")
     research_chat = {
         "messages": [
             {
@@ -82,12 +164,12 @@ def run_tests():
     assert msg["metadata"]["agent_id"] == "researcher"
     print(f"PASS: POST /api/chat (targeted 'researcher') -> Routed to {msg['metadata']['agent_id']}")
 
-    # 7. Test Auth Enforcement on Protected Endpoints
+    # 11. Test Auth Enforcement on Protected Endpoints
     res = client.get("/api/sessions")
     assert res.status_code == 401, f"Expected 401 unauthorized on /api/sessions without auth, got {res.status_code}"
     print("PASS: GET /api/sessions without auth header returned 401 Unauthorized")
 
-    # 8. Test Session Creation with Authenticated User
+    # 12. Test Session Creation with Authenticated User
     auth_headers = {"Authorization": "Bearer test-user-uuid-1"}
     res = client.get("/api/sessions", headers=auth_headers)
     assert res.status_code == 200, f"Failed listing sessions: {res.status_code}"
@@ -102,7 +184,7 @@ def run_tests():
     session_id = session["id"]
     print(f"PASS: POST /api/sessions -> Created session '{session['title']}' (id: {session_id})")
 
-    # 9. Test Session Retrieval
+    # 13. Test Session Retrieval
     res = client.get(f"/api/sessions/{session_id}", headers=auth_headers)
     assert res.status_code == 200, f"Failed getting session detail: {res.status_code}"
     detail = res.json()
@@ -110,14 +192,14 @@ def run_tests():
     assert isinstance(detail["messages"], list)
     print(f"PASS: GET /api/sessions/{session_id} -> Retrieved session with {len(detail['messages'])} messages")
 
-    # 10. Test Session Update (Rename)
+    # 14. Test Session Update (Rename)
     res = client.patch(f"/api/sessions/{session_id}", json={"title": "Renamed AI Session"}, headers=auth_headers)
     assert res.status_code == 200, f"Failed renaming session: {res.status_code}"
     updated_session = res.json()
     assert updated_session["title"] == "Renamed AI Session"
     print("PASS: PATCH /api/sessions/{session_id} -> Successfully updated title to 'Renamed AI Session'")
 
-    # 11. Test Chat Turn Linked to Session (Persisting messages & recording usage)
+    # 15. Test Chat Turn Linked to Session (Persisting messages & recording usage)
     session_chat = {
         "session_id": session_id,
         "messages": [
@@ -145,7 +227,7 @@ def run_tests():
     assert "agent" in roles
     print(f"PASS: Session history verified: {len(detail['messages'])} messages stored (user + agent turns)")
 
-    # 12. Test Usage Telemetry Aggregation
+    # 16. Test Usage Telemetry Aggregation
     res = client.get("/api/usage", headers=auth_headers)
     assert res.status_code == 200, f"Usage retrieval failed: {res.status_code}"
     usage = res.json()
@@ -154,7 +236,7 @@ def run_tests():
     assert len(usage["recent_activity"]) >= 1
     print(f"PASS: GET /api/usage -> Total tokens: {usage['total_tokens']}, Requests: {usage['total_requests']}")
 
-    # 13. Test Session Deletion
+    # 17. Test Session Deletion
     res = client.delete(f"/api/sessions/{session_id}", headers=auth_headers)
     assert res.status_code == 200, f"Delete session failed: {res.status_code}"
     print(f"PASS: DELETE /api/sessions/{session_id} -> Deleted successfully")
@@ -165,7 +247,7 @@ def run_tests():
     print("PASS: Verified session is no longer accessible (404)")
 
     print("\n========================================")
-    print("ALL 13 ENDPOINT TESTS PASSED SUCCESSFULLY!")
+    print("ALL 17 MODULAR ENDPOINT TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

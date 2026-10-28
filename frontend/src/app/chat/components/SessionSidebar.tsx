@@ -18,6 +18,13 @@ import {
   Sparkles,
   ArrowLeft,
   Loader2,
+  Info,
+  Layers,
+  Search,
+  Code2,
+  ShieldCheck,
+  BarChart2,
+  FileText,
 } from "lucide-react";
 import { ChatSession, Agent } from "../types";
 
@@ -36,6 +43,7 @@ interface SessionSidebarProps {
   selectedAgentId: string | null;
   onSelectAgent: (agentId: string | null) => void;
   isLoadingSessions: boolean;
+  onInspectAgent?: (agent: Agent) => void;
 }
 
 export default function SessionSidebar({
@@ -53,10 +61,11 @@ export default function SessionSidebar({
   selectedAgentId,
   onSelectAgent,
   isLoadingSessions,
+  onInspectAgent,
 }: SessionSidebarProps) {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [isSwarmExpanded, setIsSwarmExpanded] = useState(false);
+  const [isSwarmExpanded, setIsSwarmExpanded] = useState(true);
 
   const startEditing = (s: ChatSession, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -84,6 +93,33 @@ export default function SessionSidebar({
     }
   };
 
+  const getAgentIcon = (id: string, isOrchestrator?: boolean) => {
+    if (isOrchestrator || id === "orchestrator") return <Layers className="w-3.5 h-3.5 text-primary" />;
+    switch (id) {
+      case "researcher":
+        return <Search className="w-3.5 h-3.5 text-blue-500" />;
+      case "coder":
+        return <Code2 className="w-3.5 h-3.5 text-emerald-500" />;
+      case "reviewer":
+        return <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />;
+      case "data_analyst":
+        return <BarChart2 className="w-3.5 h-3.5 text-violet-500" />;
+      case "synthesizer":
+        return <FileText className="w-3.5 h-3.5 text-cyan-500" />;
+      default:
+        return <Bot className="w-3.5 h-3.5 text-muted-foreground" />;
+    }
+  };
+
+  // Sort: Orchestrator pinned first, then alphabetical specialists
+  const sortedAgents = [...agents].sort((a, b) => {
+    const aIsOrch = a.is_orchestrator || a.id === "orchestrator";
+    const bIsOrch = b.is_orchestrator || b.id === "orchestrator";
+    if (aIsOrch) return -1;
+    if (bIsOrch) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
   return (
     <aside className="w-72 bg-card border-r border-border/80 flex flex-col h-full shadow-subtle z-10 hidden md:flex select-none transition-colors duration-200">
       {/* Top Header / App Brand */}
@@ -93,10 +129,11 @@ export default function SessionSidebar({
             <Bot size={18} />
           </div>
           <div>
-            <h2 className="text-sm font-semibold tracking-tight text-foreground">
+            <h2 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-1.5">
               Agent Swarm
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-primary/15 text-primary">v2.0</span>
             </h2>
-            <div className="text-[10px] text-muted-foreground">Conversations & Roster</div>
+            <div className="text-[10px] text-muted-foreground">Modular Multi-Agent System</div>
           </div>
         </Link>
 
@@ -124,7 +161,7 @@ export default function SessionSidebar({
       </div>
 
       {/* Chat Sessions History */}
-      <div className="flex-1 overflow-y-auto px-3 py-1 space-y-1">
+      <div className="flex-1 overflow-y-auto px-3 py-1 space-y-1 min-h-[140px]">
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1 flex items-center justify-between">
           <span>Conversations</span>
           {isLoadingSessions && <Loader2 size={11} className="animate-spin text-muted-foreground" />}
@@ -216,7 +253,7 @@ export default function SessionSidebar({
         )}
       </div>
 
-      {/* Collapsible Swarm Roster Section */}
+      {/* Swarm Roster Section (Pinning Orchestrator + Specialized Agents) */}
       <div className="border-t border-border/60 px-3 py-2">
         <button
           type="button"
@@ -231,28 +268,78 @@ export default function SessionSidebar({
         </button>
 
         {isSwarmExpanded && (
-          <div className="mt-1 space-y-1 max-h-36 overflow-y-auto">
-            {agents.map((agent) => {
+          <div className="mt-1 space-y-1.5 max-h-56 overflow-y-auto pr-1">
+            {sortedAgents.map((agent) => {
               const isSelected = selectedAgentId === agent.id;
+              const isOrch = agent.is_orchestrator || agent.id === "orchestrator";
+              const toolsCount = agent.tools?.length || 0;
+              const skillsCount = agent.skills?.length || 0;
+              const mcpCount = agent.mcp_servers?.length || 0;
+
               return (
                 <div
                   key={agent.id}
                   onClick={() => onSelectAgent(isSelected ? null : agent.id)}
-                  className={`p-2 rounded-lg text-xs cursor-pointer transition-all ${
+                  className={`group relative p-2 rounded-xl text-xs cursor-pointer transition-all border ${
                     isSelected
-                      ? "bg-primary/15 text-primary border border-primary/30"
-                      : "hover:bg-accent/60 text-muted-foreground hover:text-foreground"
+                      ? "bg-primary/15 text-primary border-primary/40 shadow-subtle"
+                      : isOrch
+                      ? "bg-card border-border/80 hover:border-primary/40 hover:bg-accent/40"
+                      : "bg-card/50 border-border/60 hover:bg-accent/60 text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-[11px] text-foreground">{agent.name}</span>
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        agent.status === "active" ? "bg-emerald-500" : "bg-amber-400"
-                      }`}
-                    />
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5 truncate">
+                      {getAgentIcon(agent.id, isOrch)}
+                      <span className={`font-semibold text-[11px] truncate ${isOrch ? "text-primary" : "text-foreground"}`}>
+                        {agent.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {onInspectAgent && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onInspectAgent(agent);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-primary transition-opacity"
+                          title={`Inspect ${agent.name} capabilities`}
+                        >
+                          <Info size={12} />
+                        </button>
+                      )}
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          agent.status === "active" ? "bg-emerald-500" : "bg-amber-400"
+                        }`}
+                      />
+                    </div>
                   </div>
-                  <div className="text-[10px] text-muted-foreground truncate">{agent.role}</div>
+
+                  <div className="text-[10px] text-muted-foreground truncate mb-1.5">
+                    {agent.role}
+                  </div>
+
+                  {/* Capabilities Badges */}
+                  <div className="flex items-center gap-1 text-[9px] font-mono">
+                    {toolsCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded bg-muted/80 text-muted-foreground border border-border/50">
+                        ⚡ {toolsCount} tools
+                      </span>
+                    )}
+                    {skillsCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded bg-muted/80 text-muted-foreground border border-border/50">
+                        ✦ {skillsCount} skills
+                      </span>
+                    )}
+                    {mcpCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded bg-muted/80 text-muted-foreground border border-border/50">
+                        🔌 {mcpCount} mcp
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}

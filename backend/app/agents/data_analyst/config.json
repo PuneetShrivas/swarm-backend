@@ -1,0 +1,11 @@
+{
+  "id": "data_analyst",
+  "name": "Data Analyst Agent",
+  "role": "Numerical modeling, statistical aggregations, and tabular intelligence",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.2,
+  "is_orchestrator": false,
+  "icon": "bar-chart",
+  "description": "Performs descriptive and inferential statistics, data transformations, structured query generation, and metrics analysis."
+}

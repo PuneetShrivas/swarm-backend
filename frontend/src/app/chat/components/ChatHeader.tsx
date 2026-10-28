@@ -1,7 +1,7 @@
 "use client";
 
 import { Agent } from "../types";
-import { Download, Trash2, Bot, Zap } from "lucide-react";
+import { Download, Trash2, Bot, Zap, Info, Layers } from "lucide-react";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 interface ChatHeaderProps {
@@ -14,6 +14,7 @@ interface ChatHeaderProps {
   sessionTitle?: string;
   totalTokensUsed?: number;
   onOpenUsage?: () => void;
+  onInspectAgent?: (agent: Agent) => void;
 }
 
 export default function ChatHeader({
@@ -26,15 +27,21 @@ export default function ChatHeader({
   sessionTitle,
   totalTokensUsed,
   onOpenUsage,
+  onInspectAgent,
 }: ChatHeaderProps) {
   const currentAgent = agents.find((a) => a.id === selectedAgentId);
+  const specialists = agents.filter((a) => !a.is_orchestrator && a.id !== "orchestrator");
 
   return (
     <header className="h-16 border-b border-border/80 bg-card/70 backdrop-blur-xl px-4 md:px-6 flex items-center justify-between sticky top-0 z-20 transition-colors duration-200">
       {/* Left: Swarm / Session Title */}
       <div className="flex items-center gap-3 truncate max-w-sm sm:max-w-md">
         <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shadow-subtle shrink-0">
-          <Bot size={18} />
+          {currentAgent?.is_orchestrator || !currentAgent ? (
+            <Layers size={18} />
+          ) : (
+            <Bot size={18} />
+          )}
         </div>
 
         <div className="truncate">
@@ -42,10 +49,29 @@ export default function ChatHeader({
             <span className="font-semibold text-foreground text-sm tracking-tight truncate">
               {sessionTitle || (currentAgent ? currentAgent.name : "Autonomous Agent Swarm")}
             </span>
-            <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shrink-0">
+
+            {/* Status & Inspect Trigger */}
+            <button
+              type="button"
+              onClick={() => currentAgent && onInspectAgent && onInspectAgent(currentAgent)}
+              disabled={!currentAgent}
+              className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all ${
+                currentAgent
+                  ? "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 cursor-pointer"
+                  : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+              }`}
+              title={currentAgent ? "View agent capabilities & tools" : "All swarm agents ready"}
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {agents.length > 0 ? `${agents.length} Online` : "Ready"}
-            </span>
+              {currentAgent ? (
+                <>
+                  <span>{currentAgent.name}</span>
+                  <Info size={10} className="ml-0.5 opacity-70" />
+                </>
+              ) : (
+                <span>{agents.length > 0 ? `${agents.length} Online` : "Ready"}</span>
+              )}
+            </button>
           </div>
 
           <div className="text-[11px] text-muted-foreground truncate">
@@ -72,7 +98,7 @@ export default function ChatHeader({
           </button>
         )}
 
-        {/* Agent Selector */}
+        {/* Grouped Agent Selector */}
         {agents.length > 0 && (
           <div className="hidden sm:flex items-center gap-1.5">
             <label htmlFor="agent-select" className="text-xs text-muted-foreground">
@@ -82,14 +108,18 @@ export default function ChatHeader({
               id="agent-select"
               value={selectedAgentId || ""}
               onChange={(e) => onSelectAgent(e.target.value || null)}
-              className="text-xs bg-muted/60 hover:bg-muted border border-border/80 rounded-lg px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+              className="text-xs bg-muted/60 hover:bg-muted border border-border/80 rounded-lg px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all cursor-pointer font-medium"
             >
-              <option value="">Swarm Orchestrator (Auto)</option>
-              {agents.map((ag) => (
-                <option key={ag.id} value={ag.id}>
-                  {ag.name} ({ag.role})
-                </option>
-              ))}
+              <option value="">Swarm Orchestrator (Auto Routing)</option>
+              {specialists.length > 0 && (
+                <optgroup label="Specialized Agents">
+                  {specialists.map((ag) => (
+                    <option key={ag.id} value={ag.id}>
+                      {ag.name} ({ag.role.slice(0, 32)}...)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
         )}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "literature_review",
+    "name": "Literature Review",
+    "description": "Surveys research papers, documentation, and technical articles to synthesize consensus views.",
+    "triggers": ["research", "literature", "paper", "background", "history"]
+  },
+  {
+    "id": "comparative_analysis",
+    "name": "Comparative Analysis",
+    "description": "Constructs side-by-side matrices comparing technologies, methodologies, or findings.",
+    "triggers": ["compare", "versus", "vs", "pros and cons", "tradeoffs"]
+  },
+  {
+    "id": "source_validation",
+    "name": "Source Validation",
+    "description": "Audits source credibility, author credentials, publication recency, and peer review status.",
+    "triggers": ["verify source", "citation", "fact check", "evidence"]
+  }
+]

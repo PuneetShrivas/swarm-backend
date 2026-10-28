@@ -25,6 +25,7 @@ import ChatInput from "./components/ChatInput";
 import ChatHeader from "./components/ChatHeader";
 import SessionSidebar from "./components/SessionSidebar";
 import UsageModal from "./components/UsageModal";
+import AgentDetailsModal from "./components/AgentDetailsModal";
 
 export default function Chat() {
   const [conversation, setConversation] = useState<ConversationState>(() =>
@@ -45,6 +46,10 @@ export default function Chat() {
   const [usage, setUsage] = useState<UserUsageSummary | null>(null);
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
   const [isLoadingUsage, setIsLoadingUsage] = useState(false);
+
+  // Agent Inspection Modal State
+  const [inspectingAgent, setInspectingAgent] = useState<Agent | null>(null);
+  const [isAgentDetailsOpen, setIsAgentDetailsOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -513,6 +518,10 @@ export default function Chat() {
         selectedAgentId={selectedAgentId}
         onSelectAgent={setSelectedAgentId}
         isLoadingSessions={isLoadingSessions}
+        onInspectAgent={(ag) => {
+          setInspectingAgent(ag);
+          setIsAgentDetailsOpen(true);
+        }}
       />
 
       {/* Main Chat Feed Area */}
@@ -528,6 +537,10 @@ export default function Chat() {
           sessionTitle={currentSessionObj?.title}
           totalTokensUsed={usage?.total_tokens}
           onOpenUsage={() => setIsUsageModalOpen(true)}
+          onInspectAgent={(ag) => {
+            setInspectingAgent(ag);
+            setIsAgentDetailsOpen(true);
+          }}
         />
 
         {/* Message Feed */}
@@ -591,6 +604,13 @@ export default function Chat() {
         usage={usage}
         isLoading={isLoadingUsage}
         onRefresh={() => session?.access_token && fetchUsage(session.access_token)}
+      />
+
+      {/* Agent Inspector Modal */}
+      <AgentDetailsModal
+        agent={inspectingAgent}
+        isOpen={isAgentDetailsOpen}
+        onClose={() => setIsAgentDetailsOpen(false)}
       />
     </div>
   );

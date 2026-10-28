@@ -1,0 +1,11 @@
+{
+  "id": "researcher",
+  "name": "Research Agent",
+  "role": "Synthesizes information, conducts investigation and deep factual analysis",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.3,
+  "is_orchestrator": false,
+  "icon": "search",
+  "description": "Performs in-depth research, validates claims, extracts citations, and synthesizes complex technical topics."
+}

@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "sentry-audit",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-sentry"],
+      "tools": ["list_issues", "get_issue_details"]
+    }
+  ]
+}

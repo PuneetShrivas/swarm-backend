@@ -1,0 +1,11 @@
+{
+  "id": "synthesizer",
+  "name": "Synthesizer Agent",
+  "role": "Technical writing, executive briefings, and cross-agent documentation",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.4,
+  "is_orchestrator": false,
+  "icon": "file-text",
+  "description": "Compiles comprehensive executive summaries, user manuals, release notes, and documentation from multi-agent outputs."
+}

@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "swarm-gateway",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "app.mcp.gateway"],
+      "tools": ["list_agents", "check_agent_health", "route_task"]
+    }
+  ]
+}

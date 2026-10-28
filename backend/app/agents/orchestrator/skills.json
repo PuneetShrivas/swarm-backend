@@ -1,0 +1,20 @@
+[
+  {
+    "id": "intent_classification",
+    "name": "Intent Classification",
+    "description": "Analyzes raw user input to extract semantic intents, constraints, and target operational domains.",
+    "triggers": ["route", "classify", "plan", "orchestrate"]
+  },
+  {
+    "id": "task_decomposition",
+    "name": "Task Decomposition",
+    "description": "Breaks down complex multi-objective inquiries into a DAG of sequential or parallel agent subtasks.",
+    "triggers": ["break down", "decompose", "multi-step", "workflow"]
+  },
+  {
+    "id": "response_synthesis",
+    "name": "Cross-Agent Synthesis",
+    "description": "Unifies outputs from multiple specialized agents into a seamless executive response.",
+    "triggers": ["synthesize", "combine", "summarize swarm"]
+  }
+]

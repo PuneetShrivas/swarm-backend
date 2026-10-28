@@ -1,0 +1,20 @@
+[
+  {
+    "id": "code_refactoring",
+    "name": "Code Refactoring",
+    "description": "Refactors complex or legacy code into clean, modular, and performant implementations.",
+    "triggers": ["refactor", "clean up", "optimize code", "modularize"]
+  },
+  {
+    "id": "debugging",
+    "name": "Root-Cause Debugging",
+    "description": "Diagnoses stack traces, logical bugs, and race conditions to recommend deterministic fixes.",
+    "triggers": ["debug", "fix bug", "error", "exception", "traceback"]
+  },
+  {
+    "id": "system_design",
+    "name": "Software Architecture",
+    "description": "Designs scalable API interfaces, data structures, and microservice relationships.",
+    "triggers": ["architecture", "design pattern", "api design", "schema design"]
+  }
+]

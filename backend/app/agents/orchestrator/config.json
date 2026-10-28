@@ -1,0 +1,11 @@
+{
+  "id": "orchestrator",
+  "name": "Swarm Orchestrator",
+  "role": "Autonomous swarm coordinator, task planner, and intent dispatcher",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.4,
+  "is_orchestrator": true,
+  "icon": "bot",
+  "description": "Evaluates incoming objectives, plans execution DAGs, delegates subtasks to specialized agents, and synthesizes multi-agent responses."
+}

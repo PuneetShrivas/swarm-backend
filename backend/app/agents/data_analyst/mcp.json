@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "sqlite-analytics",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "./data/analytics.db"],
+      "tools": ["read_query", "list_tables", "describe_table"]
+    },
+    {
+      "name": "postgres",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/swarm"],
+      "tools": ["query", "describe_table"]
+    }
+  ]
+}

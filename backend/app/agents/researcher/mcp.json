@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "fetch",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "tools": ["fetch_url", "extract_content"]
+    },
+    {
+      "name": "brave-search",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "tools": ["brave_web_search", "brave_local_search"]
+    }
+  ]
+}

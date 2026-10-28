@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "markdown-tools",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-markdown"],
+      "tools": ["lint_markdown", "generate_toc"]
+    }
+  ]
+}

@@ -8,8 +8,12 @@ export interface MessageMetadata {
   agent_state?: string;
   tool_calls?: ToolCall[];
   agent_id?: string;
+  agent_name?: string;
   target_agent_id?: string;
   tokens_used?: number;
+  skills_invoked?: string[];
+  model?: string;
+  latency_ms?: number;
   [key: string]: unknown;
 }
 
@@ -31,11 +35,44 @@ export interface ConversationState {
   currentLeafId: string | null;
 }
 
+export interface AgentTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler_name?: string;
+}
+
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description: string;
+  triggers: string[];
+}
+
+export interface AgentMCPServer {
+  name: string;
+  transport: 'stdio' | 'sse';
+  command?: string;
+  args?: string[];
+  url?: string;
+  tools: string[];
+  env?: Record<string, string>;
+}
+
 export interface Agent {
   id: string;
   name: string;
   role: string;
   status: string;
+  system_prompt?: string;
+  model?: string;
+  temperature?: number;
+  is_orchestrator?: boolean;
+  icon?: string;
+  description?: string;
+  tools?: AgentTool[];
+  skills?: AgentSkill[];
+  mcp_servers?: AgentMCPServer[];
 }
 
 /**

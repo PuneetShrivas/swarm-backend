@@ -1,0 +1,20 @@
+[
+  {
+    "id": "briefing_synthesis",
+    "name": "Briefing Synthesis",
+    "description": "Distills dense technical outputs into structured executive summaries and key decision matrices.",
+    "triggers": ["executive summary", "briefing", "overview", "tldr"]
+  },
+  {
+    "id": "documentation_design",
+    "name": "Documentation Design",
+    "description": "Produces production-grade READMEs, API specifications, and architecture decision records.",
+    "triggers": ["readme", "documentation", "docs", "guide", "manual"]
+  },
+  {
+    "id": "narrative_refinement",
+    "name": "Narrative Refinement",
+    "description": "Polishes clarity, conciseness, and tone consistency across user-facing communications.",
+    "triggers": ["polish", "rephrase", "clarify", "editorial"]
+  }
+]

@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-*Last Updated: 2026-10-28T16:30:00+05:30*
+*Last Updated: 2026-10-28T17:20:00+05:30*
 
 ## ADR 001: Supabase Schema for Chat Sessions, History, and Usage Tracking
 
@@ -43,7 +43,7 @@ We needed to persist chat sessions, conversation history, and usage metrics per 
 ## ADR 002: Token-Based Theming System and Multi-Palette Architecture
 
 ### Status
-Proposed (Pending Approval: 2026-10-28T16:30:00+05:30)
+Accepted (2026-10-28T16:47:00+05:30)
 
 ### Context
 The application had fragmented, hardcoded color schemes (e.g. hardcoded `bg-slate-950` on landing, `bg-gray-50` on login, `bg-slate-50` on chat) with no theme toggle or dark mode support on the main workspace. A cohesive modern design system is required supporting light/dark/system mode alongside curated aesthetic themes.
@@ -67,4 +67,41 @@ The application had fragmented, hardcoded color schemes (e.g. hardcoded `bg-slat
 
 ### Consequences
 - **Positive**: Complete visual consistency across all views; rich user personalization; clean separation of styling concerns via design tokens; zero flash on page reload.
-- **Negative / Considerations**: Requires refactoring hardcoded color classes across existing components to use semantic token classes (`bg-background`, `border-border`, `text-foreground`, etc.).
+- **Negative / Considerations**: Refactored hardcoded color classes across existing components to use semantic token classes (`bg-background`, `border-border`, `text-foreground`, etc.).
+
+---
+
+## ADR 003: Filesystem-Based Modular Agent Architecture and Standardized Asset Structure
+
+### Status
+Accepted (2026-10-28T17:36:00+05:30)
+
+### Context
+Previously, agents were hardcoded Python dictionaries within `backend/app/main.py`. As the swarm expands to include specialized agents (orchestrator, researcher, coder, reviewer, data analyst, synthesizer) along with tools, skills, and Model Context Protocol (MCP) server configurations, maintaining monolithic lists in `main.py` causes tight coupling, hampers extensibility, and makes prompt engineering difficult to review.
+
+### Decisions
+
+1. **Standardized Directory Layout per Agent**:
+   - Each agent resides in its own isolated subfolder under `backend/app/agents/<agent_id>/`.
+   - Each agent folder contains 5 standardized asset files:
+     - `config.json`: Metadata, model designation, temperature, icon, and operational status.
+     - `prompt.md`: Isolated Markdown system prompt containing personas, formatting guidelines, and operational guardrails.
+     - `tools.py`: Python callable functions and Gemini-compatible tool schema definitions.
+     - `skills.json`: Declarative capability descriptions, triggers, and execution workflows.
+     - `mcp.json`: Model Context Protocol server specifications (`stdio`/`sse`, commands, and exposed tool mappings).
+
+2. **Autonomous Orchestrator as a First-Class Agent**:
+   - The Orchestrator is refactored from a procedural if-else keyword branch into a dedicated agent package (`backend/app/agents/orchestrator/`).
+   - The Orchestrator is equipped with swarm dispatch tools (`swarm_router`, `swarm_delegate`) and system prompt tuning enabling it to act as the cognitive hub of the swarm.
+
+3. **Auto-Discovery via `AgentRegistry`**:
+   - An `AgentRegistry` singleton scans `backend/app/agents/*/` at startup, dynamically parses asset files, instantiates `BaseAgent` objects, and exposes querying and reloading APIs.
+   - External custom agents registered via `POST /api/agents` are stored in registry memory without overwriting filesystem assets.
+
+4. **Backward-Compatible API Interface**:
+   - `/api/agents` returns the established fields (`id`, `name`, `role`, `status`, `system_prompt`) ensuring existing clients do not break, while augmenting with optional fields (`tools`, `skills`, `mcp_servers`, `is_orchestrator`, `model`).
+   - Added `/api/agents/{agent_id}` for granular inspection.
+
+### Consequences
+- **Positive**: Complete encapsulation; prompts can be version-controlled in plain Markdown; clear separation of tools and skills; native MCP readiness; zero breaking changes to existing endpoints.
+- **Negative / Considerations**: Introduces file I/O on startup (cached in memory); requires synchronizing frontend types in a planned follow-up phase.

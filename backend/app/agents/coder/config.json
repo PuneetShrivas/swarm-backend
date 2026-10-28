@@ -1,0 +1,11 @@
+{
+  "id": "coder",
+  "name": "Coder Agent",
+  "role": "Expert software engineer specializing in clean code, testing, and debugging",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.2,
+  "is_orchestrator": false,
+  "icon": "code",
+  "description": "Writes production-ready code, designs system architectures, executes refactors, and diagnoses errors."
+}

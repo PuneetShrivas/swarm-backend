@@ -1,0 +1,20 @@
+[
+  {
+    "id": "trend_analysis",
+    "name": "Trend Analysis",
+    "description": "Evaluates time-series and sequential data to detect velocity, momentum, and inflection points.",
+    "triggers": ["trend", "forecast", "time series", "growth rate"]
+  },
+  {
+    "id": "distribution_modeling",
+    "name": "Distribution Modeling",
+    "description": "Analyzes skewness, kurtosis, and outlier anomalies in numerical datasets.",
+    "triggers": ["distribution", "outlier", "anomaly", "percentile", "variance"]
+  },
+  {
+    "id": "data_cleansing",
+    "name": "Data Cleansing",
+    "description": "Standardizes malformed numbers, strips null values, and validates types.",
+    "triggers": ["clean data", "transform", "normalize", "sanitize table"]
+  }
+]

@@ -14,6 +14,14 @@ from app.supabase import (
     get_user_supabase_client,
     memory_store,
 )
+from app.agents import (
+    agent_registry,
+    AgentProfile,
+    ToolDefinition,
+    SkillDefinition,
+    MCPServerConfig,
+    BaseAgent,
+)
 
 # Load environment variables from .env
 load_dotenv()
@@ -22,8 +30,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 # Initialize FastAPI application
 app = FastAPI(
     title="Swarm Backend API",
-    version="1.2.0",
-    description="FastAPI service for running an autonomous AI agent swarm powered by Google Gemini, with Supabase session and usage persistence.",
+    version="2.0.0",
+    description="FastAPI service for running an autonomous AI agent swarm with modular packages, standardized asset files, Supabase session persistence, and token telemetry.",
 )
 
 # CORS middleware for Next.js frontend communication
@@ -35,16 +43,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize Agent Registry
+agent_registry.initialize()
+
 # ---------------------------------------------------------
 # Data Models
 # ---------------------------------------------------------
 
-class Agent(BaseModel):
-    id: str = Field(..., description="Unique agent identifier (e.g. 'researcher', 'coder')")
-    name: str = Field(..., description="Display name for the agent")
-    role: str = Field(..., description="Specialty and purpose of the agent")
-    status: str = Field(default="active", description="Operational state ('active', 'busy', 'idle', 'offline')")
-    system_prompt: Optional[str] = Field(None, description="Specialized system instructions defining agent persona")
+# Backward-compatible Agent alias mapping to AgentProfile
+Agent = AgentProfile
 
 class ToolCall(BaseModel):
     tool: str
@@ -102,35 +109,26 @@ class UsageSummary(BaseModel):
     recent_activity: List[Dict[str, Any]]
 
 # ---------------------------------------------------------
-# Swarm Database (Pre-populated with 2 Basic Agents)
+# Swarm Agents Database Proxy (Synchronized with AgentRegistry)
 # ---------------------------------------------------------
 
-DEFAULT_AGENTS: List[Agent] = [
-    Agent(
-        id="researcher",
-        name="Research Agent",
-        role="Synthesizes information, conducts analysis and deep research",
-        status="active",
-        system_prompt=(
-            "You are the Research Agent in an autonomous AI agent swarm. "
-            "Your specialty is thorough investigation, structured synthesis, and clear factual analysis. "
-            "Organize responses with clear markdown headings, bullet points, and actionable takeaways."
-        ),
-    ),
-    Agent(
-        id="coder",
-        name="Coder Agent",
-        role="Expert software engineer specializing in clean code and debugging",
-        status="active",
-        system_prompt=(
-            "You are the Coder Agent in an autonomous AI agent swarm. "
-            "Your specialty is writing production-ready, clean, well-tested code across modern stacks. "
-            "Provide concise technical explanations, adhere to type safety, and highlight key design decisions."
-        ),
-    ),
-]
+class _AgentsDBProxy(list):
+    def __iter__(self):
+        return iter(agent_registry.get_all())
 
-agents_db: List[Agent] = list(DEFAULT_AGENTS)
+    def __len__(self):
+        return len(agent_registry.get_all())
+
+    def __getitem__(self, index):
+        return agent_registry.get_all()[index]
+
+    def append(self, item):
+        if isinstance(item, AgentProfile):
+            agent_registry.register_custom(item)
+        elif isinstance(item, dict):
+            agent_registry.register_custom(AgentProfile(**item))
+
+agents_db = _AgentsDBProxy()
 
 # ---------------------------------------------------------
 # Persistence Helper Functions
@@ -148,7 +146,6 @@ def db_save_message(
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Saves or updates a message node into Supabase chat_messages (or memory_store)."""
-    # Sanitize parent_id: cannot be root-greeting, empty string, or self
     clean_parent = parent_id
     if clean_parent in (None, "", "root-greeting", "root", msg_id):
         clean_parent = None
@@ -169,7 +166,6 @@ def db_save_message(
         client = get_user_supabase_client(token)
         if client:
             try:
-                # If clean_parent is given, verify it exists in DB to avoid FK constraint violation
                 if clean_parent is not None:
                     chk = client.table("chat_messages").select("id").eq("id", clean_parent).eq("session_id", session_id).execute()
                     if not chk.data:
@@ -179,7 +175,6 @@ def db_save_message(
                 return record
             except Exception as e:
                 print(f"Supabase chat_messages insert error: {e}")
-                # Fallback: if parent_id still triggered an FK violation, retry safely with parent_id=None
                 if "violates foreign key constraint" in str(e) or "23503" in str(e):
                     try:
                         record["parent_id"] = None
@@ -247,27 +242,58 @@ def get_gemini_client():
         print(f"Warning: Failed to initialize Gemini client: {e}")
         return None, None
 
-def route_agent(target_id: Optional[str], last_user_content: str) -> Agent:
-    """Selects the target agent or auto-routes based on prompt intent."""
-    if target_id:
-        for agent in agents_db:
-            if agent.id.lower() == target_id.lower():
-                return agent
-
-    # Automatic Swarm Routing
-    content_lower = last_user_content.lower()
-    coding_keywords = ["code", "function", "bug", "python", "javascript", "typescript", "fastapi", "react", "sql", "api", "git", "class", "error", "compile"]
-    if any(keyword in content_lower for keyword in coding_keywords):
-        for agent in agents_db:
-            if agent.id == "coder":
-                return agent
-
-    # Default to researcher
-    for agent in agents_db:
-        if agent.id == "researcher":
+def route_agent(target_id: Optional[str], last_user_content: str):
+    """
+    Selects the target agent or auto-routes based on prompt intent and agent specialties.
+    """
+    # 1. Explicit target selection
+    if target_id and target_id.strip():
+        agent = agent_registry.get(target_id.strip())
+        if agent:
             return agent
+        custom = agent_registry.get_profile(target_id.strip())
+        if custom:
+            return custom
 
-    return agents_db[0]
+    content_lower = last_user_content.lower()
+
+    # 2. Heuristic Intent Matching (Specialized intents evaluated first)
+    review_keywords = ["audit", "security", "vulnerability", "owasp", "leak", "test coverage", "qa", "lint", "complexity"]
+    if any(k in content_lower for k in review_keywords):
+        reviewer = agent_registry.get("reviewer")
+        if reviewer:
+            return reviewer
+
+    data_keywords = ["statistics", "mean", "median", "table", "csv", "percentile", "trend", "distribution", "variance", "stdev", "metrics"]
+    if any(k in content_lower for k in data_keywords):
+        analyst = agent_registry.get("data_analyst")
+        if analyst:
+            return analyst
+
+    synthesis_keywords = ["executive summary", "briefing", "readme", "documentation", "tldr", "docs", "manual", "guide"]
+    if any(k in content_lower for k in synthesis_keywords):
+        synth = agent_registry.get("synthesizer")
+        if synth:
+            return synth
+
+    coder_keywords = ["code", "function", "bug", "python", "javascript", "typescript", "fastapi", "react", "sql", "api", "git", "class", "error", "compile", "syntax", "refactor"]
+    if any(k in content_lower for k in coder_keywords):
+        coder = agent_registry.get("coder")
+        if coder:
+            return coder
+
+    research_keywords = ["research", "investigate", "history", "quantum", "paper", "scientific", "study", "fact check", "source", "citation"]
+    if any(k in content_lower for k in research_keywords):
+        researcher = agent_registry.get("researcher")
+        if researcher:
+            return researcher
+
+    # 3. Default to Swarm Orchestrator
+    orchestrator = agent_registry.get_orchestrator()
+    if orchestrator:
+        return orchestrator
+
+    return agent_registry.get_all()[0]
 
 # ---------------------------------------------------------
 # Root & System Endpoints
@@ -277,35 +303,45 @@ def route_agent(target_id: Optional[str], last_user_content: str) -> Agent:
 def read_root():
     return {
         "message": "Welcome to Swarm Backend API",
-        "version": "1.2.0",
+        "version": "2.0.0",
         "docs_url": "/docs",
         "supabase_connected": is_supabase_configured(),
+        "agents_count": len(agent_registry.get_all()),
     }
 
 @app.get("/api/health")
 def health_check():
     """Health check endpoint with swarm and database status."""
     _, api_key = get_gemini_client()
+    profiles = agent_registry.get_all()
     return {
         "status": "ok",
-        "agents_online": len(agents_db),
+        "agents_online": len(profiles),
         "gemini_configured": bool(api_key),
         "supabase_configured": is_supabase_configured(),
-        "active_agents": [agent.id for agent in agents_db],
+        "active_agents": [agent.id for agent in profiles],
     }
 
-@app.get("/api/agents", response_model=List[Agent])
+@app.get("/api/agents", response_model=List[AgentProfile])
 def get_agents():
     """Returns the roster of all active agents in the swarm."""
-    return agents_db
+    return agent_registry.get_all()
 
-@app.post("/api/agents", response_model=Agent)
-def create_agent(agent: Agent):
+@app.get("/api/agents/{agent_id}", response_model=AgentProfile)
+def get_agent_detail(agent_id: str):
+    """Retrieves deep inspection details for a specific agent in the swarm."""
+    profile = agent_registry.get_profile(agent_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Agent with id '{agent_id}' not found.")
+    return profile
+
+@app.post("/api/agents", response_model=AgentProfile)
+def create_agent(agent: AgentProfile):
     """Registers a new specialized agent into the swarm."""
-    for existing in agents_db:
+    for existing in agent_registry.get_all():
         if existing.id == agent.id:
             raise HTTPException(status_code=400, detail=f"Agent with id '{agent.id}' already exists.")
-    agents_db.append(agent)
+    agent_registry.register_custom(agent)
     return agent
 
 # ---------------------------------------------------------
@@ -504,6 +540,18 @@ def chat(
     client, api_key = get_gemini_client()
     start_time = time.time()
 
+    # Extract metadata properties from agent (handles BaseAgent and AgentProfile)
+    agent_id = getattr(selected_agent, "agent_id", None) or getattr(selected_agent, "id", "orchestrator")
+    config_obj = getattr(selected_agent, "config", None)
+    agent_name = getattr(config_obj, "name", None) or getattr(selected_agent, "name", "Swarm Orchestrator")
+    agent_role = getattr(config_obj, "role", None) or getattr(selected_agent, "role", "Coordinator")
+    agent_prompt = selected_agent.system_prompt or "You are a helpful AI assistant in an agent swarm."
+    agent_tools = getattr(selected_agent, "tools", [])
+    agent_skills = getattr(selected_agent, "skills", [])
+    agent_mcp = getattr(selected_agent, "mcp_servers", [])
+    agent_model = getattr(config_obj, "model", None) or getattr(selected_agent, "model", "gemini-2.5-flash")
+    agent_temp = getattr(config_obj, "temperature", None) or getattr(selected_agent, "temperature", 0.3)
+
     # Track user message persistence if session is active
     user_node_id = (
         request.user_message_id
@@ -537,10 +585,10 @@ def chat(
                     )
                 )
 
-            model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            model_name = os.environ.get("GEMINI_MODEL", agent_model)
             config = types.GenerateContentConfig(
-                system_instruction=selected_agent.system_prompt or "You are a helpful AI assistant in an agent swarm.",
-                temperature=0.7,
+                system_instruction=agent_prompt,
+                temperature=agent_temp,
             )
 
             response = client.models.generate_content(
@@ -562,8 +610,17 @@ def chat(
             tool_calls = [
                 {
                     "tool": "swarm_router",
-                    "args": {"target_agent": selected_agent.id, "model": model_name},
-                    "result": {"status": "routed", "agent_name": selected_agent.name}
+                    "args": {
+                        "target_agent": agent_id,
+                        "model": model_name,
+                        "skills_matched": [s.name for s in agent_skills[:2]],
+                        "tools_available": [t.name for t in agent_tools[:3]],
+                    },
+                    "result": {
+                        "status": "routed",
+                        "agent_name": agent_name,
+                        "mcp_servers": [m.name for m in agent_mcp],
+                    }
                 }
             ]
 
@@ -572,9 +629,10 @@ def chat(
 
             agent_metadata = {
                 "agent_state": "completed",
-                "agent_id": selected_agent.id,
-                "agent_name": selected_agent.name,
+                "agent_id": agent_id,
+                "agent_name": agent_name,
                 "tool_calls": tool_calls,
+                "skills_invoked": [s.id for s in agent_skills[:2]],
                 "tokens_used": total_tokens,
                 "latency_ms": latency_ms,
                 "model": model_name,
@@ -598,7 +656,7 @@ def chat(
                     session_id=request.session_id,
                     message_id=agent_node_id,
                     model=model_name,
-                    agent_id=selected_agent.id,
+                    agent_id=agent_id,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
@@ -618,7 +676,7 @@ def chat(
             agent_node_id = f"agent-{int(time.time()*1000)}"
             err_metadata = {
                 "agent_state": "error",
-                "agent_id": selected_agent.id,
+                "agent_id": agent_id,
                 "latency_ms": latency_ms,
                 "tokens_used": 0,
                 "error_detail": str(e),
@@ -639,8 +697,8 @@ def chat(
                     user_id=current_user.id,
                     session_id=request.session_id,
                     message_id=agent_node_id,
-                    model=model_name,
-                    agent_id=selected_agent.id,
+                    model=agent_model,
+                    agent_id=agent_id,
                     prompt_tokens=0,
                     completion_tokens=0,
                     total_tokens=10,
@@ -663,8 +721,14 @@ def chat(
     demo_tools = [
         {
             "tool": "swarm_registry_lookup",
-            "args": {"agent_id": selected_agent.id, "role": selected_agent.role},
-            "result": {"status": "online", "mode": "swarm_active"}
+            "args": {
+                "agent_id": agent_id,
+                "role": agent_role,
+                "tools_count": len(agent_tools),
+                "skills_count": len(agent_skills),
+                "mcp_servers": [m.name for m in agent_mcp],
+            },
+            "result": {"status": "online", "mode": "modular_swarm_active"}
         },
         {
             "tool": "gemini_provider_check",
@@ -674,8 +738,8 @@ def chat(
     ]
 
     fallback_content = (
-        f"Hello! I am **{selected_agent.name}** (`{selected_agent.id}`).\n\n"
-        f"**My Role:** {selected_agent.role}\n\n"
+        f"Hello! I am **{agent_name}** (`{agent_id}`).\n\n"
+        f"**My Role:** {agent_role}\n\n"
         f"I received your inquiry:\n> \"*{last_user_message.content}*\"\n\n"
         f"### ⚙️ Gemini API Setup Required\n"
         f"To enable live generative responses from Google Gemini:\n"
@@ -688,9 +752,10 @@ def chat(
     agent_node_id = f"agent-{int(time.time()*1000)}"
     demo_metadata = {
         "agent_state": "completed",
-        "agent_id": selected_agent.id,
-        "agent_name": selected_agent.name,
+        "agent_id": agent_id,
+        "agent_name": agent_name,
         "tool_calls": demo_tools,
+        "skills_invoked": [s.id for s in agent_skills[:2]],
         "tokens_used": simulated_tokens,
         "latency_ms": latency_ms,
         "mode": "demo_fallback",
@@ -713,7 +778,7 @@ def chat(
             session_id=request.session_id,
             message_id=agent_node_id,
             model="simulation-demo",
-            agent_id=selected_agent.id,
+            agent_id=agent_id,
             prompt_tokens=150,
             completion_tokens=300,
             total_tokens=simulated_tokens,

@@ -1,0 +1,11 @@
+{
+  "id": "reviewer",
+  "name": "Reviewer Agent",
+  "role": "Security audits, code review, quality assurance, and verification",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.1,
+  "is_orchestrator": false,
+  "icon": "shield-check",
+  "description": "Conducts adversarial security assessments, static code analysis, test gap detection, and architectural compliance checks."
+}
