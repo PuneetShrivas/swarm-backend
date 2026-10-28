@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
-import { Bot, Loader2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Session } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
+import { Bot, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 import {
   Agent,
@@ -19,12 +19,12 @@ import {
   setNodeRating,
   exportToMarkdown,
   reconstructTreeFromMessages,
-} from './types';
-import MessageItem from './components/MessageItem';
-import ChatInput from './components/ChatInput';
-import ChatHeader from './components/ChatHeader';
-import SessionSidebar from './components/SessionSidebar';
-import UsageModal from './components/UsageModal';
+} from "./types";
+import MessageItem from "./components/MessageItem";
+import ChatInput from "./components/ChatInput";
+import ChatHeader from "./components/ChatHeader";
+import SessionSidebar from "./components/SessionSidebar";
+import UsageModal from "./components/UsageModal";
 
 export default function Chat() {
   const [conversation, setConversation] = useState<ConversationState>(() =>
@@ -55,7 +55,7 @@ export default function Chat() {
   );
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export default function Chat() {
   const loadSessionMessages = useCallback(
     async (sessionId: string, token: string) => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -76,7 +76,7 @@ export default function Chat() {
           setConversation(reconstructed);
         }
       } catch (err) {
-        console.error('Failed to load session messages', err);
+        console.error("Failed to load session messages", err);
       }
     },
     []
@@ -86,7 +86,7 @@ export default function Chat() {
   const fetchUsage = useCallback(async (token: string) => {
     setIsLoadingUsage(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/usage`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -95,7 +95,7 @@ export default function Chat() {
         setUsage(data);
       }
     } catch (err) {
-      console.error('Failed to load usage stats', err);
+      console.error("Failed to load usage stats", err);
     } finally {
       setIsLoadingUsage(false);
     }
@@ -106,7 +106,7 @@ export default function Chat() {
     async (token: string) => {
       setIsLoadingSessions(true);
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const res = await fetch(`${apiUrl}/api/sessions`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -119,7 +119,7 @@ export default function Chat() {
           }
         }
       } catch (error) {
-        console.error('Failed to fetch sessions', error);
+        console.error("Failed to fetch sessions", error);
       } finally {
         setIsLoadingSessions(false);
       }
@@ -131,7 +131,9 @@ export default function Chat() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        const {
+          data: { session: initialSession },
+        } = await supabase.auth.getSession();
         if (initialSession) {
           setSession(initialSession);
           setUserEmail(initialSession.user.email || null);
@@ -139,26 +141,26 @@ export default function Chat() {
           fetchUsage(initialSession.access_token);
         }
       } catch (err) {
-        console.warn('Supabase auth getSession notice:', err);
+        console.warn("Supabase auth getSession notice:", err);
       }
     };
 
     initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, currentSession) => {
-        setSession(currentSession);
-        setUserEmail(currentSession?.user.email || null);
-        if (currentSession) {
-          fetchSessions(currentSession.access_token);
-          fetchUsage(currentSession.access_token);
-        } else {
-          setSessions([]);
-          setActiveSessionId(null);
-          setUsage(null);
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
+      setUserEmail(currentSession?.user.email || null);
+      if (currentSession) {
+        fetchSessions(currentSession.access_token);
+        fetchUsage(currentSession.access_token);
+      } else {
+        setSessions([]);
+        setActiveSessionId(null);
+        setUsage(null);
       }
-    );
+    });
 
     return () => subscription.unsubscribe();
   }, [fetchSessions, fetchUsage]);
@@ -167,14 +169,14 @@ export default function Chat() {
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const res = await fetch(`${apiUrl}/api/agents`);
         if (res.ok) {
           const data: Agent[] = await res.json();
           setAgents(data);
         }
       } catch (error) {
-        console.error('Failed to fetch agents', error);
+        console.error("Failed to fetch agents", error);
       }
     };
     fetchAgents();
@@ -191,22 +193,22 @@ export default function Chat() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       };
       if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
+        headers["Authorization"] = `Bearer ${session.access_token}`;
       }
 
       // Sanitize user parent: root-greeting is a client placeholder, not a DB record
       const cleanUserParentId =
-        userParentNodeId && userParentNodeId !== 'root-greeting'
+        userParentNodeId && userParentNodeId !== "root-greeting"
           ? userParentNodeId
           : null;
 
       const res = await fetch(`${apiUrl}/api/chat`, {
-        method: 'POST',
+        method: "POST",
         headers,
         body: JSON.stringify({
           messages: chatHistory.map((m) => ({
@@ -230,10 +232,10 @@ export default function Chat() {
       setConversation((latestState) => {
         const { newState } = addMessageNode(
           latestState,
-          'agent',
-          data.content || 'I have completed processing.',
+          "agent",
+          data.content || "I have completed processing.",
           userMessageNodeId,
-          data.metadata || { agent_state: 'completed' }
+          data.metadata || { agent_state: "completed" }
         );
         return newState;
       });
@@ -243,18 +245,18 @@ export default function Chat() {
         fetchUsage(session.access_token);
       }
     } catch (error: unknown) {
-      if ((error as { name?: string })?.name === 'AbortError') {
-        console.log('Chat generation aborted by user.');
+      if ((error as { name?: string })?.name === "AbortError") {
+        console.log("Chat generation aborted by user.");
         return;
       }
-      console.error('Error invoking swarm chat API:', error);
+      console.error("Error invoking swarm chat API:", error);
       setConversation((latestState) => {
         const { newState } = addMessageNode(
           latestState,
-          'agent',
-          'Sorry, I encountered an error communicating with the agent swarm. Please try again.',
+          "agent",
+          "Sorry, I encountered an error communicating with the agent swarm. Please try again.",
           userMessageNodeId,
-          { agent_state: 'error' }
+          { agent_state: "error" }
         );
         return newState;
       });
@@ -282,14 +284,14 @@ export default function Chat() {
     }
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/sessions`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ title: 'New Conversation' }),
+        body: JSON.stringify({ title: "New Conversation" }),
       });
       if (res.ok) {
         const newSession: ChatSession = await res.json();
@@ -298,7 +300,7 @@ export default function Chat() {
         setConversation(createInitialState());
       }
     } catch (err) {
-      console.error('Failed to create session', err);
+      console.error("Failed to create session", err);
     }
   };
 
@@ -306,9 +308,9 @@ export default function Chat() {
   const handleDeleteSession = async (sessionId: string) => {
     if (!session?.access_token) return;
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
-        method: 'DELETE',
+        method: "DELETE",
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (res.ok) {
@@ -325,7 +327,7 @@ export default function Chat() {
         }
       }
     } catch (err) {
-      console.error('Failed to delete session', err);
+      console.error("Failed to delete session", err);
     }
   };
 
@@ -333,11 +335,11 @@ export default function Chat() {
   const handleRenameSession = async (sessionId: string, newTitle: string) => {
     if (!session?.access_token) return;
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
-        method: 'PATCH',
+        method: "PATCH",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ title: newTitle }),
@@ -348,7 +350,7 @@ export default function Chat() {
         );
       }
     } catch (err) {
-      console.error('Failed to rename session', err);
+      console.error("Failed to rename session", err);
     }
   };
 
@@ -361,13 +363,13 @@ export default function Chat() {
     // Auto-create session if authenticated user is on a new unsaved chat
     if (session?.access_token && !targetSessionId) {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const cleanTitle =
-          content.trim().slice(0, 32) + (content.length > 32 ? '...' : '');
+          content.trim().slice(0, 32) + (content.length > 32 ? "..." : "");
         const res = await fetch(`${apiUrl}/api/sessions`, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({ title: cleanTitle }),
@@ -379,14 +381,14 @@ export default function Chat() {
           targetSessionId = newSession.id;
         }
       } catch (err) {
-        console.error('Auto session creation error:', err);
+        console.error("Auto session creation error:", err);
       }
     }
 
     const userParent = conversation.currentLeafId;
     const { newState, newNodeId } = addMessageNode(
       conversation,
-      'user',
+      "user",
       content,
       conversation.currentLeafId,
       selectedAgentId ? { target_agent_id: selectedAgentId } : undefined
@@ -407,7 +409,7 @@ export default function Chat() {
 
     const { newState, newNodeId } = addMessageNode(
       conversation,
-      'user',
+      "user",
       newContent,
       targetNode.parentId,
       selectedAgentId ? { target_agent_id: selectedAgentId } : undefined
@@ -443,7 +445,7 @@ export default function Chat() {
   };
 
   // Handle rating feedback
-  const handleRate = (nodeId: string, rating: 'up' | 'down' | null) => {
+  const handleRate = (nodeId: string, rating: "up" | "down" | null) => {
     setConversation((prev) => setNodeRating(prev, nodeId, rating));
   };
 
@@ -460,7 +462,7 @@ export default function Chat() {
   const handleClearChat = () => {
     if (
       activePath.length <= 1 ||
-      window.confirm('Are you sure you want to clear the conversation?')
+      window.confirm("Are you sure you want to clear the conversation?")
     ) {
       setConversation(createInitialState());
     }
@@ -480,9 +482,9 @@ export default function Chat() {
   // Export conversation to Markdown
   const handleExportChat = () => {
     const md = exportToMarkdown(activePath);
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `swarm-conversation-${new Date().toISOString().slice(0, 10)}.md`;
     document.body.appendChild(a);
@@ -494,7 +496,7 @@ export default function Chat() {
   const currentSessionObj = sessions.find((s) => s.id === activeSessionId);
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden transition-colors duration-200">
       {/* Session History & Swarm Sidebar */}
       <SessionSidebar
         sessions={sessions}
@@ -514,7 +516,7 @@ export default function Chat() {
       />
 
       {/* Main Chat Feed Area */}
-      <div className="flex-1 flex flex-col bg-white/60 relative overflow-hidden h-full">
+      <div className="flex-1 flex flex-col bg-background relative overflow-hidden h-full">
         {/* Top Header */}
         <ChatHeader
           agents={agents}
@@ -529,7 +531,7 @@ export default function Chat() {
         />
 
         {/* Message Feed */}
-        <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth">
+        <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth bg-background">
           <AnimatePresence initial={false}>
             {activePath.map((node) => {
               const siblingInfo = getSiblingInfo(
@@ -559,12 +561,12 @@ export default function Chat() {
                 exit={{ opacity: 0, y: 5 }}
                 className="flex gap-3 md:gap-4 flex-row"
               >
-                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm bg-white border border-slate-200 text-blue-600">
-                  <Bot size={16} />
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-subtle bg-card border border-border text-primary">
+                  <Bot size={15} />
                 </div>
-                <div className="px-5 py-4 rounded-2xl bg-white border border-slate-200 text-slate-700 rounded-tl-sm flex items-center gap-2 shadow-xs">
-                  <Loader2 size={16} className="animate-spin text-blue-600" />
-                  <span className="text-xs font-medium text-slate-600">
+                <div className="px-5 py-4 rounded-2xl bg-card border border-border/80 text-foreground rounded-tl-sm flex items-center gap-2.5 shadow-subtle">
+                  <Loader2 size={16} className="animate-spin text-primary" />
+                  <span className="text-xs font-medium text-muted-foreground">
                     Swarm agent reasoning...
                   </span>
                 </div>

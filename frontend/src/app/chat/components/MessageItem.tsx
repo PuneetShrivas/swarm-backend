@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
   User,
@@ -17,8 +17,8 @@ import {
   Wrench,
   ChevronDown,
   ChevronUp,
-} from 'lucide-react';
-import { ChatNode } from '../types';
+} from "lucide-react";
+import { ChatNode } from "../types";
 
 interface MessageItemProps {
   node: ChatNode;
@@ -26,7 +26,7 @@ interface MessageItemProps {
   onSwitchBranch: (targetSiblingId: string) => void;
   onEdit: (nodeId: string, newContent: string) => void;
   onRegenerate: (nodeId: string) => void;
-  onRate: (nodeId: string, rating: 'up' | 'down' | null) => void;
+  onRate: (nodeId: string, rating: "up" | "down" | null) => void;
   isGenerating?: boolean;
 }
 
@@ -44,7 +44,7 @@ export default function MessageItem({
   const [copied, setCopied] = useState(false);
   const [showTools, setShowTools] = useState(false);
 
-  const isUser = node.role === 'user';
+  const isUser = node.role === "user";
   const hasMultipleVersions = siblingInfo.total > 1;
   const hasToolCalls =
     node.metadata?.tool_calls && node.metadata.tool_calls.length > 0;
@@ -55,7 +55,7 @@ export default function MessageItem({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy to clipboard', err);
+      console.error("Failed to copy to clipboard", err);
     }
   };
 
@@ -89,45 +89,47 @@ export default function MessageItem({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className={`group flex gap-3 md:gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+      className={`group flex gap-3 md:gap-4 ${
+        isUser ? "flex-row-reverse" : "flex-row"
+      }`}
     >
       {/* Avatar */}
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm border ${
+        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-subtle border ${
           isUser
-            ? 'bg-blue-600 border-blue-500 text-white'
-            : 'bg-white border-slate-200 text-blue-600'
+            ? "bg-primary border-primary/40 text-primary-foreground"
+            : "bg-card border-border/80 text-primary"
         }`}
       >
-        {isUser ? <User size={16} /> : <Bot size={16} />}
+        {isUser ? <User size={15} /> : <Bot size={15} />}
       </div>
 
       {/* Message Body & Actions Container */}
       <div
         className={`flex flex-col max-w-[85%] md:max-w-2xl ${
-          isUser ? 'items-end' : 'items-start'
+          isUser ? "items-end" : "items-start"
         }`}
       >
         {/* Main Content Bubble */}
         <div
-          className={`px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all relative ${
+          className={`px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed shadow-subtle transition-all relative ${
             isUser
-              ? 'bg-blue-600 text-white rounded-tr-sm'
-              : 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-sm'
+              ? "bg-primary text-primary-foreground rounded-tr-sm"
+              : "bg-card border border-border/80 text-card-foreground rounded-tl-sm"
           }`}
         >
           {isEditing ? (
-            <div className="w-full min-w-[280px] sm:min-w-[420px] text-slate-900">
+            <div className="w-full min-w-[280px] sm:min-w-[420px] text-foreground">
               <textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 rows={3}
-                className="w-full p-2.5 bg-white text-slate-900 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2.5 bg-background text-foreground border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
                 placeholder="Edit your message..."
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') handleCancelEdit();
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey))
+                  if (e.key === "Escape") handleCancelEdit();
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey))
                     handleSaveEdit();
                 }}
               />
@@ -135,7 +137,7 @@ export default function MessageItem({
                 <button
                   type="button"
                   onClick={handleCancelEdit}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                  className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 rounded-lg transition"
                 >
                   Cancel
                 </button>
@@ -143,7 +145,7 @@ export default function MessageItem({
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={!editContent.trim()}
-                  className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition shadow-sm"
+                  className="px-3 py-1.5 text-xs font-medium text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-lg transition shadow-subtle"
                 >
                   Save & Submit
                 </button>
@@ -153,34 +155,63 @@ export default function MessageItem({
             <>
               <div
                 className={`prose prose-sm max-w-none break-words ${
-                  isUser ? 'prose-invert' : 'prose-slate'
+                  isUser
+                    ? "prose-invert"
+                    : "prose-neutral dark:prose-invert"
                 }`}
               >
-                <ReactMarkdown>{node.content}</ReactMarkdown>
+                <ReactMarkdown
+                  components={{
+                    pre({ children }) {
+                      return (
+                        <pre className="not-prose my-3 overflow-x-auto rounded-xl bg-zinc-950 p-3 text-xs text-zinc-100 border border-zinc-800 shadow-subtle">
+                          {children}
+                        </pre>
+                      );
+                    },
+                    code({ className, children, ...props }) {
+                      const isInline = !className;
+                      if (isInline) {
+                        return (
+                          <code
+                            className="rounded bg-muted px-1.5 py-0.5 font-mono text-[13px] text-foreground border border-border/40"
+                            {...props}
+                          >
+                            {children}
+                          </code>
+                        );
+                      }
+                      return (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {node.content}
+                </ReactMarkdown>
               </div>
 
               {/* Tool Calls Accordion */}
               {hasToolCalls && (
-                <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="mt-3 pt-3 border-t border-border/50">
                   <button
                     type="button"
                     onClick={() => setShowTools(!showTools)}
-                    className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200/80 transition"
+                    className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/60 hover:bg-muted px-2.5 py-1.5 rounded-lg border border-border/70 transition-all"
                   >
-                    <Wrench size={13} className="text-amber-600" />
+                    <Wrench size={13} className="text-amber-500" />
                     <span>
-                      {node.metadata?.tool_calls?.length}{' '}
+                      {node.metadata?.tool_calls?.length}{" "}
                       {node.metadata?.tool_calls?.length === 1
-                        ? 'tool call'
-                        : 'tool calls'}
+                        ? "tool call"
+                        : "tool calls"}
                     </span>
                     {showTools ? (
-                      <ChevronUp size={13} className="ml-0.5 text-slate-400" />
+                      <ChevronUp size={13} className="ml-0.5 text-muted-foreground" />
                     ) : (
-                      <ChevronDown
-                        size={13}
-                        className="ml-0.5 text-slate-400"
-                      />
+                      <ChevronDown size={13} className="ml-0.5 text-muted-foreground" />
                     )}
                   </button>
 
@@ -188,26 +219,29 @@ export default function MessageItem({
                     {showTools && (
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
+                        animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
                         className="mt-2 space-y-2 overflow-hidden text-xs"
                       >
                         {node.metadata?.tool_calls?.map((tc, idx) => (
                           <div
                             key={idx}
-                            className="p-2.5 rounded-lg bg-slate-900 text-slate-200 font-mono text-[11px] overflow-x-auto"
+                            className="p-3 rounded-xl bg-zinc-950 text-zinc-200 font-mono text-[11px] overflow-x-auto border border-zinc-800 shadow-subtle"
                           >
-                            <div className="text-amber-400 font-semibold mb-1">
-                              ⚡ {tc.tool}
+                            <div className="text-amber-400 font-semibold mb-1 flex items-center gap-1.5">
+                              <span>⚡</span>
+                              <span>{tc.tool}</span>
                             </div>
                             {tc.args && (
-                              <div className="text-slate-400">
-                                args: {JSON.stringify(tc.args)}
+                              <div className="text-zinc-400 mt-1">
+                                <span className="text-zinc-500">args: </span>
+                                {JSON.stringify(tc.args)}
                               </div>
                             )}
                             {tc.result !== undefined && (
-                              <div className="text-emerald-400 mt-1">
-                                result: {JSON.stringify(tc.result)}
+                              <div className="text-emerald-400 mt-1.5 pt-1.5 border-t border-zinc-800">
+                                <span className="text-zinc-500">result: </span>
+                                {JSON.stringify(tc.result)}
                               </div>
                             )}
                           </div>
@@ -221,12 +255,12 @@ export default function MessageItem({
               {/* Agent Execution Metadata Badges */}
               {node.metadata?.agent_state && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="inline-flex items-center gap-1.5 text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200/70 text-[11px]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-md border border-border/60 text-[11px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                     State: {String(node.metadata.agent_state)}
                   </span>
                   {node.metadata?.agent_id && (
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-muted-foreground">
                       via {String(node.metadata.agent_id)}
                     </span>
                   )}
@@ -239,31 +273,31 @@ export default function MessageItem({
         {/* Message Action Bar & Branch Switcher */}
         {!isEditing && (
           <div
-            className={`flex items-center gap-1.5 mt-1.5 text-xs text-slate-400 select-none ${
-              isUser ? 'flex-row-reverse' : 'flex-row'
+            className={`flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground select-none ${
+              isUser ? "flex-row-reverse" : "flex-row"
             }`}
           >
             {/* Sibling Branch Switcher (< 1 / 2 >) */}
             {hasMultipleVersions && (
-              <div className="flex items-center bg-slate-100 hover:bg-slate-200/80 rounded-lg px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition">
+              <div className="flex items-center bg-muted/70 hover:bg-muted rounded-lg px-1.5 py-0.5 text-[11px] font-medium text-foreground border border-border/60 transition-all shadow-subtle">
                 <button
                   type="button"
                   onClick={handlePrevBranch}
                   disabled={siblingInfo.index <= 1}
-                  className="p-0.5 hover:text-slate-900 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="p-0.5 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition"
                   title="Previous version"
                   aria-label="Previous version"
                 >
                   <ChevronLeft size={13} />
                 </button>
-                <span className="px-1 text-[11px]">
+                <span className="px-1.5 text-[11px] font-mono">
                   {siblingInfo.index} / {siblingInfo.total}
                 </span>
                 <button
                   type="button"
                   onClick={handleNextBranch}
                   disabled={siblingInfo.index >= siblingInfo.total}
-                  className="p-0.5 hover:text-slate-900 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="p-0.5 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition"
                   title="Next version"
                   aria-label="Next version"
                 >
@@ -276,7 +310,7 @@ export default function MessageItem({
             <button
               type="button"
               onClick={handleCopy}
-              className="p-1 hover:text-slate-700 hover:bg-slate-100 rounded-md transition"
+              className="p-1 hover:text-foreground hover:bg-muted/80 rounded-md transition"
               title="Copy message"
               aria-label="Copy message"
             >
@@ -292,7 +326,7 @@ export default function MessageItem({
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                className="p-1 hover:text-slate-700 hover:bg-slate-100 rounded-md transition"
+                className="p-1 hover:text-foreground hover:bg-muted/80 rounded-md transition"
                 title="Edit message"
                 aria-label="Edit message"
               >
@@ -308,7 +342,7 @@ export default function MessageItem({
                   type="button"
                   onClick={() => onRegenerate(node.id)}
                   disabled={isGenerating}
-                  className="p-1 hover:text-slate-700 hover:bg-slate-100 rounded-md transition disabled:opacity-40"
+                  className="p-1 hover:text-foreground hover:bg-muted/80 rounded-md transition disabled:opacity-30"
                   title="Regenerate response"
                   aria-label="Regenerate response"
                 >
@@ -319,12 +353,12 @@ export default function MessageItem({
                 <button
                   type="button"
                   onClick={() =>
-                    onRate(node.id, node.rating === 'up' ? null : 'up')
+                    onRate(node.id, node.rating === "up" ? null : "up")
                   }
                   className={`p-1 rounded-md transition ${
-                    node.rating === 'up'
-                      ? 'text-emerald-600 bg-emerald-50'
-                      : 'hover:text-slate-700 hover:bg-slate-100'
+                    node.rating === "up"
+                      ? "text-emerald-500 bg-emerald-500/10"
+                      : "hover:text-foreground hover:bg-muted/80"
                   }`}
                   title="Helpful / Good response"
                   aria-label="Thumbs up"
@@ -336,12 +370,12 @@ export default function MessageItem({
                 <button
                   type="button"
                   onClick={() =>
-                    onRate(node.id, node.rating === 'down' ? null : 'down')
+                    onRate(node.id, node.rating === "down" ? null : "down")
                   }
                   className={`p-1 rounded-md transition ${
-                    node.rating === 'down'
-                      ? 'text-rose-600 bg-rose-50'
-                      : 'hover:text-slate-700 hover:bg-slate-100'
+                    node.rating === "down"
+                      ? "text-destructive bg-destructive/10"
+                      : "hover:text-foreground hover:bg-muted/80"
                   }`}
                   title="Unhelpful / Bad response"
                   aria-label="Thumbs down"

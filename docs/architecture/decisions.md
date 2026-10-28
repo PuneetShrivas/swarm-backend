@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-*Last Updated: 2026-10-28T11:20:00+05:30*
+*Last Updated: 2026-10-28T16:30:00+05:30*
 
 ## ADR 001: Supabase Schema for Chat Sessions, History, and Usage Tracking
 
@@ -37,3 +37,34 @@ We needed to persist chat sessions, conversation history, and usage metrics per 
 ### Consequences
 - **Positive**: Clean data isolation per user with RLS; exact support for branching conversation trees; scalable telemetry; unified authentication.
 - **Negative / Considerations**: Requires executing the migration script `supabase/migrations/20261028_chat_sessions_history_usage.sql` in the Supabase project dashboard SQL editor.
+
+---
+
+## ADR 002: Token-Based Theming System and Multi-Palette Architecture
+
+### Status
+Proposed (Pending Approval: 2026-10-28T16:30:00+05:30)
+
+### Context
+The application had fragmented, hardcoded color schemes (e.g. hardcoded `bg-slate-950` on landing, `bg-gray-50` on login, `bg-slate-50` on chat) with no theme toggle or dark mode support on the main workspace. A cohesive modern design system is required supporting light/dark/system mode alongside curated aesthetic themes.
+
+### Decisions
+
+1. **CSS Variable Design Tokens with Semantic Tailwind Mapping**:
+   - Instead of hardcoding palette hex codes in utility classes, define CSS variables (`--background`, `--foreground`, `--card`, `--border`, `--primary`, `--accent`, `--muted`) in `globals.css` and map them in `tailwind.config.ts`.
+   - Allows instant theme switches by updating attributes or classes on `<html>` or `<body>` without re-rendering component trees.
+
+2. **Hierarchical Theming: Mode + Palette**:
+   - **Mode (Light / Dark / System)**: Controls luminosity and contrast base.
+   - **Palette (Slate / Nebula / Emerald / Amber / Frost)**: Controls the accent, glow, and tone tints.
+   - Managed via a unified `ThemeProvider` integrating `next-themes` with palette persistence in `localStorage`.
+
+3. **Zero-FOUC (Flash of Unstyled Content)**:
+   - Next-themes executes an inline head script before initial paint to apply saved theme classes immediately upon page load.
+
+4. **Supabase Auth UI Dynamic Theming**:
+   - The login page synchronizes its `ThemeSupa` appearance config dynamically based on the active theme mode (`dark` vs `light`).
+
+### Consequences
+- **Positive**: Complete visual consistency across all views; rich user personalization; clean separation of styling concerns via design tokens; zero flash on page reload.
+- **Negative / Considerations**: Requires refactoring hardcoded color classes across existing components to use semantic token classes (`bg-background`, `border-border`, `text-foreground`, etc.).
