@@ -1,12 +1,20 @@
 [
   {
-    "id": "schema-parsing",
+    "id": "schema_parsing",
     "name": "Schema Ingestion & Parsing",
-    "description": "Extracts structured schemas and columnar properties from raw documents"
+    "description": "Ingests raw text, JSON, YAML, and CSV files, automatically validating syntax and inferring structural data schemas.",
+    "triggers": ["parse file", "parse json", "parse csv", "extract schema", "validate schema", "inspect file", "ingest document"]
   },
   {
-    "id": "anomaly-detection",
+    "id": "anomaly_detection",
     "name": "Log & Syntax Anomaly Detection",
-    "description": "Pinpoints syntax errors and structural malformations in input streams"
+    "description": "Scans log files, server outputs, and source code for syntax breaks, formatting irregularities, and AST violations.",
+    "triggers": ["parse log", "find anomaly", "detect error in file", "validate syntax", "check errors"]
+  },
+  {
+    "id": "tabular_profiling",
+    "name": "Tabular Data Profiling",
+    "description": "Profiles CSV tables, detects delimiters, verifies rectangular column consistency, and infers primitive data types.",
+    "triggers": ["profile table", "analyze csv", "csv delimiter", "column types", "inspect dataset"]
   }
 ]

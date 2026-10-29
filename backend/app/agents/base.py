@@ -185,6 +185,17 @@ class BaseAgent:
                 return {"error": f"Tool execution failed: {str(e)}"}
         return {"error": f"Tool '{tool_name}' not registered for agent '{self.agent_id}'"}
 
+    def execute_mcp_tool(self, server_name: str, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Executes an MCP server tool call via the centralized MCPManager."""
+        from app.mcp.manager import mcp_manager
+        configured_server_names = [s.name for s in self.mcp_servers]
+        if configured_server_names and server_name not in configured_server_names:
+            return {
+                "isError": True,
+                "error": f"MCP server '{server_name}' is not configured for agent '{self.agent_id}'. Configured: {configured_server_names}",
+            }
+        return mcp_manager.execute(server_name, tool_name, arguments)
+
     def to_profile(self) -> AgentProfile:
         """Generates a complete serialized AgentProfile."""
         return AgentProfile(

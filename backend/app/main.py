@@ -118,6 +118,14 @@ class AgentTestResponse(BaseModel):
     latency_ms: float
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
 
+class ToolExecutionRequest(BaseModel):
+    arguments: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arguments to pass to the tool handler")
+
+class MCPExecutionRequest(BaseModel):
+    server: Optional[str] = Field(None, description="Target MCP server identifier")
+    tool: Optional[str] = Field(None, description="Target tool name")
+    arguments: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arguments to pass to the tool")
+
 class AIGenerateWorkflowRequest(BaseModel):
     prompt: str = Field(..., description="Natural language requirements for the workflow")
 
@@ -457,6 +465,50 @@ def create_agent(agent: AgentProfile):
             raise HTTPException(status_code=400, detail=f"Agent with id '{agent.id}' already exists.")
     agent_registry.register_custom(agent)
     return agent
+
+@app.post("/api/agents/{agent_id}/tools/{tool_name}/execute")
+def execute_agent_tool(agent_id: str, tool_name: str, payload: ToolExecutionRequest):
+    """Executes a specific python tool registered to an agent."""
+    agent = agent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found.")
+    if tool_name not in agent.tool_handlers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool '{tool_name}' not available on agent '{agent_id}'. Available: {list(agent.tool_handlers.keys())}",
+        )
+    result = agent.execute_tool(tool_name, payload.arguments or {})
+    return {
+        "agent_id": agent_id,
+        "tool_name": tool_name,
+        "arguments": payload.arguments,
+        "result": result,
+        "status": "success",
+    }
+
+@app.post("/api/agents/{agent_id}/mcp/{server_name}/tools/{tool_name}/execute")
+def execute_agent_mcp_tool(agent_id: str, server_name: str, tool_name: str, payload: ToolExecutionRequest):
+    """Executes an MCP server tool for an agent."""
+    agent = agent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found.")
+    result = agent.execute_mcp_tool(server_name, tool_name, payload.arguments or {})
+    return result
+
+@app.get("/api/mcp/servers")
+def get_mcp_servers():
+    """Returns list of registered MCP servers and their available tools."""
+    from app.mcp.manager import mcp_manager
+    return mcp_manager.list_servers()
+
+@app.post("/api/mcp/execute")
+def execute_mcp_tool_direct(payload: MCPExecutionRequest):
+    """Executes an MCP tool directly across any registered MCP server."""
+    if not payload.server or not payload.tool:
+        raise HTTPException(status_code=400, detail="Fields 'server' and 'tool' are required.")
+    from app.mcp.manager import mcp_manager
+    return mcp_manager.execute(payload.server, payload.tool, payload.arguments or {})
+
 
 # ---------------------------------------------------------
 # Chat Sessions & History Endpoints

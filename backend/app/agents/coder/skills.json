@@ -16,5 +16,17 @@
     "name": "Software Architecture",
     "description": "Designs scalable API interfaces, data structures, and microservice relationships.",
     "triggers": ["architecture", "design pattern", "api design", "schema design"]
+  },
+  {
+    "id": "test_engineering",
+    "name": "Automated Test Engineering",
+    "description": "Designs automated unit, integration, and property-based test scaffolds with edge case verification.",
+    "triggers": ["test", "unit test", "pytest", "spec", "coverage", "mock"]
+  },
+  {
+    "id": "sandbox_execution",
+    "name": "Sandboxed Execution",
+    "description": "Safely verifies logic, algorithms, and computational scripts inside isolated execution sandboxes.",
+    "triggers": ["run code", "execute", "eval", "sandbox", "interpret"]
   }
 ]

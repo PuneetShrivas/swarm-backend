@@ -1,20 +1,26 @@
 [
   {
     "id": "trend_analysis",
-    "name": "Trend Analysis",
-    "description": "Evaluates time-series and sequential data to detect velocity, momentum, and inflection points.",
-    "triggers": ["trend", "forecast", "time series", "growth rate"]
+    "name": "Trend Analysis & Forecasting",
+    "description": "Evaluates time-series and sequential data to detect velocity, momentum, inflection points, and linear projections.",
+    "triggers": ["trend", "forecast", "time series", "growth rate", "extrapolate"]
   },
   {
     "id": "distribution_modeling",
-    "name": "Distribution Modeling",
-    "description": "Analyzes skewness, kurtosis, and outlier anomalies in numerical datasets.",
-    "triggers": ["distribution", "outlier", "anomaly", "percentile", "variance"]
+    "name": "Distribution & Outlier Modeling",
+    "description": "Analyzes skewness, standard deviation, kurtosis, and Z-score anomaly outliers in numerical datasets.",
+    "triggers": ["distribution", "outlier", "anomaly", "percentile", "variance", "z-score"]
   },
   {
-    "id": "data_cleansing",
-    "name": "Data Cleansing",
-    "description": "Standardizes malformed numbers, strips null values, and validates types.",
-    "triggers": ["clean data", "transform", "normalize", "sanitize table"]
+    "id": "correlation_analysis",
+    "name": "Correlation & Association Modeling",
+    "description": "Calculates Pearson correlation coefficients, covariance, and R-squared to uncover statistical relationships.",
+    "triggers": ["correlate", "correlation", "pearson", "relationship", "r-squared", "association"]
+  },
+  {
+    "id": "tabular_profiling",
+    "name": "Tabular Data Profiling",
+    "description": "Standardizes malformed tables, infers column schemas, summarizes metrics, and formats Markdown views.",
+    "triggers": ["csv", "table", "profile data", "clean data", "transform table", "normalize"]
   }
 ]

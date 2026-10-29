@@ -1,20 +1,26 @@
 [
   {
     "id": "vulnerability_scanning",
-    "name": "Vulnerability Scanning",
+    "name": "Vulnerability Scanning & Static Analysis",
     "description": "Scans code against OWASP Top 10 vulnerabilities, injection flaws, and authentication weaknesses.",
-    "triggers": ["security", "audit", "vulnerability", "leak", "injection"]
+    "triggers": ["security", "audit", "vulnerability", "leak", "injection", "owasp"]
   },
   {
     "id": "compliance_verification",
-    "name": "Compliance Verification",
+    "name": "Compliance & Architectural Verification",
     "description": "Verifies that implementation adheres to repository conventions, ADR decisions, and architectural guidelines.",
-    "triggers": ["review", "convention", "compliance", "standard"]
+    "triggers": ["review", "convention", "compliance", "standard", "code review"]
   },
   {
     "id": "test_gap_analysis",
-    "name": "Test Gap Analysis",
+    "name": "Test Gap & Coverage Analysis",
     "description": "Identifies missing unit and integration test assertions and untested edge conditions.",
-    "triggers": ["qa", "coverage", "test gap", "untested"]
+    "triggers": ["qa", "coverage", "test gap", "untested", "regression"]
+  },
+  {
+    "id": "dependency_audit",
+    "name": "Dependency Security Auditing",
+    "description": "Audits open source libraries for CVE advisories, malicious packages, and out-of-date dependencies.",
+    "triggers": ["dependency", "packages", "cve", "advisory", "requirements.txt", "npm audit"]
   }
 ]

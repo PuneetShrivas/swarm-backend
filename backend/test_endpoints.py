@@ -794,8 +794,114 @@ def execute(input_data: dict, context: dict) -> dict:
     assert "Perplexity Sonar Web Search" in step_out["output_data"]["text"], "Expected Perplexity Sonar execution in step output"
     print(f"PASS: Workflow execution engine executed live information step using Perplexity Sonar")
 
+    # 43. Test Direct Agent Tool Execution Across Multiple Agents
+    res_coder_tool = client.post(
+        "/api/agents/coder/tools/syntax_validator/execute",
+        json={"arguments": {"code": "def hello():\n    return 'world'\n", "language": "python"}},
+    )
+    assert res_coder_tool.status_code == 200, f"Coder tool execution failed: {res_coder_tool.text}"
+    coder_out = res_coder_tool.json()
+    assert coder_out["status"] == "success"
+    assert coder_out["result"]["valid"] is True
+
+    res_sandbox = client.post(
+        "/api/agents/coder/tools/execute_python_sandbox/execute",
+        json={"arguments": {"code": "x = [1, 2, 3]\nprint(sum(x))"}},
+    )
+    assert res_sandbox.status_code == 200
+    assert "6" in res_sandbox.json()["result"]["output"]
+
+    res_analyst_tool = client.post(
+        "/api/agents/data_analyst/tools/calculate_statistics/execute",
+        json={"arguments": {"numbers": [10.0, 20.0, 30.0, 40.0, 50.0]}},
+    )
+    assert res_analyst_tool.status_code == 200
+    assert res_analyst_tool.json()["result"]["mean"] == 30.0
+
+    res_synth_tool = client.post(
+        "/api/agents/synthesizer/tools/create_table_of_contents/execute",
+        json={"arguments": {"markdown_content": "# Intro\nText\n## Setup\nText\n### Verification\nText"}},
+    )
+    assert res_synth_tool.status_code == 200
+    assert res_synth_tool.json()["result"]["headers_found"] == 3
+
+    res_creator_tool = client.post(
+        "/api/agents/file_creator/tools/generate_file_artifact/execute",
+        json={"arguments": {"filename": "test_output.json", "content": '{"test": 123}', "mime_type": "application/json"}},
+    )
+    assert res_creator_tool.status_code == 200
+    assert res_creator_tool.json()["result"]["status"] == "created"
+    print("PASS: POST /api/agents/{agent_id}/tools/{tool_name}/execute verified across coder, data_analyst, synthesizer, and file_creator")
+
+    # 44. Test Agent MCP Tool Execution
+    res_mcp_fs = client.post(
+        "/api/agents/coder/mcp/filesystem/tools/list_directory/execute",
+        json={"arguments": {"path": "."}},
+    )
+    assert res_mcp_fs.status_code == 200, f"MCP filesystem execution failed: {res_mcp_fs.text}"
+    mcp_fs_data = res_mcp_fs.json()
+    assert mcp_fs_data["server"] == "filesystem"
+    assert mcp_fs_data["isError"] is False
+    assert mcp_fs_data["data"]["count"] > 0
+
+    res_mcp_gateway = client.post(
+        "/api/agents/orchestrator/mcp/swarm-gateway/tools/list_agents/execute",
+        json={"arguments": {}},
+    )
+    assert res_mcp_gateway.status_code == 200
+    assert res_mcp_gateway.json()["data"]["active_agents_count"] >= 9
+
+    res_mcp_kb = client.post(
+        "/api/agents/general_assistant/mcp/knowledge-base/tools/list_topics/execute",
+        json={"arguments": {}},
+    )
+    assert res_mcp_kb.status_code == 200
+    assert res_mcp_kb.json()["data"]["count"] >= 2
+    print("PASS: POST /api/agents/{agent_id}/mcp/{server_name}/tools/{tool_name}/execute verified across filesystem, swarm-gateway, and knowledge-base")
+
+    # 45. Test Global MCP Server Listing and Direct Dispatcher
+    res_mcp_servers = client.get("/api/mcp/servers")
+    assert res_mcp_servers.status_code == 200
+    servers_list = res_mcp_servers.json()
+    assert len(servers_list) >= 12
+    server_names = [s["name"] for s in servers_list]
+    assert "filesystem" in server_names
+    assert "sqlite-analytics" in server_names
+    assert "knowledge-base" in server_names
+    assert "swarm-gateway" in server_names
+
+    res_direct_mcp = client.post(
+        "/api/mcp/execute",
+        json={
+            "server": "sqlite-analytics",
+            "tool": "read_query",
+            "arguments": {"query": "SELECT metric_name, value FROM metrics WHERE id = 1"},
+        },
+    )
+    assert res_direct_mcp.status_code == 200
+    direct_data = res_direct_mcp.json()
+    assert direct_data["isError"] is False
+    assert len(direct_data["data"]["rows"]) == 1
+    assert direct_data["data"]["rows"][0][0] == "api_latency_ms"
+    print(f"PASS: GET /api/mcp/servers listed {len(servers_list)} servers and POST /api/mcp/execute executed sqlite-analytics query directly")
+
+    # 46. Test Agent Tool & MCP Error Handling
+    res_bad_tool = client.post(
+        "/api/agents/coder/tools/non_existent_tool/execute",
+        json={"arguments": {}},
+    )
+    assert res_bad_tool.status_code == 400
+
+    res_unauth_mcp = client.post(
+        "/api/agents/coder/mcp/postgres/tools/query/execute",
+        json={"arguments": {"sql": "SELECT 1"}},
+    )
+    assert res_unauth_mcp.status_code == 200
+    assert res_unauth_mcp.json()["isError"] is True
+    print("PASS: Agent Tool & MCP security boundaries accurately reject invalid tools and unconfigured servers")
+
     print("\n========================================")
-    print("ALL 42 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 46 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

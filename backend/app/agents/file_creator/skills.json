@@ -1,12 +1,20 @@
 [
   {
-    "id": "file-synthesis",
+    "id": "file_synthesis",
     "name": "File & Document Generation",
-    "description": "Constructs complete executable files and tabular datasets"
+    "description": "Synthesizes complete, production-ready code scripts, markdown documentation, configurations, and data files.",
+    "triggers": ["create file", "generate file", "write script", "make file", "save file", "export file", "write code file"]
   },
   {
-    "id": "artifact-packaging",
+    "id": "artifact_packaging",
     "name": "Artifact Packaging",
-    "description": "Encapsulates downloadable file payloads with verified MIME types"
+    "description": "Prepares and delivers downloadable artifacts with MIME headers, line counters, and browser blob compatibility.",
+    "triggers": ["downloadable", "download file", "package artifact", "bundle files", "export artifact", "create zip"]
+  },
+  {
+    "id": "dataset_generation",
+    "name": "Synthetic Dataset Generation",
+    "description": "Creates structured tabular CSV and JSON datasets with typed columns, realistic distribution values, and row bounds.",
+    "triggers": ["generate dataset", "create csv", "synthetic data", "tabular data", "mock dataset", "sample table"]
   }
 ]

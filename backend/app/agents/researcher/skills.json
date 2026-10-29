@@ -15,6 +15,12 @@
     "id": "source_validation",
     "name": "Source Validation",
     "description": "Audits source credibility, author credentials, publication recency, and peer review status.",
-    "triggers": ["verify source", "citation", "fact check", "evidence"]
+    "triggers": ["verify source", "citation", "fact check", "evidence", "credibility"]
+  },
+  {
+    "id": "market_intelligence",
+    "name": "Market Intelligence",
+    "description": "Monitors live stock prices, cryptocurrency benchmarks, industry trends, and macro indices.",
+    "triggers": ["stock", "price", "ticker", "quote", "crypto", "market cap", "finance"]
   }
 ]

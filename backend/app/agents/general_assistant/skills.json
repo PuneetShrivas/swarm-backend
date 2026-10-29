@@ -10,5 +10,17 @@
     "name": "Conceptual Explanation",
     "description": "Explains complex ideas in simple, intuitive terms.",
     "triggers": ["explain like I'm five", "overview", "what is", "how does"]
+  },
+  {
+    "id": "intent_clarification",
+    "name": "Prompt Clarification & Disambiguation",
+    "description": "Resolves unclear requirements by probing key constraints, output styles, and operating contexts.",
+    "triggers": ["clarify", "ambiguous", "requirements", "help me define"]
+  },
+  {
+    "id": "context_summarization",
+    "name": "Dialogue Context Summarization",
+    "description": "Summarizes rolling conversation history to preserve salient user constraints and goals.",
+    "triggers": ["summarize chat", "recap", "context", "history"]
   }
 ]

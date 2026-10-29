@@ -1,3 +1,12 @@
 {
-  "servers": []
+  "enabled": true,
+  "servers": [
+    {
+      "name": "knowledge-base",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "app.mcp.knowledge"],
+      "tools": ["query_knowledge", "index_topic", "list_topics"]
+    }
+  ]
 }

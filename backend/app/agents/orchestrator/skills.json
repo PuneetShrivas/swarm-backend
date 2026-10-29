@@ -1,20 +1,26 @@
 [
   {
     "id": "intent_classification",
-    "name": "Intent Classification",
+    "name": "Intent Classification & Router",
     "description": "Analyzes raw user input to extract semantic intents, constraints, and target operational domains.",
-    "triggers": ["route", "classify", "plan", "orchestrate"]
+    "triggers": ["route", "classify", "plan", "orchestrate", "dispatch"]
   },
   {
-    "id": "task_decomposition",
-    "name": "Task Decomposition",
+    "id": "workflow_dag_synthesis",
+    "name": "Workflow DAG Synthesis",
     "description": "Breaks down complex multi-objective inquiries into a DAG of sequential or parallel agent subtasks.",
-    "triggers": ["break down", "decompose", "multi-step", "workflow"]
+    "triggers": ["break down", "decompose", "multi-step", "workflow", "dag", "pipeline"]
   },
   {
-    "id": "response_synthesis",
+    "id": "consensus_evaluation",
+    "name": "Consensus & Conflict Resolution",
+    "description": "Aggregates independent agent recommendations, evaluates agreement ratios, and resolves decision conflicts.",
+    "triggers": ["consensus", "resolve conflict", "vote", "arbitrate", "decision"]
+  },
+  {
+    "id": "cross_agent_synthesis",
     "name": "Cross-Agent Synthesis",
     "description": "Unifies outputs from multiple specialized agents into a seamless executive response.",
-    "triggers": ["synthesize", "combine", "summarize swarm"]
+    "triggers": ["synthesize", "combine", "summarize swarm", "unified answer"]
   }
 ]

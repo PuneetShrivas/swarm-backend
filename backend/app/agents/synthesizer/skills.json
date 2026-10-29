@@ -3,18 +3,24 @@
     "id": "briefing_synthesis",
     "name": "Briefing Synthesis",
     "description": "Distills dense technical outputs into structured executive summaries and key decision matrices.",
-    "triggers": ["executive summary", "briefing", "overview", "tldr"]
+    "triggers": ["executive summary", "briefing", "overview", "tldr", "synthesize"]
   },
   {
     "id": "documentation_design",
-    "name": "Documentation Design",
-    "description": "Produces production-grade READMEs, API specifications, and architecture decision records.",
-    "triggers": ["readme", "documentation", "docs", "guide", "manual"]
+    "name": "Documentation Design & Architecture",
+    "description": "Produces production-grade READMEs, API specifications, TOC structures, and architecture decision records.",
+    "triggers": ["readme", "documentation", "docs", "guide", "manual", "toc", "table of contents"]
   },
   {
-    "id": "narrative_refinement",
-    "name": "Narrative Refinement",
-    "description": "Polishes clarity, conciseness, and tone consistency across user-facing communications.",
-    "triggers": ["polish", "rephrase", "clarify", "editorial"]
+    "id": "markdown_linting",
+    "name": "Markdown Standardization & Linting",
+    "description": "Cleans up formatting irregularities, verifies code fence balance, and formats lists and tables.",
+    "triggers": ["lint", "format markdown", "clean markdown", "format readme"]
+  },
+  {
+    "id": "release_engineering",
+    "name": "Release Notes & Changelog Generation",
+    "description": "Formats changelog release entries and synthesizes resolved issues into versioned updates.",
+    "triggers": ["changelog", "release notes", "version", "release", "semver"]
   }
 ]

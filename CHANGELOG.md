@@ -7,6 +7,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Default Agent Tools & Skills Revamp**:
+  - Fully implemented, verified, and exposed functional tools across all 9 default swarm agents (`coder`, `data_analyst`, `researcher`, `reviewer`, `synthesizer`, `orchestrator`, `general_assistant`, `file_creator`, `file_parser`), expanding tool coverage to 4-6 tools per agent.
+  - Implemented `execute_python_sandbox` (safe execution scope, AST validation, standard output capturing) and `format_code` for `coder`.
+  - Implemented `correlate_variables` (Pearson correlation & R-squared), `linear_forecast` (linear regression trendline), `parse_tabular_csv` (statistical column profiling), and `detect_anomalies` (Z-score outlier detection) for `data_analyst`.
+  - Implemented `market_quote_lookup` (stock and cryptocurrency live quote retrieval) and `rate_source_credibility` (domain authority, academic peer review indexing) for `researcher`.
+  - Implemented `dependency_security_scan` (CVE pattern advisory matching), `owasp_compliance_audit` (OWASP Top 10 vulnerabilities), and `test_coverage_estimator` (AST function coverage estimation) for `reviewer`.
+  - Implemented `create_table_of_contents` (heading anchor generator), `lint_and_format_markdown` (code fence balance, whitespace cleaner), `extract_action_items` (task checklist parser), and `generate_changelog_entry` (Keep-a-Changelog release format) for `synthesizer`.
+  - Implemented `generate_workflow_dag` (directed acyclic graph workflow allocator) and `evaluate_consensus` (multi-agent proposal arbitration) for `orchestrator`.
+  - Implemented `clarify_intent`, `summarize_dialogue`, and `format_response_structure` for `general_assistant`.
+  - Fixed `file_creator` and `file_parser` missing `TOOLS` lists and handlers, implementing file synthesis, template rendering, and AST syntax parsing.
+  - Revamped `skills.json` across all 9 agents with explicit domain descriptions and semantic trigger keywords for swarm routing.
+- **In-Process Model Context Protocol (MCP) Runtime Engine**:
+  - Implemented `MCPManager` (`backend/app/mcp/manager.py`) providing native, sandboxed, high-performance in-process execution for all 12 declared MCP servers (`filesystem`, `git`, `sqlite-analytics`, `postgres`, `fetch`, `brave-search`, `sentry-audit`, `markdown-tools`, `swarm-gateway`, `filesystem_exporter`, `schema_validator`, `knowledge-base`).
+  - Added `execute_mcp_tool` method to `BaseAgent` with agent-level access authorization.
+  - Added CLI stdio compatibility scripts `backend/app/mcp/gateway.py` and `backend/app/mcp/knowledge.py`.
+- **Tool & MCP Execution REST API**:
+  - Added `POST /api/agents/{agent_id}/tools/{tool_name}/execute` for direct agent tool execution.
+  - Added `POST /api/agents/{agent_id}/mcp/{server_name}/tools/{tool_name}/execute` for agent MCP tool execution.
+  - Added `GET /api/mcp/servers` and `POST /api/mcp/execute` for universal MCP discovery and direct dispatching.
+- **Interactive Tool & MCP Runner UI in Agent Details Modal**:
+  - Built interactive collapsible "Test Tool" drawers in the Tools tab of `AgentDetailsModal.tsx` with auto-generated sample JSON parameters, live execution trigger, loading states, and syntax-highlighted response previews.
+  - Built interactive "Run Tool" test panels for each exposed MCP tool under the MCP Servers tab with pre-filled default arguments, execution status, and formatted MCP content blocks.
+
 - **Workflow Perplexity Sonar Integration & Real-Time Information Engine**:
   - Implemented automatic Perplexity Sonar (`sonar`) step assignment in AI workflow DAG generation and deterministic templates (`Live Market & Stock Intelligence Pipeline`) for web search, stock prices, ticker quotes, news, and live market data.
   - Added live Perplexity Sonar API execution inside the workflow execution engine (`_execute_agent_turn` in `engine.py`) with source extraction and citation telemetry.
