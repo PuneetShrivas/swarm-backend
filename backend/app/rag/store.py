@@ -4,11 +4,17 @@ Provides document chunking, hybrid BM25 lexical ranking, and vector similarity r
 for Swarm agents and workflow pipelines.
 """
 
+import json
 import math
+import os
 import re
+import tempfile
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
+
+_CACHE_FILE = Path(tempfile.gettempdir()) / "swarm_rag_store.json"
 
 
 def tokenize(text: str) -> List[str]:
@@ -67,6 +73,32 @@ class RAGKnowledgeStore:
         self._doc_frequencies: Dict[str, int] = {}
         self._total_docs: int = 0
         self._avg_doc_len: float = 0.0
+        self._last_disk_mtime: float = 0.0
+        self._load_from_disk()
+
+    def _load_from_disk(self):
+        """Loads cached index from temporary storage across serverless warm/cold runs."""
+        try:
+            if _CACHE_FILE.exists():
+                mtime = _CACHE_FILE.stat().st_mtime
+                if mtime > getattr(self, "_last_disk_mtime", 0.0):
+                    with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.documents = data.get("documents", {})
+                    self.chunks = data.get("chunks", [])
+                    self._last_disk_mtime = mtime
+                    self._recompute_statistics()
+        except Exception:
+            pass
+
+    def _save_to_disk(self):
+        """Persists indexed documents and chunks to temporary storage."""
+        try:
+            with open(_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump({"documents": self.documents, "chunks": self.chunks}, f)
+            self._last_disk_mtime = _CACHE_FILE.stat().st_mtime
+        except Exception:
+            pass
 
     def clear(self):
         self.documents.clear()
@@ -74,6 +106,7 @@ class RAGKnowledgeStore:
         self._doc_frequencies.clear()
         self._total_docs = 0
         self._avg_doc_len = 0.0
+        self._save_to_disk()
 
     def ingest_document(
         self,
@@ -136,6 +169,7 @@ class RAGKnowledgeStore:
 
         # Recompute BM25 statistics
         self._recompute_statistics()
+        self._save_to_disk()
 
         return {
             "status": "indexed",
@@ -175,6 +209,7 @@ class RAGKnowledgeStore:
         """
         Retrieves Top-K most relevant chunks using BM25 ranking and cosine similarity.
         """
+        self._load_from_disk()
         if not self.chunks or not query.strip():
             return []
 
@@ -265,15 +300,18 @@ class RAGKnowledgeStore:
 
     def list_documents(self) -> List[Dict[str, Any]]:
         """Returns metadata for all indexed documents."""
+        self._load_from_disk()
         return list(self.documents.values())
 
     def delete_document(self, document_id: str) -> bool:
         """Deletes a document and its chunks from the RAG store."""
+        self._load_from_disk()
         if document_id not in self.documents:
             return False
         del self.documents[document_id]
         self.chunks = [ch for ch in self.chunks if ch["document_id"] != document_id]
         self._recompute_statistics()
+        self._save_to_disk()
         return True
 
 
