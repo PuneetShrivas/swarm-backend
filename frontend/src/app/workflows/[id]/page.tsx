@@ -19,6 +19,7 @@ import WorkflowRunsDebugger from "../components/WorkflowRunsDebugger";
 import StepUnitTestModal from "../components/StepUnitTestModal";
 import WorkflowSystemTestModal from "../components/WorkflowSystemTestModal";
 import AIWorkflowGeneratorModal from "../components/AIWorkflowGeneratorModal";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import {
   ArrowLeft,
   Save,
@@ -275,8 +276,32 @@ export default function WorkflowStudioPage() {
           </div>
         </div>
 
+        {/* Center: 3-Pillar Switcher */}
+        <nav className="hidden lg:flex items-center gap-0.5 p-0.5 rounded-pill bg-surface-1 border border-hairline shadow-xs">
+          <Link
+            href="/chat"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs rounded-pill font-medium text-ink-subtle hover:text-ink transition-colors"
+          >
+            <span>Chat</span>
+          </Link>
+          <Link
+            href="/agents"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs rounded-pill font-medium text-ink-subtle hover:text-ink transition-colors"
+          >
+            <span>Agents</span>
+          </Link>
+          <Link
+            href="/workflows"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs rounded-pill font-medium bg-surface-2 text-ink border border-hairline-strong shadow-xs font-semibold"
+          >
+            <span>Workflows</span>
+          </Link>
+        </nav>
+
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
+          {/* Theme Switcher */}
+          <ThemeSwitcher compact={true} />
           {/* AI Architect Trigger */}
           <button
             onClick={() => setIsAIModalOpen(true)}

@@ -2,8 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
-import { Bot, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { IconBrandGithub } from "@tabler/icons-react";
+import BrandLogo from "@/components/BrandLogo";
 
 export default function FooterSection() {
   const sections = [
@@ -55,17 +56,7 @@ export default function FooterSection() {
           {/* Brand Column */}
           <div className="col-span-2 space-y-3">
             <Link href="/" className="flex items-center gap-2 group w-fit">
-              <div className="w-7 h-7 rounded-md bg-surface-2 border border-hairline flex items-center justify-center text-linear-primary group-hover:border-hairline-strong transition-colors">
-                <Bot className="w-4 h-4" />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-sm tracking-tight text-ink">
-                  Swarm
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-xs bg-surface-2 text-ink-subtle border border-hairline">
-                  v2.0
-                </span>
-              </div>
+              <BrandLogo size={24} showWordmark={true} versionBadge="v2.0" wordmarkClassName="text-sm" />
             </Link>
             <p className="text-xs text-ink-subtle max-w-xs leading-relaxed">
               Open-source autonomous multi-agent orchestration, visual DAG pipeline studio, and audited PostgreSQL session trees.

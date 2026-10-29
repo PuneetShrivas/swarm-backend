@@ -7,6 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Unified 3-Pillar Navigation Switcher Across All Views**:
+  - Standardized `AppNavigationRail` as the singular top navigation bar across `/chat`, `/agents`, and `/workflows`.
+  - Added seamless 3-pillar segmented switcher (`Chat`, `Agents`, `Workflows`) with active state indicators and token telemetry.
+  - Added unified breadcrumbs and navigation switcher to the Workflow Studio canvas header (`/workflows/[id]`).
+  - Restructured `/workflows` dashboard layout with parity to `/agents`, moving filters and actions to an elegant secondary header banner.
+- **Complete Light Mode Theming System**:
+  - Refactored `tailwind.config.ts` design tokens (`canvas`, `surface-*`, `hairline-*`, `ink.*`) to dynamic CSS variables with alpha channel support.
+  - Implemented complete, accessible Light Mode under `:root` and `.light` in `globals.css` with clean zinc/white surfaces and high-contrast typography.
+  - Added dynamic prose overrides ensuring bold tags and headings render sharply (`#09090b` in light mode, `#f7f8f8` in dark mode) without white-on-white text flaws.
+  - Embedded the `ThemeSwitcher` directly into `AppNavigationRail` and `ResizableNavbar` for instant theme toggling across the entire application.
+- **Internet-Sourced Brand Logo Asset & Component**:
+  - Sourced authentic Swarm multi-agent brand asset from GitHub (`The-Swarm-Corporation` ecosystem): `frontend/public/swarm-logo.png`.
+  - Created reusable `BrandLogo.tsx` component with Next.js image optimization, responsive scaling, and high-tech vector SVG fallback.
+  - Replaced generic placeholder robot icons in `AppNavigationRail`, `NavbarLogo` (`resizable-navbar.tsx`), and `FooterSection`.
+- **Engineering-Grade Copy De-slopification**:
+  - Eradicated AI marketing buzzwords across landing pages, chat greetings, and modals.
+  - Replaced vague statements with direct, factual technical descriptions (stateless FastAPI orchestration, visual DAG execution, dialogue tree branching).
+  - Updated default initial chat greeting to `"Swarm orchestrator ready. Select an agent or submit a query to begin."`.
+  - Refactored inspiration chips to concrete architectural, workflow, and studio actions.
+
 - **Complete Landing Page Redesign with Reference UI Components**:
   - Completely redesigned `frontend/src/app/page.tsx` from scratch, incorporating the majority of components from `PuneetShrivas/generative-engine-optimization`.
   - Added `ResizableNavbar`: dynamic scroll-aware floating navbar with blur and shrink animations.

@@ -210,13 +210,13 @@ export default function AIWorkflowGeneratorModal({
             </div>
             <div>
               <h3 className="text-xs font-semibold text-ink tracking-tight flex items-center gap-1.5">
-                <span>AI Workflow Architect</span>
+                <span>AI Workflow Generator</span>
                 <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-xs bg-surface-2 border border-hairline text-ink-subtle">
                   Gemini 3.8
                 </span>
               </h3>
               <p className="text-[10px] text-ink-subtle">
-                Synthesize complete multi-step autonomous workflows and DAG pipelines from natural language
+                Generate multi-step DAG pipelines with agent nodes, conditions, and Python tools from a prompt
               </p>
             </div>
           </div>

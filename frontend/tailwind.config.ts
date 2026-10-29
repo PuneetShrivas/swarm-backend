@@ -11,25 +11,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Linear Pure Design Tokens
-        canvas: "#010102",
-        "surface-1": "#0f1011",
-        "surface-2": "#141516",
-        "surface-3": "#18191a",
-        "surface-4": "#191a1b",
-        hairline: "#23252a",
-        "hairline-strong": "#34343a",
-        "hairline-tertiary": "#3e3e44",
+        // Pure Design Tokens dynamically mapped to CSS variables for Light & Dark mode
+        canvas: "hsl(var(--canvas) / <alpha-value>)",
+        "surface-1": "hsl(var(--surface-1) / <alpha-value>)",
+        "surface-2": "hsl(var(--surface-2) / <alpha-value>)",
+        "surface-3": "hsl(var(--surface-3) / <alpha-value>)",
+        "surface-4": "hsl(var(--surface-4) / <alpha-value>)",
+        hairline: "hsl(var(--hairline) / <alpha-value>)",
+        "hairline-strong": "hsl(var(--hairline-strong) / <alpha-value>)",
+        "hairline-tertiary": "hsl(var(--hairline-tertiary) / <alpha-value>)",
         "brand-secure": "#7a7fad",
         "semantic-success": "#27a644",
-        "linear-primary": "#5e6ad2",
+        "linear-primary": "hsl(var(--primary) / <alpha-value>)",
         "linear-hover": "#828fff",
         "linear-focus": "#5e69d1",
         ink: {
-          DEFAULT: "#f7f8f8",
-          muted: "#d0d6e0",
-          subtle: "#8a8f98",
-          tertiary: "#62666d",
+          DEFAULT: "hsl(var(--ink) / <alpha-value>)",
+          muted: "hsl(var(--ink-muted) / <alpha-value>)",
+          subtle: "hsl(var(--ink-subtle) / <alpha-value>)",
+          tertiary: "hsl(var(--ink-tertiary) / <alpha-value>)",
         },
         // Semantic Token Bindings
         background: "hsl(var(--background) / <alpha-value>)",

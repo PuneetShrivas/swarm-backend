@@ -55,7 +55,7 @@ export default function WhoWeServe() {
           Specialized Roles in the <Highlight>Agent Swarm</Highlight>
         </motion.h2>
         <p className="text-xs sm:text-sm text-ink-subtle mt-2.5 max-w-lg mx-auto">
-          Hover over each specialized agent to interact with its 3D holographic neural persona.
+          Inspect built-in agent specialists, system prompt roles, and execution models.
         </p>
       </div>
 

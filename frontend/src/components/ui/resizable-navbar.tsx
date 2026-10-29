@@ -9,8 +9,8 @@ import {
   useScroll,
   useMotionValueEvent,
 } from "framer-motion";
-import { Bot } from "lucide-react";
 import Link from "next/link";
+import BrandLogo from "@/components/BrandLogo";
 
 interface NavbarProps {
   children: React.ReactNode;
@@ -230,17 +230,7 @@ export const NavbarLogo = ({ href = "/" }: { href?: string }) => {
       href={href}
       className="relative z-20 flex items-center gap-2 px-1 text-ink group"
     >
-      <div className="w-7 h-7 rounded-md bg-surface-2 border border-hairline flex items-center justify-center text-linear-primary group-hover:border-hairline-strong transition-colors">
-        <Bot className="w-4 h-4" />
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="font-semibold text-sm tracking-tight text-ink">
-          Swarm
-        </span>
-        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-xs bg-surface-2 text-ink-subtle border border-hairline">
-          v2.0
-        </span>
-      </div>
+      <BrandLogo size={24} showWordmark={true} versionBadge="v2.0" wordmarkClassName="text-sm" />
     </Link>
   );
 };

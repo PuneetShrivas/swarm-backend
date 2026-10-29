@@ -137,10 +137,10 @@ export default function AIAgentGeneratorModal({
             </div>
             <div>
               <h3 className="text-xs font-semibold text-ink tracking-tight">
-                AI Agent Architect
+                AI Agent Generator
               </h3>
               <p className="text-[10px] text-ink-subtle">
-                Synthesize customized agent personas, roles, and instructions from natural language
+                Generate agent system prompts, tool bindings, and model configurations from a prompt
               </p>
             </div>
           </div>

@@ -50,7 +50,7 @@ export default function ChatHeader({
         <div className="truncate">
           <div className="flex items-center gap-2 truncate">
             <span className="font-medium text-ink text-xs tracking-tight truncate">
-              {sessionTitle || (currentAgent ? currentAgent.name : "Autonomous Swarm Session")}
+              {sessionTitle || (currentAgent ? currentAgent.name : "Swarm Session")}
             </span>
 
             {/* Status & Inspect Trigger */}

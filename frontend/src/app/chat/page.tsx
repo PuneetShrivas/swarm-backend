@@ -650,17 +650,17 @@ export default function Chat() {
                     type="button"
                     onClick={() =>
                       handleSend(
-                        "Explain how the autonomous agent swarm routes complex tasks and executes Python tools."
+                        "Explain the swarm routing architecture: how the orchestrator delegates tasks to specialized agents and executes Python tools."
                       )
                     }
                     className="p-3.5 rounded-lg bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong text-left transition-colors group cursor-pointer"
                   >
                     <div className="flex items-center gap-1.5 text-xs font-medium text-ink group-hover:text-linear-primary transition-colors">
                       <Sparkles size={13} className="text-linear-primary" />
-                      <span>Ask Swarm Specialist</span>
+                      <span>Swarm Architecture</span>
                     </div>
                     <p className="text-[11px] text-ink-subtle mt-1 line-clamp-2">
-                      Routing architecture, tool executions, and state orchestration.
+                      Stateless routing, tool definitions, and Supabase execution traces.
                     </p>
                   </button>
 
@@ -671,10 +671,10 @@ export default function Chat() {
                   >
                     <div className="flex items-center gap-1.5 text-xs font-medium text-ink group-hover:text-linear-primary transition-colors">
                       <Workflow size={13} className="text-linear-primary" />
-                      <span>Run Workflow Pipeline</span>
+                      <span>Run Workflow</span>
                     </div>
                     <p className="text-[11px] text-ink-subtle mt-1 line-clamp-2">
-                      Execute a multi-step deterministic DAG with isolated agent handoffs.
+                      Execute a multi-step DAG pipeline with condition gates and Python blocks.
                     </p>
                   </button>
 
@@ -684,10 +684,10 @@ export default function Chat() {
                   >
                     <div className="flex items-center gap-1.5 text-xs font-medium text-ink group-hover:text-linear-primary transition-colors">
                       <Bot size={13} className="text-linear-primary" />
-                      <span>Open Agents Studio</span>
+                      <span>Agents Studio</span>
                     </div>
                     <p className="text-[11px] text-ink-subtle mt-1 line-clamp-2">
-                      Create custom agents, configure models, and test in playground.
+                      Inspect built-in agents, configure system prompts, and test in playground.
                     </p>
                   </a>
                 </div>

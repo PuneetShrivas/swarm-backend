@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Workflow,
 } from "./types";
 import AIWorkflowGeneratorModal from "./components/AIWorkflowGeneratorModal";
+import AppNavigationRail from "@/app/components/AppNavigationRail";
 import {
   Plus,
   Search,
@@ -17,12 +17,9 @@ import {
   Lock,
   Trash2,
   Check,
-  MessageSquare,
   Bot,
   Loader2,
   Share2,
-  LogIn,
-  LogOut,
   AlertCircle,
 } from "lucide-react";
 import { supabase, getAuthHeaders } from "@/lib/supabase";
@@ -192,70 +189,56 @@ export default function WorkflowsDashboardPage() {
 
   return (
     <div className="min-h-screen bg-canvas text-ink flex flex-col font-sans selection:bg-linear-primary/25 selection:text-ink">
-      {/* Top Navbar */}
-      <header className="h-14 border-b border-hairline bg-canvas/90 backdrop-blur-md px-4 md:px-8 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-surface-1 border border-hairline flex items-center justify-center text-linear-primary">
-            <Layers size={15} />
-          </div>
-          <div>
-            <h1 className="text-xs sm:text-sm font-medium text-ink tracking-tight">
-              Workflows Studio
-            </h1>
-          </div>
-        </div>
+      {/* 1. Unified 3-Pillar Top Navigation Rail */}
+      <AppNavigationRail
+        currentTab="workflows"
+        userEmail={userEmail}
+        onSignOut={handleSignOut}
+      />
 
-        <div className="flex items-center gap-2.5">
-          <Link
-            href="/chat"
-            className="px-3 py-1.5 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-md transition-colors flex items-center gap-1.5"
-          >
-            <MessageSquare size={13} /> Chat Workspace
-          </Link>
-          <button
-            type="button"
-            onClick={() => setIsAIModalOpen(true)}
-            className="px-3.5 py-1.5 text-xs font-medium text-ink hover:text-white bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong rounded-md transition-colors shadow-card flex items-center gap-1.5"
-            title="Synthesize an autonomous workflow DAG using natural language with Gemini 3.8"
-          >
-            <Sparkles size={13} className="text-linear-primary" />
-            <span>AI Architect</span>
-          </button>
-          <button
-            onClick={() => {
-              setNewTitle("New Autonomous Workflow");
-              setNewGoal("Define the primary goal of this workflow...");
-              setNewDescription("");
-              setCreateError(null);
-              setIsCreateOpen(true);
-            }}
-            className="px-3.5 py-1.5 text-xs font-medium bg-linear-primary hover:bg-linear-hover text-white rounded-md transition-colors flex items-center gap-1.5"
-          >
-            <Plus size={13} /> New Workflow
-          </button>
-          {userEmail ? (
-            <div className="flex items-center gap-1.5 pl-2 border-l border-hairline">
-              <span className="text-[11px] text-ink-subtle hidden lg:inline max-w-[140px] truncate" title={userEmail}>
-                {userEmail}
+      {/* 2. Workflows Studio Header Banner */}
+      <div className="border-b border-hairline bg-surface-1/40 px-4 md:px-8 py-5">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-ink">
+                Workflows Studio
+              </h1>
+              <span className="text-xs font-mono px-2 py-0.5 rounded-pill bg-surface-2 border border-hairline text-ink-subtle">
+                {workflows.length} Pipelines
               </span>
-              <button
-                onClick={handleSignOut}
-                title="Sign out"
-                className="p-1.5 rounded-md border border-hairline bg-surface-1 text-ink-subtle hover:text-ink hover:bg-surface-2 transition-colors"
-              >
-                <LogOut size={12} />
-              </button>
             </div>
-          ) : (
-            <Link
-              href="/login"
-              className="px-2.5 py-1.5 text-xs border border-hairline bg-surface-1 text-ink-muted hover:text-ink rounded-md transition-colors flex items-center gap-1"
+            <p className="text-xs text-ink-subtle mt-1 leading-relaxed">
+              Design, test, and execute deterministic multi-agent DAG pipelines with conditions and Python tools.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-stretch sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setIsAIModalOpen(true)}
+              className="flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-medium text-ink hover:text-white bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong rounded-md transition-colors shadow-xs flex items-center justify-center gap-1.5"
+              title="Synthesize an autonomous workflow DAG using natural language with Gemini 3.8"
             >
-              <LogIn size={12} /> Sign In
-            </Link>
-          )}
+              <Sparkles size={13} className="text-linear-primary" />
+              <span>AI Architect</span>
+            </button>
+            <button
+              onClick={() => {
+                setNewTitle("New Autonomous Workflow");
+                setNewGoal("Define the primary goal of this workflow...");
+                setNewDescription("");
+                setCreateError(null);
+                setIsCreateOpen(true);
+              }}
+              className="flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-medium bg-linear-primary hover:bg-linear-hover text-white rounded-md transition-colors shadow-xs flex items-center justify-center gap-1.5"
+            >
+              <Plus size={13} />
+              <span>New Workflow</span>
+            </button>
+          </div>
         </div>
-      </header>
+      </div>
 
       {/* Main Content Area */}
       <main className="flex-1 p-4 md:p-8 max-w-6xl w-full mx-auto space-y-6">

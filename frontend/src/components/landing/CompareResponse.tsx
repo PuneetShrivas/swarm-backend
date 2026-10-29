@@ -18,11 +18,11 @@ export default function CompareResponse() {
           transition={{ duration: 0.4 }}
           className="text-2xl sm:text-3xl md:text-4xl font-bold text-ink tracking-headline"
         >
-          From Monolithic Bottlenecks to{" "}
-          <Highlight>Autonomous Swarms</Highlight>
+          Single-Agent Bottlenecks vs.{" "}
+          <Highlight>Multi-Agent Execution</Highlight>
         </motion.h2>
         <p className="text-xs sm:text-sm text-ink-subtle mt-2.5 max-w-xl mx-auto">
-          See how hierarchical agent swarms break complex multi-step objectives into verifiable, parallel execution DAGs.
+          Single-turn LLMs fail on complex engineering tasks. Swarm decomposes objectives into parallel, verifiable steps with specialized agents.
         </p>
 
         {/* Mobile View Toggle */}

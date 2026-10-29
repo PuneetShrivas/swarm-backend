@@ -80,7 +80,7 @@ export interface Agent {
  * Creates the initial conversation tree with a default greeting.
  */
 export function createInitialState(
-  greeting: string = 'Hello! I am part of the agent swarm. How can I help you today?'
+  greeting: string = 'Swarm orchestrator ready. Select an agent or submit a query to begin.'
 ): ConversationState {
   const greetingId = 'root-greeting';
   const initialNode: ChatNode = {

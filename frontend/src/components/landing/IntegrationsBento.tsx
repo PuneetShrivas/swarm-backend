@@ -121,7 +121,7 @@ export default function IntegrationsBento() {
           Engineered for <Highlight>Multi-Agent Scale</Highlight>
         </motion.h2>
         <p className="text-xs sm:text-sm text-ink-subtle mt-2.5 max-w-lg mx-auto">
-          Five cohesive architectural pillars designed for production AI reliability and zero-trust security.
+          Five architectural pillars designed for production reliability and auditable execution.
         </p>
       </div>
 

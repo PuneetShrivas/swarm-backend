@@ -15,9 +15,9 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Swarm Intelligence — Autonomous Multi-Agent AI Platform",
+  title: "Swarm — Multi-Agent Orchestration & Workflow Studio",
   description:
-    "Hierarchical multi-agent AI system with intelligent delegation, live telemetry, conversation branching, and modern theming.",
+    "FastAPI multi-agent orchestration, visual DAG workflow studio, dialogue tree branching, and live telemetry.",
 };
 
 export default function RootLayout({

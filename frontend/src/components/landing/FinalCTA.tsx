@@ -19,11 +19,11 @@ export default function FinalCTA() {
           </div>
 
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-ink leading-tight">
-            Orchestrate Your First Autonomous Swarm Today
+            Build and Deploy Multi-Agent Pipelines
           </h2>
 
           <p className="text-xs sm:text-sm md:text-base text-ink-subtle max-w-lg mx-auto leading-relaxed">
-            Stateless HTTP orchestration, visual DAG workflow studio, non-linear dialogue branching, and real-time execution telemetry.
+            Stateless FastAPI endpoints, visual DAG workflows, branching dialogue trees, and live telemetry.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">

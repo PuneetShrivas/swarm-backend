@@ -19,6 +19,7 @@ import { ContainerTextFlip } from "@/components/ui/container-text-flip";
 import { Highlight } from "@/components/ui/hero-highlight";
 import { CardSpotlight } from "@/components/ui/card-spotlight";
 import { Button } from "@/components/ui/button";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import CompareResponse from "@/components/landing/CompareResponse";
 import IntegrationsBento from "@/components/landing/IntegrationsBento";
 import TimelineSection from "@/components/landing/TimelineSection";
@@ -55,6 +56,7 @@ export default function Home() {
           <NavbarLogo />
           <NavItems items={navItems} />
           <div className="flex items-center gap-2">
+            <ThemeSwitcher compact={true} />
             <Link href="/login" className="hidden sm:inline-block">
               <NavbarButton variant="outline">Sign In</NavbarButton>
             </Link>
@@ -87,6 +89,10 @@ export default function Home() {
                 {item.name}
               </a>
             ))}
+            <div className="flex items-center justify-between py-2 border-t border-hairline">
+              <span className="text-xs text-ink-subtle">Interface Theme</span>
+              <ThemeSwitcher compact={false} />
+            </div>
             <div className="flex flex-col gap-2 w-full pt-2 border-t border-hairline">
               <Link
                 href="/login"
@@ -132,8 +138,8 @@ export default function Home() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink leading-[1.1] mb-6"
           >
-            Linear Intelligence for <br className="hidden sm:block" />
-            <Highlight>Multi-Agent Swarms</Highlight>
+            Orchestrate Multi-Agent <br className="hidden sm:block" />
+            <Highlight>Production Systems</Highlight>
           </motion.h1>
 
           {/* Model Flipper Line */}
@@ -143,7 +149,7 @@ export default function Home() {
             transition={{ duration: 0.4, delay: 0.2 }}
             className="flex flex-wrap items-center justify-center gap-2 text-xs sm:text-sm text-ink-subtle mb-6"
           >
-            <span>Orchestrating top models:</span>
+            <span>Supported reasoning models:</span>
             <ContainerTextFlip
               words={[
                 "Gemini 3.8 Flash",
@@ -162,8 +168,8 @@ export default function Home() {
             transition={{ duration: 0.4, delay: 0.25 }}
             className="text-xs sm:text-base text-ink-muted max-w-xl mx-auto mb-8 leading-relaxed font-sans"
           >
-            Stateless HTTP orchestration, visual DAG workflow pipelines, tree-structured
-            branching conversation memory, and audited Supabase telemetry.
+            Stateless FastAPI orchestration, visual DAG workflow execution,
+            tree-structured dialogue branching, and Supabase telemetry.
           </motion.p>
 
           {/* Hero CTAs */}
@@ -176,7 +182,7 @@ export default function Home() {
             <Link href="/chat" className="w-full sm:w-auto">
               <Button size="lg" className="w-full sm:w-auto gap-2 text-xs sm:text-sm">
                 <Bot size={15} />
-                <span>Open Chat Interface</span>
+                <span>Launch Chat</span>
                 <ArrowRight size={14} />
               </Button>
             </Link>
@@ -199,7 +205,7 @@ export default function Home() {
                 className="w-full sm:w-auto gap-2 text-xs sm:text-sm"
               >
                 <Sparkles size={14} className="text-linear-primary" />
-                <span>Agent Roster</span>
+                <span>Agents Studio</span>
               </Button>
             </Link>
           </motion.div>
@@ -219,10 +225,10 @@ export default function Home() {
             transition={{ duration: 0.4 }}
             className="text-2xl sm:text-3xl md:text-4xl font-bold text-ink tracking-headline"
           >
-            Two Unified Engines. <Highlight>One Autonomous Platform.</Highlight>
+            Two Unified Engines. <Highlight>One Platform.</Highlight>
           </motion.h2>
           <p className="text-xs sm:text-sm text-ink-subtle mt-2.5 max-w-lg mx-auto">
-            Seamlessly transition between interactive conversational chat and production visual DAG pipeline automation.
+            Switch between conversational multi-agent chat and visual DAG pipeline automation.
           </p>
         </div>
 
@@ -241,7 +247,7 @@ export default function Home() {
                 </h3>
               </div>
               <p className="text-xs text-ink-subtle leading-relaxed">
-                Decompose complex prompts dynamically into sub-tasks. Direct intent through specialized agents with Perplexity Sonar citations and non-linear branching memory.
+                Direct user queries through specialized agents with live tool execution, Perplexity Sonar web citations, and non-linear branching dialogue history.
               </p>
               <ul className="space-y-2 text-xs text-ink-muted pt-2">
                 <li className="flex items-center gap-2">
@@ -282,16 +288,16 @@ export default function Home() {
                 </h3>
               </div>
               <p className="text-xs text-ink-subtle leading-relaxed">
-                Build and monitor deterministic pipelines visually with React Flow nodes, AST condition branching, sandboxed Python code execution, and step-level unit test suites.
+                Construct and inspect deterministic pipelines with React Flow node graphs, AST condition branching, isolated Python code execution, and mock test suites.
               </p>
               <ul className="space-y-2 text-xs text-ink-muted pt-2">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 size={13} className="text-linear-primary shrink-0" />
-                  <span>5 Advanced block types: Agent, Condition, Python, Loop, Artifact</span>
+                  <span>5 Block types: Agent, Condition, Python, Loop, Artifact</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 size={13} className="text-linear-primary shrink-0" />
-                  <span>Natural-language AI Workflow Architect mode</span>
+                  <span>Natural-language AI Workflow Generator</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 size={13} className="text-linear-primary shrink-0" />

@@ -3,7 +3,6 @@
 import React from "react";
 import Link from "next/link";
 import {
-  Bot,
   MessageSquare,
   Users,
   Workflow,
@@ -11,6 +10,8 @@ import {
   LogOut,
   LogIn,
 } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 interface AppNavigationRailProps {
   currentTab: "chat" | "agents" | "workflows";
@@ -28,29 +29,19 @@ export default function AppNavigationRail({
   onSignOut,
 }: AppNavigationRailProps) {
   return (
-    <header className="h-12 border-b border-hairline bg-canvas/90 backdrop-blur-md px-4 flex items-center justify-between sticky top-0 z-30 select-none font-sans">
-      {/* Left: Swarm Brand Wordmark */}
+    <header className="h-12 border-b border-hairline bg-canvas/90 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between sticky top-0 z-30 select-none font-sans">
+      {/* Left: Swarm Brand Wordmark with Internet Logo */}
       <Link href="/" className="flex items-center gap-2 group">
-        <div className="w-6 h-6 rounded-md bg-surface-1 border border-hairline flex items-center justify-center text-linear-primary group-hover:border-hairline-strong transition-colors">
-          <Bot size={13} />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold tracking-tight text-ink">
-            Swarm
-          </span>
-          <span className="text-[9px] font-mono px-1 py-0.2 rounded-xs bg-surface-2 text-ink-subtle border border-hairline">
-            v2.0
-          </span>
-        </div>
+        <BrandLogo size={22} showWordmark={true} versionBadge="v2.0" />
       </Link>
 
-      {/* Center: 3-Pillar Segmented Switcher */}
-      <nav className="flex items-center gap-0.5 p-0.5 rounded-pill bg-surface-1 border border-hairline">
+      {/* Center: 3-Pillar Segmented Switcher (Chat | Agents | Workflows) */}
+      <nav className="flex items-center gap-0.5 p-0.5 rounded-pill bg-surface-1 border border-hairline shadow-xs">
         <Link
           href="/chat"
           className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
             currentTab === "chat"
-              ? "bg-surface-2 text-ink border border-hairline-strong"
+              ? "bg-surface-2 text-ink border border-hairline-strong shadow-xs font-semibold"
               : "text-ink-subtle hover:text-ink"
           }`}
         >
@@ -62,7 +53,7 @@ export default function AppNavigationRail({
           href="/agents"
           className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
             currentTab === "agents"
-              ? "bg-surface-2 text-ink border border-hairline-strong"
+              ? "bg-surface-2 text-ink border border-hairline-strong shadow-xs font-semibold"
               : "text-ink-subtle hover:text-ink"
           }`}
         >
@@ -74,7 +65,7 @@ export default function AppNavigationRail({
           href="/workflows"
           className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
             currentTab === "workflows"
-              ? "bg-surface-2 text-ink border border-hairline-strong"
+              ? "bg-surface-2 text-ink border border-hairline-strong shadow-xs font-semibold"
               : "text-ink-subtle hover:text-ink"
           }`}
         >
@@ -83,8 +74,11 @@ export default function AppNavigationRail({
         </Link>
       </nav>
 
-      {/* Right: Telemetry & User Account Menu */}
-      <div className="flex items-center gap-2">
+      {/* Right: Theme Toggle, Telemetry & User Account Menu */}
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Light/Dark/Palette Mode Switcher */}
+        <ThemeSwitcher compact={true} />
+
         {onOpenUsage && (
           <button
             type="button"
@@ -94,7 +88,7 @@ export default function AppNavigationRail({
           >
             <Zap size={11} className="text-linear-primary" />
             <span className="text-[11px]">{totalTokensUsed.toLocaleString()}</span>
-            <span className="text-[9px] text-ink-subtle hidden sm:inline">tks</span>
+            <span className="text-[9px] text-ink-subtle hidden md:inline">tks</span>
           </button>
         )}
 
