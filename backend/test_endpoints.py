@@ -650,8 +650,19 @@ def execute(input_data: dict, context: dict) -> dict:
     assert updated_data["temperature"] == 0.1
     print(f"PASS: PUT /api/custom-agents/agent-financial-auditor updated model to {updated_data['model']} and name to '{updated_data['name']}'")
 
+    # 34. Test AI Workflow Generator with Multi-Block Archetype (Code Review & Condition)
+    refactor_wf_payload = {
+        "prompt": "Create an automated code review and refactor pipeline that checks code quality and produces a pull request report"
+    }
+    res_ai_wf = client.post("/api/ai/generate-workflow", json=refactor_wf_payload, headers=auth_headers)
+    assert res_ai_wf.status_code == 200, f"AI multi-block workflow generation failed: {res_ai_wf.text}"
+    refactor_wf = res_ai_wf.json()
+    assert "title" in refactor_wf and "steps" in refactor_wf
+    assert any(s.get("step_type") in ("condition", "artifact") for s in refactor_wf["steps"]), "Expected condition or artifact step in generated DAG"
+    print(f"PASS: POST /api/ai/generate-workflow (multi-block) -> Generated '{refactor_wf['title']}' with {len(refactor_wf['steps'])} steps including specialized block types")
+
     print("\n========================================")
-    print("ALL 33 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 34 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

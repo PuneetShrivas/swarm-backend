@@ -75,6 +75,12 @@ def generate_workflow_spec(
     system_instruction = (
         "You are an expert AI Autonomous Workflow Architect. Your mission is to take user requirements "
         "and generate a complete, valid multi-step directed acyclic graph (DAG) workflow pipeline.\n"
+        "Supported Step Types:\n"
+        "- 'agent': General reasoning step delegated to a specialist agent.\n"
+        "- 'condition': Branching decision block with 'condition_expr', 'true_target_step_id', and 'false_target_step_id'.\n"
+        "- 'python_code': Sandboxed Python script execution block with 'code'.\n"
+        "- 'loop': Iteration block with 'loop_target_step_id' and 'max_loop_iterations'.\n"
+        "- 'artifact': Structured deliverable generator with 'artifact_title' and 'artifact_type' ('report', 'markdown', 'code', 'json').\n\n"
         "Return ONLY a raw JSON object matching the following structure without markdown explanation:\n"
         "{\n"
         '  "title": "Concise, professional workflow title (max 50 chars)",\n'
@@ -84,7 +90,8 @@ def generate_workflow_spec(
         "    {\n"
         '      "id": "step_1",\n'
         '      "name": "Human-readable step name",\n'
-        '      "agent_id": "Must match one of the available agent IDs",\n'
+        '      "step_type": "agent",\n'
+        '      "agent_id": "Must match one of the available agent IDs (if step_type is agent)",\n'
         '      "instructions": "Detailed prompt template using {{goal}}, {{inputs.query}}, or {{steps.<prev_step_id>.output.text}}",\n'
         '      "tool_ids": [],\n'
         '      "knowledge_file_ids": [],\n'
@@ -115,7 +122,25 @@ def generate_workflow_spec(
             data = json.loads(cleaned_json)
             if "title" in data and "steps" in data and isinstance(data["steps"], list):
                 # Ensure all required defaults exist
-                if "edges" not in data or not isinstance(data["edges"], list):
+                for idx, s in enumerate(data["steps"]):
+                    if not s.get("id"):
+                        s["id"] = f"step_{idx+1}"
+                    if not s.get("name"):
+                        s["name"] = f"Step {idx+1}"
+                    if not s.get("step_type"):
+                        s["step_type"] = "agent"
+                    if s["step_type"] == "agent" and not s.get("agent_id"):
+                        s["agent_id"] = "orchestrator"
+                    if not s.get("instructions"):
+                        s["instructions"] = f"Execute action for: {{{{goal}}}}"
+                    if "tool_ids" not in s:
+                        s["tool_ids"] = []
+                    if "knowledge_file_ids" not in s:
+                        s["knowledge_file_ids"] = []
+                    if "depends_on" not in s:
+                        s["depends_on"] = [data["steps"][idx-1]["id"]] if idx > 0 else []
+
+                if "edges" not in data or not isinstance(data["edges"], list) or not data["edges"]:
                     edges = []
                     for s in data["steps"]:
                         for dep in s.get("depends_on", []):
@@ -138,6 +163,7 @@ def generate_workflow_spec(
                 {
                     "id": "step_1",
                     "name": "Static Vulnerability Scan",
+                    "step_type": "agent",
                     "agent_id": "coder",
                     "instructions": "Analyze code assets for potential security flaws, injection vectors, and hardcoded secrets: {{inputs.query}}",
                     "tool_ids": [],
@@ -147,6 +173,7 @@ def generate_workflow_spec(
                 {
                     "id": "step_2",
                     "name": "OWASP Security Compliance Audit",
+                    "step_type": "agent",
                     "agent_id": "reviewer",
                     "instructions": "Evaluate findings from previous step against OWASP standards and calculate risk severity: {{steps.step_1.output.text}}",
                     "tool_ids": [],
@@ -156,8 +183,56 @@ def generate_workflow_spec(
                 {
                     "id": "step_3",
                     "name": "Remediation & Executive Briefing",
-                    "agent_id": "synthesizer",
+                    "step_type": "artifact",
+                    "artifact_title": "Security Remediation Plan & Audit Report",
+                    "artifact_type": "report",
                     "instructions": "Synthesize security findings into an executive report with actionable remediation steps: {{steps.step_2.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ],
+        }
+
+    if any(k in prompt_lower for k in ["refactor", "code review", "git", "clean code", "lint", "pr review"]):
+        return {
+            "title": f"Automated Code Quality & Refactor Pipeline ({slug_id})",
+            "description": "Audits codebase syntax, complexity, and maintainability, branching conditionally on quality thresholds.",
+            "goal": prompt or "Audit code quality and produce automated refactor suggestions.",
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Static Analysis & Complexity Audit",
+                    "step_type": "agent",
+                    "agent_id": "coder",
+                    "instructions": "Audit codebase syntax, cyclomatic complexity, and test coverage: {{inputs.query}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Quality Threshold Evaluation",
+                    "step_type": "condition",
+                    "instructions": "Verify if code maintainability score satisfies production quality gate: {{steps.step_1.output.score}} >= 80",
+                    "condition_expr": "{{steps.step_1.output.score}} >= 80",
+                    "true_target_step_id": "step_3",
+                    "false_target_step_id": "step_3",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Refactor Delivery & Executive Report",
+                    "step_type": "artifact",
+                    "artifact_title": "Automated Code Review & Refactor Specifications",
+                    "artifact_type": "markdown",
+                    "instructions": "Synthesize verified code diffs and documentation: {{steps.step_1.output.text}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "depends_on": ["step_2"],
@@ -178,6 +253,7 @@ def generate_workflow_spec(
                 {
                     "id": "step_1",
                     "name": "Quantitative Metrics Extraction",
+                    "step_type": "agent",
                     "agent_id": "data_analyst",
                     "instructions": "Extract key numerical indicators, distributions, and variance metrics for: {{inputs.query}}",
                     "tool_ids": [],
@@ -187,6 +263,7 @@ def generate_workflow_spec(
                 {
                     "id": "step_2",
                     "name": "Strategic Findings Synthesis",
+                    "step_type": "agent",
                     "agent_id": "synthesizer",
                     "instructions": "Transform quantitative metrics into executive insights with trend graphs: {{steps.step_1.output.text}}",
                     "tool_ids": [],
@@ -208,6 +285,7 @@ def generate_workflow_spec(
             {
                 "id": "step_1",
                 "name": "Investigative Research & Evidence Gathering",
+                "step_type": "agent",
                 "agent_id": "researcher",
                 "instructions": "Conduct deep investigative discovery regarding: {{goal}} with input query: {{inputs.query}}",
                 "tool_ids": [],
@@ -217,6 +295,7 @@ def generate_workflow_spec(
             {
                 "id": "step_2",
                 "name": "Technical Verification & Solution Design",
+                "step_type": "agent",
                 "agent_id": "coder",
                 "instructions": "Verify technical feasibility and formulate solution specifications based on: {{steps.step_1.output.text}}",
                 "tool_ids": [],
@@ -226,7 +305,9 @@ def generate_workflow_spec(
             {
                 "id": "step_3",
                 "name": "Executive Synthesis & Delivery",
-                "agent_id": "synthesizer",
+                "step_type": "artifact",
+                "artifact_title": "Executive Strategic Briefing",
+                "artifact_type": "report",
                 "instructions": "Compile research and technical specs into a final verified executive deliverable: {{steps.step_2.output.text}}",
                 "tool_ids": [],
                 "knowledge_file_ids": [],

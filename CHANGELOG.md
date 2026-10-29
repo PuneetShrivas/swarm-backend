@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Complete Landing Page Redesign with Reference UI Components**:
+  - Completely redesigned `frontend/src/app/page.tsx` from scratch, incorporating the majority of components from `PuneetShrivas/generative-engine-optimization`.
+  - Added `ResizableNavbar`: dynamic scroll-aware floating navbar with blur and shrink animations.
+  - Added `BackgroundBoxes`: 3D interactive hover grid for the hero background.
+  - Added `ContainerTextFlip`: animated model badge flipper cycling through Gemini 3.8 Flash, Gemini 4 Argon, Sonar, Claude, and GPT-4o.
+  - Added `HeroHighlight` & `Highlight`: animated gradient highlighter sweeps on key headlines.
+  - Added `CardSpotlight`: mouse-tracking radial spotlight cards for Engine 01 (Chat Orchestration) and Engine 02 (Workflow Studio).
+  - Added `CompareResponse`: side-by-side terminal comparison contrasting single-agent LLM bottlenecks against Swarm 2.0 parallel DAG orchestration.
+  - Added `IntegrationsBento`: 5-cell Bento Grid highlighting Swarm's core capabilities.
+  - Added `TimelineSection`: scroll-linked lifecycle timeline illustrating the 4 execution stages.
+  - Added `WhoWeServe`: 3D holographic Glare Cards for the 4 core specialized agent roles.
+  - Added `MetricsSection`: production telemetry metrics and enterprise tech stack badges.
+  - Added `TestimonialsSection`: 3D stacked card testimonial rotation with autoplay and manual controls.
+  - Added `PricingSection`: developer-first pricing matrix with monthly/annual billing switch.
+  - Added `FinalCTA` with `BackgroundBeams`: luminous animated ray canvas.
+  - Added `FooterSection`: multi-column footer with status indicator, model links, and GitHub repository integration.
+- **AI Mode for Autonomous Workflow Construction (`AIWorkflowGeneratorModal`)**:
+  - Synthesize multi-agent workflow DAG pipelines from natural language prompts using Gemini 3.8 Flash (`POST /api/ai/generate-workflow`).
+  - Interactive review and refine modal matching Linear dark aesthetics with customizable Title, Goal, Description, visual DAG execution sequence strip, and expandable step inspector cards.
+  - Multi-block DAG pipeline generation supporting all 5 block types: `agent`, `condition`, `python_code`, `loop`, and `artifact`.
+  - Accessible via "AI Architect" header button and empty-state callout on the Workflows Dashboard (`/workflows`), dual-mode trigger in the manual creation modal, and inside the Workflow Studio canvas header (`/workflows/[id]`).
+  - Added Test 34 asserting multi-block DAG synthesis with condition branches and artifact output nodes.
 - **Dedicated Sources & Citations Component**:
   - Surfaces Perplexity Sonar search citations directly in a dedicated, interactive "Sources & Citations" section under agent messages.
   - Features numeric citation badges (`[1]`, `[2]`), parsed hostname domains, preview paths, external link icons, and secure tab openers (`rel="noopener noreferrer"`).

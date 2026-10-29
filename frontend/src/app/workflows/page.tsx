@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Workflow,
 } from "./types";
+import AIWorkflowGeneratorModal from "./components/AIWorkflowGeneratorModal";
 import {
   Plus,
   Search,
@@ -34,8 +35,9 @@ export default function WorkflowsDashboardPage() {
   const [activeFilter, setActiveFilter] = useState<"all" | "mine" | "shared">("all");
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  // Create Modal state
+  // Create & AI Modal states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newGoal, setNewGoal] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -211,6 +213,15 @@ export default function WorkflowsDashboardPage() {
             <MessageSquare size={13} /> Chat Workspace
           </Link>
           <button
+            type="button"
+            onClick={() => setIsAIModalOpen(true)}
+            className="px-3.5 py-1.5 text-xs font-medium text-ink hover:text-white bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong rounded-md transition-colors shadow-card flex items-center gap-1.5"
+            title="Synthesize an autonomous workflow DAG using natural language with Gemini 3.8"
+          >
+            <Sparkles size={13} className="text-linear-primary" />
+            <span>AI Architect</span>
+          </button>
+          <button
             onClick={() => {
               setNewTitle("New Autonomous Workflow");
               setNewGoal("Define the primary goal of this workflow...");
@@ -313,12 +324,21 @@ export default function WorkflowsDashboardPage() {
             <p className="text-xs text-ink-subtle mt-1 mb-5">
               Create your first multi-agent workflow to automate complex pipelines.
             </p>
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              className="px-3.5 py-1.5 bg-linear-primary hover:bg-linear-hover text-white text-xs font-medium rounded-md transition-colors inline-flex items-center gap-1.5"
-            >
-              <Plus size={13} /> Create Workflow
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAIModalOpen(true)}
+                className="px-3.5 py-1.5 bg-surface-2 hover:bg-surface-3 border border-hairline hover:border-hairline-strong text-ink text-xs font-medium rounded-md transition-colors inline-flex items-center gap-1.5 shadow-card"
+              >
+                <Sparkles size={13} className="text-linear-primary" /> Architect with AI
+              </button>
+              <button
+                onClick={() => setIsCreateOpen(true)}
+                className="px-3.5 py-1.5 bg-linear-primary hover:bg-linear-hover text-white text-xs font-medium rounded-md transition-colors inline-flex items-center gap-1.5"
+              >
+                <Plus size={13} /> Create Manual
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -408,6 +428,24 @@ export default function WorkflowsDashboardPage() {
               Define the title and primary goal. You will be redirected to the Workflow Studio to configure agents and steps.
             </p>
 
+            <div className="flex items-center justify-between p-2 rounded-md bg-surface-2/60 border border-hairline">
+              <div className="flex items-center gap-1.5 text-xs text-ink-muted">
+                <Sparkles size={12} className="text-linear-primary shrink-0" />
+                <span>Prefer natural language?</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setIsAIModalOpen(true);
+                }}
+                className="text-[11px] font-medium text-linear-primary hover:text-linear-hover transition-colors flex items-center gap-1"
+              >
+                <span>Generate with AI Mode</span>
+                <ArrowRight size={10} />
+              </button>
+            </div>
+
             <div className="space-y-3 pt-2">
               <div>
                 <label className="text-xs font-medium text-ink-subtle block mb-1">
@@ -462,6 +500,16 @@ export default function WorkflowsDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* AI Workflow Generator Modal */}
+      <AIWorkflowGeneratorModal
+        isOpen={isAIModalOpen}
+        onClose={() => setIsAIModalOpen(false)}
+        onCreated={(createdWf) => {
+          setIsAIModalOpen(false);
+          router.push(`/workflows/${createdWf.id}`);
+        }}
+      />
     </div>
   );
 }

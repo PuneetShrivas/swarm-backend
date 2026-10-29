@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Workflow,
@@ -18,6 +18,7 @@ import KnowledgeBaseManager from "../components/KnowledgeBaseManager";
 import WorkflowRunsDebugger from "../components/WorkflowRunsDebugger";
 import StepUnitTestModal from "../components/StepUnitTestModal";
 import WorkflowSystemTestModal from "../components/WorkflowSystemTestModal";
+import AIWorkflowGeneratorModal from "../components/AIWorkflowGeneratorModal";
 import {
   ArrowLeft,
   Save,
@@ -41,6 +42,7 @@ type ViewMode = "cards" | "graph";
 
 export default function WorkflowStudioPage() {
   const params = useParams();
+  const router = useRouter();
   const workflowId = params.id as string;
 
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -62,6 +64,7 @@ export default function WorkflowStudioPage() {
   const [unitTestStep, setUnitTestStep] = useState<WorkflowStep | null>(null);
   const [isUnitTestModalOpen, setIsUnitTestModalOpen] = useState(false);
   const [isSystemTestModalOpen, setIsSystemTestModalOpen] = useState(false);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
 
   // Form states
   const [title, setTitle] = useState("");
@@ -274,6 +277,16 @@ export default function WorkflowStudioPage() {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
+          {/* AI Architect Trigger */}
+          <button
+            onClick={() => setIsAIModalOpen(true)}
+            className="px-2.5 py-1.5 text-xs font-medium bg-linear-primary/10 hover:bg-linear-primary/20 text-linear-primary border border-linear-primary/30 rounded-md transition-colors flex items-center gap-1.5"
+            title="Architect or synthesize workflow pipeline using AI"
+          >
+            <Sparkles size={12} className="text-linear-primary" />
+            <span className="hidden sm:inline">AI Architect</span>
+          </button>
+
           {/* Visibility selector */}
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-1 border border-hairline text-xs">
             {visibility === "shared" ? (
@@ -516,6 +529,19 @@ export default function WorkflowStudioPage() {
         onClose={() => setIsSystemTestModalOpen(false)}
         onRunComplete={fetchAuxiliary}
         onNavigateToRuns={() => setActiveTab("runs")}
+      />
+
+      {/* AI Workflow Architect Modal */}
+      <AIWorkflowGeneratorModal
+        isOpen={isAIModalOpen}
+        onClose={() => setIsAIModalOpen(false)}
+        onCreated={(createdWf) => {
+          if (createdWf.id === workflowId) {
+            fetchWorkflow();
+          } else {
+            router.push(`/workflows/${createdWf.id}`);
+          }
+        }}
       />
     </div>
   );
