@@ -661,8 +661,51 @@ def execute(input_data: dict, context: dict) -> dict:
     assert any(s.get("step_type") in ("condition", "artifact") for s in refactor_wf["steps"]), "Expected condition or artifact step in generated DAG"
     print(f"PASS: POST /api/ai/generate-workflow (multi-block) -> Generated '{refactor_wf['title']}' with {len(refactor_wf['steps'])} steps including specialized block types")
 
+    # 35. Test Researcher Agent Default Model is Sonar (Perplexity)
+    res_researcher = client.get("/api/agents/researcher")
+    assert res_researcher.status_code == 200, f"Failed to get researcher agent: {res_researcher.text}"
+    researcher_data = res_researcher.json()
+    assert researcher_data["model"] == "sonar", f"Expected model 'sonar', got '{researcher_data.get('model')}'"
+    print(f"PASS: GET /api/agents/researcher confirmed default model is '{researcher_data['model']}' (Perplexity)")
+
+    # 36. Test Contextual Auto-Titling on POST /api/sessions with prompt
+    res_context_sess = client.post(
+        "/api/sessions",
+        json={"prompt": "Can you please help me write a Python script for PostgreSQL index tuning?"},
+        headers=auth_headers,
+    )
+    assert res_context_sess.status_code == 200, f"Context session creation failed: {res_context_sess.text}"
+    ctx_sess_data = res_context_sess.json()
+    assert "PostgreSQL" in ctx_sess_data["title"] or "Index Tuning" in ctx_sess_data["title"], f"Unexpected title: {ctx_sess_data['title']}"
+    assert ctx_sess_data["title"] != "New Conversation", f"Title should not be generic: {ctx_sess_data['title']}"
+    print(f"PASS: POST /api/sessions with prompt automatically derived contextual title: '{ctx_sess_data['title']}'")
+
+    # 37. Test Automatic Session Renaming during First Chat Turn on Generic Session
+    res_generic_sess = client.post("/api/sessions", json={"title": "New Conversation"}, headers=auth_headers)
+    assert res_generic_sess.status_code == 200
+    gen_sess_id = res_generic_sess.json()["id"]
+
+    chat_turn_payload = {
+        "session_id": gen_sess_id,
+        "messages": [
+            {"role": "user", "content": "Explain quantum entanglement and photon polarization in simple terms"}
+        ]
+    }
+    res_chat_turn = client.post("/api/chat", json=chat_turn_payload, headers=auth_headers)
+    assert res_chat_turn.status_code == 200, f"Chat turn failed: {res_chat_turn.text}"
+    msg_metadata = res_chat_turn.json().get("metadata", {})
+    assert "session_title" in msg_metadata, f"Expected session_title in metadata: {msg_metadata}"
+    assert "Quantum" in msg_metadata["session_title"], f"Expected 'Quantum' in title: {msg_metadata['session_title']}"
+
+    # Verify session detail reflects the updated title
+    res_detail = client.get(f"/api/sessions/{gen_sess_id}", headers=auth_headers)
+    assert res_detail.status_code == 200
+    saved_title = res_detail.json()["session"]["title"]
+    assert "Quantum" in saved_title, f"Saved session title was not updated: {saved_title}"
+    print(f"PASS: POST /api/chat automatically renamed generic session to: '{saved_title}'")
+
     print("\n========================================")
-    print("ALL 34 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 37 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

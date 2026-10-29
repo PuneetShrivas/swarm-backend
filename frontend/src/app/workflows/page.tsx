@@ -18,7 +18,6 @@ import {
   Trash2,
   Check,
   Bot,
-  Loader2,
   Share2,
   AlertCircle,
 } from "lucide-react";
@@ -296,9 +295,31 @@ export default function WorkflowsDashboardPage() {
 
         {/* Workflows Cards Grid */}
         {isLoading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-2">
-            <Loader2 size={24} className="animate-spin text-linear-primary" />
-            <span className="text-xs text-ink-subtle">Loading workflows...</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={i}
+                className="p-5 rounded-lg bg-surface-1 border border-hairline animate-pulse flex flex-col justify-between h-44"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md bg-surface-2 shrink-0" />
+                      <div className="h-4 w-32 rounded bg-surface-2" />
+                    </div>
+                    <div className="h-4 w-12 rounded bg-surface-2" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 w-full rounded bg-surface-2" />
+                    <div className="h-3 w-4/5 rounded bg-surface-2" />
+                  </div>
+                </div>
+                <div className="pt-3 border-t border-hairline flex items-center justify-between">
+                  <div className="h-3 w-16 rounded bg-surface-2" />
+                  <div className="h-3 w-20 rounded bg-surface-2" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : filteredWorkflows.length === 0 ? (
           <div className="p-12 text-center border border-hairline rounded-lg bg-surface-1 max-w-md mx-auto">

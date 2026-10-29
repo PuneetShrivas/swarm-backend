@@ -126,7 +126,8 @@ class AIGenerateAgentRequest(BaseModel):
 
 # Session & History Models
 class ChatSessionCreate(BaseModel):
-    title: Optional[str] = Field("New Conversation", description="Chat session title")
+    title: Optional[str] = Field(None, description="Chat session title")
+    prompt: Optional[str] = Field(None, description="Initial prompt context for automatic titling")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Session metadata")
 
 class ChatSessionUpdate(BaseModel):
@@ -437,6 +438,91 @@ def create_agent(agent: AgentProfile):
 # Chat Sessions & History Endpoints
 # ---------------------------------------------------------
 
+def extract_contextual_title(prompt: str) -> str:
+    """
+    Derives a concise, contextual session title (3-6 words, <= 45 chars) from a user prompt.
+    Strips markdown, leading conversational fillers, and punctuation.
+    """
+    if not prompt or not prompt.strip():
+        return "New Conversation"
+
+    clean = prompt.strip()
+    clean = re.sub(r'```.*?```', '', clean, flags=re.DOTALL)
+    clean = re.sub(r'[#*`_~>\[\]\(\)]', '', clean)
+    clean = " ".join(clean.split())
+
+    filler_patterns = [
+        r"^(can you\s+(please\s+)?(help me\s+)?(to\s+)?)",
+        r"^(please\s+(help me\s+)?(to\s+)?)",
+        r"^(could you\s+(please\s+)?)",
+        r"^(how (do|can|would) (i|we|you)\s+)",
+        r"^(what is\s+(the\s+)?)",
+        r"^(tell me (about\s+)?)",
+        r"^(write (me\s+)?(a\s+)?)",
+        r"^(create (me\s+)?(a\s+)?)",
+        r"^(generate (me\s+)?(a\s+)?)",
+        r"^(explain\s+(how|what|why)?\s*)",
+    ]
+    for pattern in filler_patterns:
+        clean = re.sub(pattern, "", clean, flags=re.IGNORECASE).strip()
+
+    words = clean.split()
+    if not words:
+        return "New Conversation"
+
+    title_words = []
+    current_len = 0
+    for w in words[:6]:
+        if current_len + len(w) + (1 if title_words else 0) > 42:
+            break
+        title_words.append(w)
+        current_len += len(w) + 1
+
+    if not title_words:
+        title_words = [words[0][:40]]
+
+    title = " ".join(title_words).strip(" ,:.-?!")
+    if title:
+        title = title[0].upper() + title[1:]
+    return title or "New Conversation"
+
+
+def auto_rename_session_if_needed(session_id: str, prompt: str, current_user: Optional[AuthUser]) -> Optional[str]:
+    """If session title is generic or default ('New Conversation'), renames it based on prompt."""
+    if not session_id or not prompt or not current_user:
+        return None
+
+    current_title = None
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("chat_sessions").select("title").eq("id", session_id).eq("user_id", current_user.id).single().execute()
+                if res.data:
+                    current_title = res.data.get("title")
+            except Exception:
+                pass
+    if not current_title:
+        sess = memory_store.get_session(session_id, current_user.id)
+        if sess:
+            current_title = sess.get("title")
+
+    if not current_title or current_title in ("New Conversation", "Untitled", "New Chat", ""):
+        new_title = extract_contextual_title(prompt)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        updates = {"title": new_title, "updated_at": now_iso}
+        if is_supabase_configured() and not current_user.id.startswith("test-"):
+            client = get_user_supabase_client(current_user.token)
+            if client:
+                try:
+                    client.table("chat_sessions").update(updates).eq("id", session_id).eq("user_id", current_user.id).execute()
+                except Exception as e:
+                    print(f"Supabase auto_rename_session error: {e}")
+        memory_store.update_session(session_id, current_user.id, updates)
+        return new_title
+    return None
+
+
 @app.get("/api/sessions", response_model=List[ChatSession])
 def list_sessions(current_user: AuthUser = Depends(get_current_user)):
     """Lists all chat sessions belonging to the authenticated user."""
@@ -458,10 +544,18 @@ def create_session(
     """Creates a new chat session for the authenticated user."""
     session_id = str(uuid.uuid4())
     now_iso = datetime.now(timezone.utc).isoformat()
+
+    resolved_title = payload.title
+    if not resolved_title or resolved_title == "New Conversation":
+        if payload.prompt:
+            resolved_title = extract_contextual_title(payload.prompt)
+        else:
+            resolved_title = "New Conversation"
+
     session_data = {
         "id": session_id,
         "user_id": current_user.id,
-        "title": payload.title or "New Conversation",
+        "title": resolved_title,
         "metadata": payload.metadata or {},
         "created_at": now_iso,
         "updated_at": now_iso,
@@ -659,6 +753,11 @@ def chat(
             token=current_user.token,
         )
 
+    # Auto-rename session if it has default generic title
+    renamed_session_title = None
+    if current_user and request.session_id:
+        renamed_session_title = auto_rename_session_if_needed(request.session_id, last_user_message.content, current_user)
+
     # Check if this chat turn invokes an autonomous workflow
     invoked_workflow_id = request.workflow_id
     if not invoked_workflow_id and last_user_message.content.strip().startswith("/workflow"):
@@ -714,6 +813,8 @@ def chat(
                 "mode": "workflow_execution",
                 "node_id": agent_node_id,
             }
+            if renamed_session_title:
+                wf_metadata["session_title"] = renamed_session_title
             if current_user and request.session_id:
                 db_save_message(
                     user_id=current_user.id,
@@ -798,6 +899,8 @@ def chat(
                     "model": chosen_model,
                     "node_id": agent_node_id,
                 }
+                if renamed_session_title:
+                    agent_metadata["session_title"] = renamed_session_title
                 if current_user and request.session_id:
                     db_save_message(
                         user_id=current_user.id,
@@ -893,6 +996,8 @@ def chat(
                 "model": model_name,
                 "node_id": agent_node_id,
             }
+            if renamed_session_title:
+                agent_metadata["session_title"] = renamed_session_title
 
             # Persist agent turn & usage if user is authenticated
             if current_user and request.session_id:
@@ -937,6 +1042,8 @@ def chat(
                 "error_detail": str(e),
                 "node_id": agent_node_id,
             }
+            if renamed_session_title:
+                err_metadata["session_title"] = renamed_session_title
             if current_user and request.session_id:
                 db_save_message(
                     user_id=current_user.id,
@@ -1016,6 +1123,8 @@ def chat(
         "mode": "demo_fallback",
         "node_id": agent_node_id,
     }
+    if renamed_session_title:
+        demo_metadata["session_title"] = renamed_session_title
 
     if current_user and request.session_id:
         db_save_message(

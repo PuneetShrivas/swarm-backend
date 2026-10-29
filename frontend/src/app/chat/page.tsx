@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Bot, Loader2, Workflow, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import AppNavigationRail from "../components/AppNavigationRail";
+import BrandLogo from "@/components/BrandLogo";
 
 import {
   Agent,
@@ -44,6 +45,7 @@ export default function Chat() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
   // Usage Telemetry State
   const [usage, setUsage] = useState<UserUsageSummary | null>(null);
@@ -76,6 +78,7 @@ export default function Chat() {
   // Load single session message tree
   const loadSessionMessages = useCallback(
     async (sessionId: string, token: string) => {
+      setIsLoadingMessages(true);
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
         const res = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
@@ -88,6 +91,8 @@ export default function Chat() {
         }
       } catch (err) {
         console.error("Failed to load session messages", err);
+      } finally {
+        setIsLoadingMessages(false);
       }
     },
     []
@@ -124,10 +129,7 @@ export default function Chat() {
         if (res.ok) {
           const data: ChatSession[] = await res.json();
           setSessions(data);
-          if (data.length > 0 && !activeSessionId) {
-            setActiveSessionId(data[0].id);
-            await loadSessionMessages(data[0].id, token);
-          }
+          // Default remains new chat view (activeSessionId = null) without auto-selecting previous session
         }
       } catch (error) {
         console.error("Failed to fetch sessions", error);
@@ -135,7 +137,7 @@ export default function Chat() {
         setIsLoadingSessions(false);
       }
     },
-    [activeSessionId, loadSessionMessages]
+    []
   );
 
   // Initialize Supabase Auth & Session Listeners
@@ -245,6 +247,14 @@ export default function Chat() {
 
       const data = await res.json();
 
+      // If backend updated or derived session title, update sessions list
+      if (data.metadata?.session_title && targetSessionId) {
+        const renamedTitle = data.metadata.session_title;
+        setSessions((prev) =>
+          prev.map((s) => (s.id === targetSessionId ? { ...s, title: renamedTitle } : s))
+        );
+      }
+
       setConversation((latestState) => {
         const { newState } = addMessageNode(
           latestState,
@@ -291,33 +301,10 @@ export default function Chat() {
     }
   };
 
-  // Create new session
-  const handleCreateSession = async () => {
-    if (!session?.access_token) {
-      setActiveSessionId(null);
-      setConversation(createInitialState());
-      return;
-    }
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiUrl}/api/sessions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ title: "New Conversation" }),
-      });
-      if (res.ok) {
-        const newSession: ChatSession = await res.json();
-        setSessions((prev) => [newSession, ...prev]);
-        setActiveSessionId(newSession.id);
-        setConversation(createInitialState());
-      }
-    } catch (err) {
-      console.error("Failed to create session", err);
-    }
+  // Create new session (Lazy: resets state to clean new chat view without inserting a blank row in sidebar)
+  const handleCreateSession = () => {
+    setActiveSessionId(null);
+    setConversation(createInitialState());
   };
 
   // Delete session
@@ -370,7 +357,7 @@ export default function Chat() {
     }
   };
 
-  // Handle standard user prompt submission (with auto-session creation)
+  // Handle standard user prompt submission (with lazy contextual session creation)
   const handleSend = async (content: string) => {
     if (isLoading) return;
 
@@ -386,19 +373,17 @@ export default function Chat() {
 
     let targetSessionId = activeSessionId;
 
-    // Auto-create session if authenticated user is on a new unsaved chat
+    // Lazy session creation: create session with contextual auto-titling when the first message is sent
     if (session?.access_token && !targetSessionId) {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-        const cleanTitle =
-          content.trim().slice(0, 32) + (content.length > 32 ? "..." : "");
         const res = await fetch(`${apiUrl}/api/sessions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ title: cleanTitle }),
+          body: JSON.stringify({ prompt: content }),
         });
         if (res.ok) {
           const newSession: ChatSession = await res.json();
@@ -407,7 +392,7 @@ export default function Chat() {
           targetSessionId = newSession.id;
         }
       } catch (err) {
-        console.error("Auto session creation error:", err);
+        console.error("Lazy session creation error:", err);
       }
     }
 
@@ -440,7 +425,7 @@ export default function Chat() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ title: `Workflow Run: ${workflowId.slice(0, 8)}` }),
+          body: JSON.stringify({ prompt: `Workflow: ${workflowId}` }),
         });
         if (res.ok) {
           const newSession = await res.json();
@@ -623,28 +608,50 @@ export default function Chat() {
           {/* Message Feed */}
           <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth bg-canvas">
             <AnimatePresence initial={false}>
-              {activePath.map((node) => {
-                const siblingInfo = getSiblingInfo(
-                  conversation.nodes,
-                  node.id
-                );
+              {isLoadingMessages ? (
+                <div className="space-y-5 py-4 max-w-2xl">
+                  {/* User message skeleton */}
+                  <div className="flex gap-3 justify-end animate-pulse">
+                    <div className="h-12 w-64 rounded-lg bg-surface-2 border border-hairline-strong rounded-tr-xs" />
+                    <div className="w-7 h-7 rounded-md bg-surface-2 shrink-0 border border-hairline" />
+                  </div>
+                  {/* Agent message skeleton */}
+                  <div className="flex gap-3 animate-pulse">
+                    <div className="w-7 h-7 rounded-md bg-surface-1 shrink-0 border border-hairline overflow-hidden flex items-center justify-center">
+                      <BrandLogo size={20} />
+                    </div>
+                    <div className="p-4 rounded-lg bg-surface-1 border border-hairline rounded-tl-xs space-y-2 flex-1 max-w-lg">
+                      <div className="h-3.5 w-3/4 rounded bg-surface-2" />
+                      <div className="h-3.5 w-5/6 rounded bg-surface-2" />
+                      <div className="h-3.5 w-2/3 rounded bg-surface-2" />
+                      <div className="h-3.5 w-1/2 rounded bg-surface-2" />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                activePath.map((node) => {
+                  const siblingInfo = getSiblingInfo(
+                    conversation.nodes,
+                    node.id
+                  );
 
-                return (
-                  <MessageItem
-                    key={node.id}
-                    node={node}
-                    siblingInfo={siblingInfo}
-                    onSwitchBranch={handleSwitchBranch}
-                    onEdit={handleEdit}
-                    onRegenerate={handleRegenerate}
-                    onRate={handleRate}
-                    isGenerating={isLoading}
-                  />
-                );
-              })}
+                  return (
+                    <MessageItem
+                      key={node.id}
+                      node={node}
+                      siblingInfo={siblingInfo}
+                      onSwitchBranch={handleSwitchBranch}
+                      onEdit={handleEdit}
+                      onRegenerate={handleRegenerate}
+                      onRate={handleRate}
+                      isGenerating={isLoading}
+                    />
+                  );
+                })
+              )}
 
               {/* Inspiration Chips when only root greeting exists */}
-              {activePath.length <= 1 && (
+              {!isLoadingMessages && activePath.length <= 1 && (
                 <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
                   <button
                     type="button"
@@ -701,8 +708,8 @@ export default function Chat() {
                   exit={{ opacity: 0, y: 5 }}
                   className="flex gap-3 md:gap-4 flex-row"
                 >
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-surface-1 border border-hairline text-linear-primary">
-                    <Bot size={13} />
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-surface-1 border border-hairline text-linear-primary overflow-hidden">
+                    <BrandLogo size={20} />
                   </div>
                   <div className="px-4 py-3 rounded-lg bg-surface-1 border border-hairline text-ink rounded-tl-xs flex items-center gap-2.5">
                     <Loader2 size={14} className="animate-spin text-linear-primary" />

@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Chat UX Intelligence & Contextual Auto-Titling**:
+  - Implemented `extract_contextual_title` in backend to strip filler prefixes and derive clean, 3-6 word contextual conversation titles from prompt intent.
+  - Added support for `prompt` in `POST /api/sessions` and automatic session renaming on first chat turn on generic sessions, returning `session_title` via turn metadata.
+- **Lazy On-Demand Session Creation**:
+  - Configured `/chat` to load into a clean draft state (`activeSessionId = null`) without auto-selecting previous conversations or creating empty sidebar entries.
+  - Clicking "+ New Chat" resets dialogue state locally with zero network requests. The conversation item is created lazily on the first message send.
+- **Perplexity Sonar as Default Research Agent Model**:
+  - Switched default `researcher` agent model to `"sonar"` (`temperature: 0.2`) with live Perplexity web search and citation synthesis.
+- **Unified Swarm Brand Hero Logo for AI Messages**:
+  - Replaced generic Lucide `<Bot>` icons with `BrandLogo` in `MessageItem.tsx` and in-flight reasoning bubbles.
+- **Layout-Preserving Skeletons Across All Surfaces**:
+  - Added `animate-pulse` skeletons across `SessionSidebar` (5 conversation bars), `chat/page.tsx` (message thread skeleton), `workflows/page.tsx` (6-card grid), `agents/page.tsx` (6-card roster), and `workflows/[id]/page.tsx` (3-pane studio workspace).
+- **Favicon, Layout Metadata & SEO Optimization**:
+  - Added brand favicon (`icon.png`, `apple-icon.png`), comprehensive OpenGraph and Twitter card metadata in `layout.tsx`, and dynamic `robots.ts` and `sitemap.ts` routes.
 - **Unified 3-Pillar Navigation Switcher Across All Views**:
   - Standardized `AppNavigationRail` as the singular top navigation bar across `/chat`, `/agents`, and `/workflows`.
   - Added seamless 3-pillar segmented switcher (`Chat`, `Agents`, `Workflows`) with active state indicators and token telemetry.

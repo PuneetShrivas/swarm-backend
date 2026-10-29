@@ -235,10 +235,57 @@ export default function WorkflowStudioPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-canvas text-ink font-sans">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 size={24} className="animate-spin text-linear-primary" />
-          <span className="text-xs text-ink-subtle">Loading Workflow Studio...</span>
+      <div className="flex flex-col h-screen bg-canvas text-ink font-sans animate-pulse">
+        {/* Studio Navbar Skeleton */}
+        <div className="h-14 border-b border-hairline px-6 flex items-center justify-between bg-surface-1/40">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-md bg-surface-2" />
+            <div className="space-y-1">
+              <div className="h-4 w-40 rounded bg-surface-2" />
+              <div className="h-2.5 w-24 rounded bg-surface-2" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-20 rounded bg-surface-2" />
+            <div className="h-8 w-24 rounded bg-surface-2" />
+          </div>
+        </div>
+
+        {/* Studio Workspace 3-Pane Skeleton */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left Steps Rail Skeleton */}
+          <div className="w-72 border-r border-hairline p-4 space-y-3 bg-surface-1/20 hidden md:block">
+            <div className="h-4 w-28 rounded bg-surface-2 mb-4" />
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-14 rounded-lg bg-surface-1 border border-hairline p-2.5 space-y-2">
+                <div className="h-3 w-3/4 rounded bg-surface-2" />
+                <div className="h-2.5 w-1/2 rounded bg-surface-2" />
+              </div>
+            ))}
+          </div>
+
+          {/* Center Canvas Skeleton */}
+          <div className="flex-1 p-8 flex items-center justify-center relative bg-surface-1/10">
+            <div className="flex flex-col items-center gap-6">
+              <div className="w-56 h-24 rounded-lg bg-surface-1 border border-hairline p-3 space-y-2 shadow-sm">
+                <div className="h-3.5 w-2/3 rounded bg-surface-2" />
+                <div className="h-2.5 w-full rounded bg-surface-2" />
+              </div>
+              <div className="w-0.5 h-8 bg-surface-2" />
+              <div className="w-56 h-24 rounded-lg bg-surface-1 border border-hairline p-3 space-y-2 shadow-sm">
+                <div className="h-3.5 w-1/2 rounded bg-surface-2" />
+                <div className="h-2.5 w-4/5 rounded bg-surface-2" />
+              </div>
+            </div>
+          </div>
+
+          {/* Right Inspector Panel Skeleton */}
+          <div className="w-80 border-l border-hairline p-4 space-y-4 bg-surface-1/20 hidden lg:block">
+            <div className="h-4 w-32 rounded bg-surface-2 mb-2" />
+            <div className="h-10 rounded bg-surface-1 border border-hairline" />
+            <div className="h-24 rounded bg-surface-1 border border-hairline" />
+            <div className="h-16 rounded bg-surface-1 border border-hairline" />
+          </div>
         </div>
       </div>
     );

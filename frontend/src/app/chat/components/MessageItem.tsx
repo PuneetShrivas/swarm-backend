@@ -3,8 +3,8 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
+import BrandLogo from "@/components/BrandLogo";
 import {
-  Bot,
   User,
   Copy,
   Check,
@@ -145,7 +145,7 @@ export default function MessageItem({
     >
       {/* Avatar */}
       <div
-        className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 border ${
+        className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 border overflow-hidden ${
           isUser
             ? "bg-surface-2 border-hairline-strong text-ink"
             : isDelegated
@@ -153,7 +153,7 @@ export default function MessageItem({
             : "bg-surface-1 border-hairline text-ink-subtle"
         }`}
       >
-        {isUser ? <User size={13} /> : isDelegated ? <Layers size={13} /> : <Bot size={13} />}
+        {isUser ? <User size={13} /> : <BrandLogo size={20} />}
       </div>
 
       {/* Message Body & Actions Container */}
@@ -196,7 +196,7 @@ export default function MessageItem({
                       key={sIdx}
                       className="px-2 py-0.5 rounded-xs bg-surface-2 border border-hairline text-[10px] text-ink font-mono flex items-center gap-1"
                     >
-                      <Bot size={10} className="text-linear-primary" />
+                      <BrandLogo size={12} />
                       {st.step_id || `Step ${sIdx + 1}`}: {st.agent_id} ({st.duration_ms}ms)
                     </span>
                   ))}

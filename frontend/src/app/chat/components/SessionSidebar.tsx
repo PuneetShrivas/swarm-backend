@@ -116,7 +116,22 @@ export default function SessionSidebar({
           {isLoadingSessions && <Loader2 size={10} className="animate-spin text-ink-subtle" />}
         </div>
 
-        {filteredSessions.length === 0 ? (
+        {isLoadingSessions && sessions.length === 0 ? (
+          <div className="space-y-1.5 px-1 py-1">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-8 rounded-md bg-surface-1/80 border border-hairline/60 animate-pulse flex items-center px-2.5 gap-2"
+              >
+                <div className="w-3 h-3 rounded bg-surface-2 shrink-0" />
+                <div
+                  className="h-2.5 rounded bg-surface-2"
+                  style={{ width: `${45 + (i * 11) % 40}%` }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : filteredSessions.length === 0 ? (
           <div className="p-4 text-center text-ink-subtle text-xs leading-relaxed">
             {searchQuery
               ? "No matching sessions."
