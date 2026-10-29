@@ -1095,16 +1095,21 @@ def extract_file_artifact_from_turn(content: str, agent_id: str, prompt: str = "
         except Exception as e:
             print(f"DOCX auto-synthesis notice: {e}")
 
-    if any(k in prompt_lower for k in ["excel", "xlsx", "workbook"]):
+    if any(k in prompt_lower for k in ["excel", "xlsx", "workbook", "spreadsheet", "spreadsheet table"]):
         try:
-            from app.agents.file_creator.tools import generate_spreadsheet_workbook
-            table_lines = [l for l in content.splitlines() if "," in l or "\t" in l]
-            rows = []
-            headers = []
-            if table_lines:
-                headers = [h.strip() for h in table_lines[0].split(",")]
-                for tl in table_lines[1:]:
-                    rows.append([v.strip() for v in tl.split(",")])
+            from app.agents.file_creator.tools import generate_spreadsheet_workbook, extract_tabular_data
+            parsed_headers, parsed_rows = extract_tabular_data(content)
+            if parsed_headers and parsed_rows:
+                headers = parsed_headers
+                rows = parsed_rows
+            else:
+                table_lines = [l for l in content.splitlines() if "," in l or "\t" in l]
+                rows = []
+                headers = []
+                if table_lines:
+                    headers = [h.strip() for h in table_lines[0].split(",")]
+                    for tl in table_lines[1:]:
+                        rows.append([v.strip() for v in tl.split(",")])
             if not headers:
                 headers = ["Metric", "Q1", "Q2", "Q3", "Q4", "Total"]
                 rows = [["Sales", 1000, 1200, 1400, 1600, "=SUM(B2:E2)"]]

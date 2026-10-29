@@ -74,6 +74,9 @@ export function GranularStepTrace({
 
   const isEphemeral = Boolean(metadata.is_ephemeral_workflow);
   const isMultiStep = Boolean(metadata.is_multi_step);
+  const workflowSpec = (metadata.workflow_spec as WorkflowSpec) || null;
+  const stepCount = (Array.isArray(metadata.step_runs) ? metadata.step_runs.length : 0) || (workflowSpec?.steps?.length || 0);
+  const canSuggestSave = isEphemeral && Boolean(workflowSpec) && isMultiStep && stepCount > 1;
   const workflowTitle = String(
     metadata.workflow_title || metadata.agent_name || "Autonomous Workflow Execution"
   );
@@ -84,7 +87,6 @@ export function GranularStepTrace({
   const granularTrace = Array.isArray(metadata.granular_trace)
     ? (metadata.granular_trace as GranularTraceItem[])
     : [];
-  const workflowSpec = (metadata.workflow_spec as WorkflowSpec) || null;
 
   // Total metrics
   const totalTokens = Number(metadata.tokens_used) || 0;
@@ -163,8 +165,8 @@ export function GranularStepTrace({
         </div>
       </div>
 
-      {/* Ephemeral Workflow "Save as Workflow" Banner */}
-      {isEphemeral && workflowSpec && (
+      {/* Ephemeral Multi-Agent Workflow "Save as Workflow" Banner (Suppressed for 1-Agent steps) */}
+      {canSuggestSave && (
         <div className="px-3.5 py-2 bg-linear-primary/5 border-t border-b border-linear-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-[11px] text-ink-subtle">
             <Sparkles size={12} className="text-linear-primary shrink-0" />

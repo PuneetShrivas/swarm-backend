@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { motion, AnimatePresence } from "framer-motion";
 import BrandLogo from "@/components/BrandLogo";
 import {
@@ -348,7 +349,52 @@ export default function MessageItem({
             <>
               <div className="prose prose-sm dark:prose-invert max-w-none break-words text-ink">
                 <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
                   components={{
+                    table({ children }) {
+                      return (
+                        <div className="not-prose my-3 overflow-x-auto rounded-lg border border-hairline shadow-xs bg-surface-1">
+                          <table className="w-full border-collapse text-left text-xs">
+                            {children}
+                          </table>
+                        </div>
+                      );
+                    },
+                    thead({ children }) {
+                      return (
+                        <thead className="bg-surface-2 text-ink border-b border-hairline font-mono text-[11px] uppercase tracking-wider font-semibold">
+                          {children}
+                        </thead>
+                      );
+                    },
+                    tbody({ children }) {
+                      return (
+                        <tbody className="divide-y divide-hairline bg-surface-1 text-ink/90 font-mono text-xs">
+                          {children}
+                        </tbody>
+                      );
+                    },
+                    tr({ children }) {
+                      return (
+                        <tr className="hover:bg-surface-2/40 transition-colors">
+                          {children}
+                        </tr>
+                      );
+                    },
+                    th({ children }) {
+                      return (
+                        <th className="px-3.5 py-2.5 font-medium whitespace-nowrap text-ink">
+                          {children}
+                        </th>
+                      );
+                    },
+                    td({ children }) {
+                      return (
+                        <td className="px-3.5 py-2.5 text-ink-subtle whitespace-nowrap">
+                          {children}
+                        </td>
+                      );
+                    },
                     pre({ children }) {
                       return (
                         <pre className="not-prose my-2.5 overflow-x-auto rounded-md bg-canvas p-3 text-xs text-ink-muted border border-hairline font-mono">

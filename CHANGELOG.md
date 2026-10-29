@@ -7,6 +7,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Orchestrator Multi-Agent Decomposition, Native Excel Tables & Markdown Tables**:
+  - **Aggressive Multi-Agent Workflow Synthesis (`backend/app/ai_generator.py`)**: Upgraded `synthesize_on_the_fly_workflow` so incoming user queries are decomposed into multi-agent DAG workflows:
+    - Coding requests: 3-step DAG (`coder` $\to$ `reviewer` $\to$ `synthesizer`).
+    - File generation: 3-step DAG (`data_analyst` for schema normalization $\to$ `file_creator` $\to$ `synthesizer`).
+    - Web search/research: 3-step DAG (`researcher` with Perplexity Sonar $\to$ `data_analyst` $\to$ `synthesizer`).
+    - Math/analytics: 2-step DAG (`data_analyst` $\to$ `synthesizer`).
+    - Document parsing: 2-step DAG (`file_parser` $\to$ `data_analyst`).
+    - General knowledge: 2-step DAG (`general_assistant` $\to$ `synthesizer`).
+    - 1-agent steps are strictly reserved for conversational greetings ("hi", "hello") and explicit targeted agent selections.
+  - **Intelligent Native Excel Tables (`backend/app/agents/file_creator/tools.py`)**:
+    - Generates true native openpyxl Excel Tables (`Table` and `TableStyleInfo`) with `TableStyleMedium9`, banded rows, auto-filters, and frozen header rows (`ws.freeze_panes = "A2"`).
+    - Added `coerce_cell_value` to auto-cast numbers into native integers/floats and preserve Excel formulas (`=...`).
+    - Implemented `extract_tabular_data` to parse markdown tables (`| Col 1 | Col 2 |`), CSV blocks, and JSON record arrays.
+    - Updated `main.py` (`extract_file_artifact_from_turn`) to automatically create Excel spreadsheets with native tables from markdown tables in chat responses.
+  - **Save Workflow Banner Gating (`frontend/src/app/chat/components/GranularStepTrace.tsx`)**:
+    - Suppressed the "Save as Workflow" suggestion banner and action button for 1-agent step executions. Banners are only displayed for multi-agent workflows with $>1$ steps.
+  - **GFM Markdown Table Rendering (`frontend/src/app/chat/components/MessageItem.tsx`)**:
+    - Installed `remark-gfm` in frontend dependencies and configured `remarkPlugins={[remarkGfm]}` on `<ReactMarkdown>`.
+    - Added styled Tailwind component overrides for `table` (responsive horizontal scroll container, hairline border), `thead` (surface-2 background, font-mono tracking headers), `tbody` (hairline dividers, surface-1 background), `tr` (hover highlight), `th`, and `td`.
+  - **Automated Tests**: Added Tests 69-71 in `backend/test_endpoints.py` verifying native openpyxl `Table` creation, typed cells, formula preservation, orchestrator multi-agent decomposition across intents, and markdown table to Excel extraction. All 71 tests passing cleanly. Next.js build passes with 0 errors across 14 routes.
+
 - **On-The-Fly Orchestrator Workflows & Granular Step Execution**:
   - **Dynamic Ephemeral Workflow Synthesis (`synthesize_on_the_fly_workflow`)**: Swarm Orchestrator decomposes user queries on the fly into multi-agent DAGs (e.g. Research $\to$ Analysis $\to$ Briefing, Code $\to$ Review, Security Audit $\to$ Refactor) or single-agent 1-step workflows. Workflows run ephemerally by default without inserting unrequested records into the database `workflows` table.
   - **Granular Progress Streaming (`POST /api/chat/stream`)**: FastAPI SSE endpoint streaming progressive lifecycle milestones: query intent analysis, workflow DAG planning, step start, step completion, and final response payload over `text/event-stream`.

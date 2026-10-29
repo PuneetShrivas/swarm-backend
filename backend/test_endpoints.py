@@ -1525,8 +1525,132 @@ def execute(input_data: dict, context: dict) -> dict:
     assert len(run_output["step_runs"]) >= 2
     print(f"PASS: Ephemeral on-the-fly workflow saved to permanent library and executed ({saved_wf_id})")
 
+    # ---------------------------------------------------------
+    # Test 69: openpyxl Native Table & Typed Spreadsheet Generation
+    # ---------------------------------------------------------
+    from app.agents.file_creator.tools import generate_spreadsheet_workbook, extract_tabular_data
+    from openpyxl import load_workbook
+    import io
+    import base64
+
+    test_sheet_spec = [{
+        "sheet_name": "FinancialMetrics",
+        "headers": ["Metric", "Q1", "Q2", "Target", "Achieved"],
+        "rows": [
+            ["Revenue", 100000, 125000, 120000, True],
+            ["COGS", 40000, 48000, 45000, True],
+            ["Gross Profit", "=B2-B3", "=C2-C3", 75000, True],
+        ],
+        "include_totals": True
+    }]
+    xlsx_res = generate_spreadsheet_workbook(
+        sheets=test_sheet_spec,
+        filename="financial_metrics.xlsx",
+        title="Q1-Q2 Financial Model"
+    )
+    assert xlsx_res["status"] == "created"
+    assert xlsx_res["file_type"] == "xlsx"
+    assert xlsx_res["downloadable"] is True
+    assert xlsx_res["size_bytes"] > 0
+    assert "FinancialMetrics" in xlsx_res["sheets"]
+
+    # Verify openpyxl native Table object and freeze panes
+    loaded_wb = load_workbook(io.BytesIO(base64.b64decode(xlsx_res["content"])))
+    metrics_ws = loaded_wb["FinancialMetrics"]
+    assert len(metrics_ws.tables) >= 1, "Native openpyxl Table missing from worksheet"
+    tbl_name = list(metrics_ws.tables.keys())[0]
+    assert metrics_ws.tables[tbl_name].tableStyleInfo.showRowStripes is True
+    assert metrics_ws.freeze_panes == "A2", f"Header row must be frozen, got: {metrics_ws.freeze_panes}"
+    # Verify typing
+    assert metrics_ws.cell(row=2, column=2).value == 100000
+    assert isinstance(metrics_ws.cell(row=2, column=2).value, int)
+    assert metrics_ws.cell(row=4, column=2).value == "=B2-B3"
+    print("PASS: openpyxl native Table, TableStyleInfo, typed cells, and frozen pane verified in generate_spreadsheet_workbook")
+
+    # ---------------------------------------------------------
+    # Test 70: Aggressive Multi-Agent Workflow Decomposition
+    # ---------------------------------------------------------
+    from app.ai_generator import synthesize_on_the_fly_workflow
+
+    # 1. File creation query -> 3-step DAG
+    wf_file = synthesize_on_the_fly_workflow("generate a sales spreadsheet for Q1 with revenue metrics")
+    assert wf_file["is_multi_step"] is True
+    assert len(wf_file["steps"]) == 3
+    assert [s["agent_id"] for s in wf_file["steps"]] == ["data_analyst", "file_creator", "synthesizer"]
+
+    # 2. Coding query -> 3-step DAG
+    wf_code = synthesize_on_the_fly_workflow("write python code for binary search algorithm")
+    assert wf_code["is_multi_step"] is True
+    assert len(wf_code["steps"]) == 3
+    assert [s["agent_id"] for s in wf_code["steps"]] == ["coder", "reviewer", "synthesizer"]
+
+    # 3. Live search query -> 3-step DAG
+    wf_search = synthesize_on_the_fly_workflow("latest news and price of gold")
+    assert wf_search["is_multi_step"] is True
+    assert len(wf_search["steps"]) == 3
+    assert [s["agent_id"] for s in wf_search["steps"]] == ["researcher", "data_analyst", "synthesizer"]
+
+    # 4. Math query -> 2-step DAG
+    wf_math = synthesize_on_the_fly_workflow("calculate compound interest for 10000 at 5 percent")
+    assert wf_math["is_multi_step"] is True
+    assert len(wf_math["steps"]) == 2
+    assert [s["agent_id"] for s in wf_math["steps"]] == ["data_analyst", "synthesizer"]
+
+    # 5. Trivial greeting -> 1-agent step
+    wf_greeting = synthesize_on_the_fly_workflow("hello")
+    assert wf_greeting["is_multi_step"] is False
+    assert len(wf_greeting["steps"]) == 1
+
+    # 6. Targeted agent selection -> 1-agent step
+    wf_targeted = synthesize_on_the_fly_workflow("generate report", target_agent_id="file_creator")
+    assert wf_targeted["is_multi_step"] is False
+    assert len(wf_targeted["steps"]) == 1
+    assert wf_targeted["steps"][0]["agent_id"] == "file_creator"
+    print("PASS: Orchestrator multi-agent workflow decomposition verified across file creation, coding, search, math, and single-agent fallbacks")
+
+    # ---------------------------------------------------------
+    # Test 71: Tabular Data Extraction & Markdown Table Conversion
+    # ---------------------------------------------------------
+    from app.main import extract_file_artifact_from_turn
+
+    sample_md_table = """
+Here is the performance report:
+
+| Employee | Department | Score | Bonus |
+|---|---|---|---|
+| Alice | Engineering | 95 | 5000 |
+| Bob | Marketing | 88 | 3500 |
+| Charlie | Product | 92 | 4200 |
+
+All targets achieved.
+"""
+    headers, rows = extract_tabular_data(sample_md_table)
+    assert headers == ["Employee", "Department", "Score", "Bonus"]
+    assert len(rows) == 3
+    assert rows[0] == ["Alice", "Engineering", 95, 5000]
+    assert isinstance(rows[0][2], int)
+    assert isinstance(rows[0][3], int)
+
+    # Test auto-extraction of xlsx artifact from markdown table in chat response
+    art_extracted = extract_file_artifact_from_turn(
+        content=sample_md_table,
+        agent_id="file_creator",
+        prompt="export an excel spreadsheet with employee scores"
+    )
+    assert art_extracted is not None
+    assert art_extracted["type"] == "xlsx"
+    assert art_extracted["is_base64"] is True
+    assert art_extracted["downloadable"] is True
+    wb_extracted = load_workbook(io.BytesIO(base64.b64decode(art_extracted["content"])))
+    assert "Data Sheet" in wb_extracted.sheetnames
+    ds = wb_extracted["Data Sheet"]
+    assert len(ds.tables) >= 1
+    assert ds.cell(row=2, column=1).value == "Alice"
+    assert ds.cell(row=2, column=3).value == 95
+    print("PASS: Tabular data extraction and markdown table to Excel artifact verified")
+
     print("\n========================================")
-    print("ALL 68 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 71 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

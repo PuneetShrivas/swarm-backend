@@ -25,6 +25,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table as OpenpyxlTable, TableStyleInfo
 
 
 def generate_pdf_document(
@@ -366,21 +367,148 @@ def generate_word_document(
     }
 
 
+def coerce_cell_value(val: Any) -> Any:
+    """
+    Intelligently casts string cell representations into typed integers, floats,
+    formulas, or booleans to preserve spreadsheet typing instead of dumping raw text.
+    """
+    if val is None:
+        return ""
+    if isinstance(val, (int, float, bool)):
+        return val
+    val_str = str(val).strip()
+    if not val_str:
+        return ""
+    # Preserve Excel formulas
+    if val_str.startswith("="):
+        return val_str
+    # Currency / percentage / accounting parenthesis format
+    clean_num = val_str.replace("$", "").replace("€", "").replace("£", "").replace(",", "").strip()
+    if clean_num.endswith("%"):
+        try:
+            return float(clean_num[:-1]) / 100.0
+        except ValueError:
+            pass
+    if clean_num.startswith("(") and clean_num.endswith(")"):
+        clean_num = f"-{clean_num[1:-1]}"
+    if re.match(r"^-?\d+$", clean_num):
+        try:
+            return int(clean_num)
+        except ValueError:
+            pass
+    if re.match(r"^-?\d+\.\d+$", clean_num):
+        try:
+            return float(clean_num)
+        except ValueError:
+            pass
+    if val_str.lower() in ("true", "yes"):
+        return True
+    if val_str.lower() in ("false", "no"):
+        return False
+    return val_str
+
+
+def extract_tabular_data(text: str) -> tuple[List[str], List[List[Any]]]:
+    """
+    Intelligently parses unstructured or semi-structured text into a clean tabular
+    header list and list of typed rows. Supports markdown tables, CSV blocks,
+    tab-separated values, and JSON record arrays.
+    """
+    if not text or not text.strip():
+        return [], []
+
+    clean = text.strip()
+
+    # 1. JSON array of objects
+    if (clean.startswith("[") and clean.endswith("]")) or "```json" in clean:
+        json_str = clean
+        if "```json" in clean:
+            m = re.search(r"```json\s*([\s\S]*?)\s*```", clean)
+            if m:
+                json_str = m.group(1).strip()
+        try:
+            parsed = json.loads(json_str)
+            if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+                headers = list(parsed[0].keys())
+                rows = []
+                for item in parsed:
+                    if isinstance(item, dict):
+                        rows.append([coerce_cell_value(item.get(h, "")) for h in headers])
+                if headers and rows:
+                    return headers, rows
+        except Exception:
+            pass
+
+    # 2. Markdown Table (| Col 1 | Col 2 |)
+    lines = [l.strip() for l in clean.splitlines()]
+    table_lines: List[str] = []
+    for l in lines:
+        if l.startswith("|") and l.endswith("|"):
+            table_lines.append(l)
+        elif len(table_lines) >= 3 and any("-" in c for c in table_lines[1].split("|")):
+            break
+        else:
+            table_lines = []
+
+    if len(table_lines) >= 3:
+        raw_headers = [c.strip() for c in table_lines[0].split("|")[1:-1]]
+        headers = [h for h in raw_headers if h]
+        rows = []
+        for line in table_lines[2:]:
+            cells = [c.strip() for c in line.split("|")[1:-1]]
+            typed_row = [coerce_cell_value(c) for c in cells[:len(headers)]]
+            while len(typed_row) < len(headers):
+                typed_row.append("")
+            rows.append(typed_row)
+        if headers and rows:
+            return headers, rows
+
+    # 3. CSV code block or raw lines
+    csv_block = clean
+    if "```csv" in clean or "```text" in clean:
+        m = re.search(r"```(?:csv|text)?\s*([\s\S]*?)\s*```", clean)
+        if m:
+            csv_block = m.group(1).strip()
+
+    candidate_lines = [l for l in csv_block.splitlines() if l.strip()]
+    if candidate_lines:
+        first_line = candidate_lines[0]
+        delim = "\t" if "\t" in first_line else ("," if "," in first_line else None)
+        if delim:
+            import csv
+            reader = csv.reader(candidate_lines, delimiter=delim)
+            all_rows = list(reader)
+            if len(all_rows) >= 2:
+                headers = [h.strip() for h in all_rows[0] if h.strip()]
+                if headers:
+                    data_rows = []
+                    for r in all_rows[1:]:
+                        if any(c.strip() for c in r):
+                            row = [coerce_cell_value(c) for c in r[:len(headers)]]
+                            while len(row) < len(headers):
+                                row.append("")
+                            data_rows.append(row)
+                    if data_rows:
+                        return headers, data_rows
+
+    return [], []
+
+
 def generate_spreadsheet_workbook(
     sheets: Optional[List[Dict[str, Any]]] = None,
     filename: Optional[str] = None,
     title: Optional[str] = "Financial Model"
 ) -> Dict[str, Any]:
     """
-    Constructs an Excel workbook (.xlsx) with styled header rows, auto-sized columns,
-    numeric formulas, and multiple worksheets. Returns a Base64-encoded artifact.
+    Constructs an Excel workbook (.xlsx) with true native openpyxl Tables (Table and TableStyleInfo),
+    styled header rows, typed numeric data, formulas, auto-sized columns, frozen panes, and
+    multiple worksheets. Returns a Base64-encoded artifact.
     """
     clean_fname = filename or f"{re.sub(r'[^a-zA-Z0-9_-]', '_', (title or 'workbook').lower())}.xlsx"
     if not clean_fname.endswith(".xlsx"):
         clean_fname += ".xlsx"
 
     wb = Workbook()
-    # Remove default sheet if we have custom sheets
     if sheets and len(sheets) > 0:
         wb.remove(wb.active)
 
@@ -406,8 +534,17 @@ def generate_spreadsheet_workbook(
         ws = wb.create_sheet(title=sheet_name[:30])
 
         headers = s.get("headers", [])
+        raw_rows = s.get("rows", [])
+
+        # If headers/rows not provided but raw text or content exists, parse tabular data
+        if not headers and (s.get("content") or s.get("raw_data")):
+            p_headers, p_rows = extract_tabular_data(s.get("content") or s.get("raw_data") or "")
+            if p_headers:
+                headers = p_headers
+                raw_rows = p_rows
+
         if headers:
-            ws.append(headers)
+            ws.append([str(h).strip() for h in headers])
             for col_idx in range(1, len(headers) + 1):
                 cell = ws.cell(row=1, column=col_idx)
                 cell.font = header_font
@@ -415,23 +552,54 @@ def generate_spreadsheet_workbook(
                 cell.alignment = header_align
                 cell.border = cell_border
 
-        rows = s.get("rows", [])
-        for row in rows:
-            ws.append(row)
+        for r in raw_rows:
+            typed_row = [coerce_cell_value(val) for val in r]
+            ws.append(typed_row)
 
-        # Style data cells
+        # Style data cells and apply numbers/alignment
         for r_idx in range(2, ws.max_row + 1):
             for c_idx in range(1, ws.max_column + 1):
-                ws.cell(row=r_idx, column=c_idx).border = cell_border
+                cell = ws.cell(row=r_idx, column=c_idx)
+                cell.border = cell_border
+                val = cell.value
+                if isinstance(val, int):
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    cell.number_format = "#,##0"
+                elif isinstance(val, float):
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    cell.number_format = "#,##0.00"
+                elif isinstance(val, str) and val.startswith("="):
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        # Auto-adjust column width
+        # Add native openpyxl Table with zebra stripes and filters
+        if ws.max_row >= 2 and ws.max_column >= 1:
+            clean_tbl_name = re.sub(r"[^a-zA-Z0-9_]", "_", f"Table_{sheet_name[:12]}_{s_idx + 1}")
+            if clean_tbl_name[0].isdigit():
+                clean_tbl_name = f"T_{clean_tbl_name}"
+            tab_ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+            table_obj = OpenpyxlTable(displayName=clean_tbl_name, ref=tab_ref)
+            table_obj.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium9",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False,
+            )
+            ws.add_table(table_obj)
+
+        # Freeze top header row so it stays visible on scrolling
+        ws.freeze_panes = "A2"
+
+        # Auto-adjust column width with padding
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col[0].column)
             for cell in col:
                 val = str(cell.value or "")
                 max_len = max(max_len, len(val))
-            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -448,7 +616,7 @@ def generate_spreadsheet_workbook(
         "size_bytes": len(xlsx_bytes),
         "sheet_count": len(wb.sheetnames),
         "sheets": wb.sheetnames,
-        "description": f"Generated Excel Workbook: {clean_fname} ({len(wb.sheetnames)} sheets)",
+        "description": f"Generated Excel Workbook: {clean_fname} ({len(wb.sheetnames)} sheets with native Excel Tables)",
         "downloadable": True,
         "content": xlsx_b64,
     }
