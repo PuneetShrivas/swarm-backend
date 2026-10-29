@@ -1,12 +1,14 @@
 "use client";
 
 import { Agent } from "../types";
-import { Download, Trash2, Bot, Layers, Info, Workflow } from "lucide-react";
+import { Download, Trash2, Bot, Layers, Info, Workflow, Cpu } from "lucide-react";
 
 interface ChatHeaderProps {
   agents: Agent[];
   selectedAgentId: string | null;
   onSelectAgent: (agentId: string | null) => void;
+  selectedModel?: string;
+  onSelectModel?: (model: string) => void;
   onClearChat: () => void;
   onExportChat: () => void;
   activePathCount: number;
@@ -21,6 +23,8 @@ export default function ChatHeader({
   agents,
   selectedAgentId,
   onSelectAgent,
+  selectedModel = "",
+  onSelectModel,
   onClearChat,
   onExportChat,
   activePathCount,
@@ -98,7 +102,7 @@ export default function ChatHeader({
               aria-label="Target Agent Selector"
               value={selectedAgentId || ""}
               onChange={(e) => onSelectAgent(e.target.value || null)}
-              className="text-[11px] bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong rounded-md px-2 py-1 text-ink focus:outline-none focus:ring-1 focus:ring-linear-focus transition-colors cursor-pointer font-medium max-w-[140px] sm:max-w-[190px] truncate"
+              className="text-[11px] bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong rounded-md px-2 py-1 text-ink focus:outline-none focus:ring-1 focus:ring-linear-focus transition-colors cursor-pointer font-medium max-w-[140px] sm:max-w-[170px] truncate"
             >
               <option value="">Auto Routing (Orchestrator)</option>
               {specialists.length > 0 && (
@@ -110,6 +114,27 @@ export default function ChatHeader({
                   ))}
                 </optgroup>
               )}
+            </select>
+          </div>
+        )}
+
+        {/* Model Selector */}
+        {onSelectModel && (
+          <div className="hidden sm:flex items-center gap-1 bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong rounded-md px-2 py-0.5 transition-colors">
+            <Cpu size={11} className="text-linear-primary shrink-0" />
+            <select
+              id="model-select"
+              aria-label="Agent Model Override"
+              value={selectedModel}
+              onChange={(e) => onSelectModel(e.target.value)}
+              className="text-[11px] bg-transparent text-ink focus:outline-none cursor-pointer font-medium max-w-[130px] truncate"
+              title="Select LLM model for agent execution"
+            >
+              <option value="" className="bg-surface-1 text-ink">Default Model</option>
+              <option value="gemini-2.5-flash" className="bg-surface-1 text-ink">Gemini 2.5 Flash</option>
+              <option value="gemini-2.5-pro" className="bg-surface-1 text-ink">Gemini 2.5 Pro</option>
+              <option value="sonar" className="bg-surface-1 text-ink">Perplexity Sonar</option>
+              <option value="sonar-pro" className="bg-surface-1 text-ink">Perplexity Sonar Pro</option>
             </select>
           </div>
         )}

@@ -35,6 +35,7 @@ export default function Chat() {
   );
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
 
   // Authentication & Sessions State
@@ -233,6 +234,7 @@ export default function Chat() {
           parent_message_id: cleanUserParentId,
           workflow_id: workflowId || null,
           workflow_inputs: workflowInputs || {},
+          model: selectedModel || undefined,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -603,6 +605,8 @@ export default function Chat() {
             agents={agents}
             selectedAgentId={selectedAgentId}
             onSelectAgent={setSelectedAgentId}
+            selectedModel={selectedModel}
+            onSelectModel={setSelectedModel}
             onClearChat={handleClearChat}
             onExportChat={handleExportChat}
             activePathCount={activePath.length}

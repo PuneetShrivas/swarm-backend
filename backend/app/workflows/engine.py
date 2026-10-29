@@ -138,6 +138,60 @@ def interpolate_template(
     return pattern.sub(_replace_match, rendered)
 
 
+def evaluate_condition_expression(
+    expr: str,
+    inputs: Dict[str, Any],
+    previous_outputs: Dict[str, Any],
+    goal: str = ""
+) -> Tuple[bool, str]:
+    """
+    Evaluates a boolean/filter expression against workflow variables.
+    Interpolates template tokens, then evaluates comparison rules safely.
+    """
+    interpolated = interpolate_template(expr or "", inputs, previous_outputs, goal).strip()
+    if not interpolated:
+        return True, ""
+
+    # Check for direct boolean keywords
+    if interpolated.lower() in ("true", "1", "yes"):
+        return True, interpolated
+    if interpolated.lower() in ("false", "0", "no"):
+        return False, interpolated
+
+    # Safe AST evaluation for binary comparisons
+    try:
+        import ast
+        tree = ast.parse(interpolated, mode="eval")
+        allowed_nodes = (
+            ast.Expression, ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE,
+            ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Constant, ast.UnaryOp,
+            ast.Not, ast.BoolOp, ast.And, ast.Or, ast.Name, ast.List, ast.Dict,
+            ast.Tuple
+        )
+        for node in ast.walk(tree):
+            if not isinstance(node, allowed_nodes):
+                break
+        else:
+            val = eval(
+                compile(tree, "<string>", "eval"),
+                {"__builtins__": {}},
+                {"true": True, "false": False, "null": None, "True": True, "False": False, "None": None}
+            )
+            return bool(val), interpolated
+    except Exception:
+        pass
+
+    # Simple string comparison fallback
+    if "==" in interpolated:
+        left, right = interpolated.split("==", 1)
+        return left.strip().strip("'\"") == right.strip().strip("'\""), interpolated
+    if "!=" in interpolated:
+        left, right = interpolated.split("!=", 1)
+        return left.strip().strip("'\"") != right.strip().strip("'\""), interpolated
+
+    return bool(interpolated), interpolated
+
+
 class WorkflowExecutionEngine:
     """
     Core runtime engine that resolves DAG step dependencies, executes sandboxed
@@ -227,21 +281,154 @@ class WorkflowExecutionEngine:
         goal: str,
         knowledge_files: List[Dict[str, Any]],
         tools_map: Dict[str, Dict[str, Any]],
-        user_id: str
+        user_id: str,
+        loop_counts: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         """
-        Executes an individual workflow step:
-        1. Interpolates template variables.
-        2. Executes attached Python script tools.
-        3. Formats and attaches relevant knowledge documents.
-        4. Invokes the assigned agent.
-        5. Returns structured output dictionary.
+        Executes an individual workflow step based on its step_type:
+        - "condition": Evaluates boolean expression and determines branching.
+        - "python_code": Executes inline Python script in a secure sandbox.
+        - "loop": Evaluates loop conditions and tracks iteration limits.
+        - "artifact": Generates persistent structured report or code artifact.
+        - "agent": Standard LLM agent execution with tools and knowledge.
         """
         start_time = time.time()
         step_id = step.get("id", "step_1")
+        step_type = step.get("step_type", "agent")
         agent_id = step.get("agent_id", "orchestrator")
         raw_instructions = step.get("instructions", "")
 
+        # ----------------- 1. Condition Block -----------------
+        if step_type == "condition":
+            cond_expr = step.get("condition_expr") or ""
+            is_true, evaluated = evaluate_condition_expression(cond_expr, inputs, previous_outputs, goal)
+            duration_ms = round((time.time() - start_time) * 1000, 2)
+            branch = "true" if is_true else "false"
+            target_step = step.get("true_target_step_id") if is_true else step.get("false_target_step_id")
+            output_data = {
+                "condition": is_true,
+                "branch": branch,
+                "evaluated_expr": evaluated,
+                "target_step": target_step,
+                "text": f"Condition evaluated to {branch.upper()}: {evaluated}",
+                "completed_at": current_iso_time(),
+            }
+            return {
+                "status": "completed",
+                "step_id": step_id,
+                "agent_id": agent_id or "condition_evaluator",
+                "prompt_rendered": evaluated,
+                "output_data": output_data,
+                "tool_calls": [],
+                "tokens_used": 0,
+                "duration_ms": duration_ms,
+                "error": None,
+            }
+
+        # ----------------- 2. Python Code Block -----------------
+        if step_type == "python_code":
+            code = step.get("code") or "def execute(inputs, previous_outputs, context):\n    return {'result': 'No code specified'}"
+            t_context = {
+                "goal": goal,
+                "step_id": step_id,
+                "previous_outputs": previous_outputs,
+            }
+            tool_res = execute_tool_script(
+                code=code,
+                input_data=inputs,
+                context=t_context,
+                timeout_seconds=5.0
+            )
+            duration_ms = round((time.time() - start_time) * 1000, 2)
+            is_success = tool_res.get("status") == "success"
+            raw_res = tool_res.get("result")
+            output_data = raw_res if isinstance(raw_res, dict) else {"result": raw_res}
+            if "text" not in output_data:
+                output_data["text"] = tool_res.get("stdout") or json.dumps(output_data)
+            output_data["stdout"] = tool_res.get("stdout")
+            output_data["completed_at"] = current_iso_time()
+            return {
+                "status": "completed" if is_success else "failed",
+                "step_id": step_id,
+                "agent_id": agent_id or "python_runner",
+                "prompt_rendered": code[:120],
+                "output_data": output_data,
+                "tool_calls": [{
+                    "tool_name": "python_script_runner",
+                    "status": tool_res.get("status"),
+                    "stdout": tool_res.get("stdout"),
+                    "duration_ms": tool_res.get("duration_ms"),
+                    "error": tool_res.get("error"),
+                }],
+                "tokens_used": 0,
+                "duration_ms": duration_ms,
+                "error": tool_res.get("error"),
+            }
+
+        # ----------------- 3. Loop Block -----------------
+        if step_type == "loop":
+            counts = loop_counts if loop_counts is not None else {}
+            curr_count = counts.get(step_id, 0) + 1
+            counts[step_id] = curr_count
+            max_iters = min(int(step.get("max_loop_iterations") or 3), 10)
+            cond_expr = step.get("condition_expr") or ""
+            cond_met, evaluated = evaluate_condition_expression(cond_expr, inputs, previous_outputs, goal)
+            target_step = step.get("loop_target_step_id")
+            should_loop = cond_met and curr_count <= max_iters and bool(target_step)
+            duration_ms = round((time.time() - start_time) * 1000, 2)
+            output_data = {
+                "loop_active": should_loop,
+                "iteration": curr_count,
+                "max_iterations": max_iters,
+                "condition_met": cond_met,
+                "target_step": target_step,
+                "text": f"Loop iteration {curr_count}/{max_iters}: {'Looping back to ' + str(target_step) if should_loop else 'Loop finished.'}",
+                "completed_at": current_iso_time(),
+            }
+            return {
+                "status": "completed",
+                "step_id": step_id,
+                "agent_id": agent_id or "loop_controller",
+                "prompt_rendered": evaluated,
+                "output_data": output_data,
+                "tool_calls": [],
+                "tokens_used": 0,
+                "duration_ms": duration_ms,
+                "error": None,
+            }
+
+        # ----------------- 4. Artifact Block -----------------
+        if step_type == "artifact":
+            rendered_content = interpolate_template(raw_instructions, inputs, previous_outputs, goal)
+            art_title = step.get("artifact_title") or step.get("name") or "Workflow Artifact"
+            art_type = step.get("artifact_type") or "markdown"
+            duration_ms = round((time.time() - start_time) * 1000, 2)
+            artifact = {
+                "id": f"art-{uuid.uuid4().hex[:8]}",
+                "title": art_title,
+                "type": art_type,
+                "content": rendered_content,
+                "step_id": step_id,
+                "created_at": current_iso_time(),
+            }
+            output_data = {
+                "artifact": artifact,
+                "text": rendered_content,
+                "completed_at": current_iso_time(),
+            }
+            return {
+                "status": "completed",
+                "step_id": step_id,
+                "agent_id": agent_id or "artifact_generator",
+                "prompt_rendered": rendered_content[:120],
+                "output_data": output_data,
+                "tool_calls": [],
+                "tokens_used": 0,
+                "duration_ms": duration_ms,
+                "error": None,
+            }
+
+        # ----------------- 5. Agent Block (Default) -----------------
         # 1. Variable interpolation
         rendered_prompt = interpolate_template(raw_instructions, inputs, previous_outputs, goal)
 
@@ -444,9 +631,20 @@ class WorkflowExecutionEngine:
         step_runs_accum = []
         workflow_error = None
 
-        # 3. Execute steps in order
-        for idx, step in enumerate(ordered_steps):
-            step_id = step.get("id", f"step_{idx+1}")
+        # 3. Execute steps in order with loop jumping, branching, and artifact collection
+        current_idx = 0
+        execution_count = 0
+        max_total_executions = 50
+        loop_counts: Dict[str, int] = {}
+        artifacts: List[Dict[str, Any]] = []
+
+        while current_idx < len(ordered_steps) and execution_count < max_total_executions:
+            step = ordered_steps[current_idx]
+            step_id = step.get("id", f"step_{current_idx+1}")
+            step_type = step.get("step_type", "agent")
+            execution_count += 1
+            idx = execution_count - 1
+
             try:
                 res = self.execute_single_step(
                     step=step,
@@ -455,11 +653,16 @@ class WorkflowExecutionEngine:
                     goal=goal,
                     knowledge_files=knowledge_files,
                     tools_map=tools_map,
-                    user_id=user_id
+                    user_id=user_id,
+                    loop_counts=loop_counts,
                 )
 
                 previous_outputs[step_id] = res["output_data"]
                 total_tokens += res["tokens_used"]
+
+                # If artifact block produced an artifact, collect it
+                if step_type == "artifact" and "artifact" in res["output_data"]:
+                    artifacts.append(res["output_data"]["artifact"])
 
                 step_run_record = {
                     "id": str(uuid.uuid4()),
@@ -480,6 +683,28 @@ class WorkflowExecutionEngine:
                 }
                 memory_store.add_step_run(step_run_record)
                 step_runs_accum.append(step_run_record)
+
+                # Handle Loop jumping
+                if step_type == "loop":
+                    loop_data = res["output_data"]
+                    if loop_data.get("loop_active") and loop_data.get("target_step"):
+                        target_id = loop_data["target_step"]
+                        target_idx = next((i for i, s in enumerate(ordered_steps) if s.get("id") == target_id), None)
+                        if target_idx is not None:
+                            current_idx = target_idx
+                            continue
+
+                # Handle Condition target jumping
+                if step_type == "condition":
+                    cond_data = res["output_data"]
+                    target_id = cond_data.get("target_step")
+                    if target_id:
+                        target_idx = next((i for i, s in enumerate(ordered_steps) if s.get("id") == target_id), None)
+                        if target_idx is not None:
+                            current_idx = target_idx
+                            continue
+
+                current_idx += 1
 
             except Exception as e:
                 workflow_error = f"Step '{step_id}' failed: {str(e)}"
@@ -511,6 +736,7 @@ class WorkflowExecutionEngine:
         final_output = {
             "goal": goal,
             "step_outputs": previous_outputs,
+            "artifacts": artifacts,
             "final_result": (
                 list(previous_outputs.values())[-1].get("text")
                 if previous_outputs else "No step completed."
@@ -520,6 +746,7 @@ class WorkflowExecutionEngine:
         updates = {
             "status": final_status,
             "output_data": final_output,
+            "artifacts": artifacts,
             "total_tokens": total_tokens,
             "duration_ms": total_duration_ms,
             "error": workflow_error,

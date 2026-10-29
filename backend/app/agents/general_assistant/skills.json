@@ -1,0 +1,14 @@
+[
+  {
+    "id": "conversational_dialogue",
+    "name": "Conversational Dialogue",
+    "description": "Engages in open-ended conversations and answers questions clearly.",
+    "triggers": ["hello", "hi", "how are you", "explain", "help me think"]
+  },
+  {
+    "id": "conceptual_explanation",
+    "name": "Conceptual Explanation",
+    "description": "Explains complex ideas in simple, intuitive terms.",
+    "triggers": ["explain like I'm five", "overview", "what is", "how does"]
+  }
+]

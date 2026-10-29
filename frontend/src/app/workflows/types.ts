@@ -2,6 +2,17 @@
 // Frontend Workflows TypeScript Definitions
 // =========================================================
 
+export type WorkflowStepType = "agent" | "condition" | "python_code" | "loop" | "artifact";
+
+export interface WorkflowArtifact {
+  title: string;
+  type: string;
+  content: string;
+  step_id?: string;
+  step_name?: string;
+  created_at?: string;
+}
+
 export interface WorkflowStep {
   id: string;
   name: string;
@@ -11,6 +22,16 @@ export interface WorkflowStep {
   knowledge_file_ids: string[];
   depends_on: string[];
   position?: { x: number; y: number };
+  step_type?: WorkflowStepType;
+  code?: string;
+  condition_expr?: string;
+  true_target_step_id?: string;
+  false_target_step_id?: string;
+  loop_target_step_id?: string;
+  max_loop_iterations?: number;
+  artifact_title?: string;
+  artifact_type?: string;
+  model?: string;
 }
 
 export interface WorkflowEdge {
@@ -119,6 +140,7 @@ export interface WorkflowRun {
   total_tokens: number;
   duration_ms: number;
   error?: string | null;
+  artifacts?: WorkflowArtifact[];
   created_at: string;
   completed_at?: string | null;
   step_runs?: WorkflowStepRun[];
@@ -129,6 +151,9 @@ export interface StepUnitTestResponse {
   step_id: string;
   agent_id: string;
   prompt_rendered: string;
+  step_type?: WorkflowStepType;
+  branch_taken?: boolean;
+  artifacts?: WorkflowArtifact[];
   output_data: Record<string, unknown>;
   tool_calls: Array<Record<string, unknown>>;
   tokens_used: number;

@@ -487,8 +487,135 @@ def execute(input_data: dict, context: dict) -> dict:
     assert "optimizer" in gen_agent["name"].lower() or "database" in gen_agent["name"].lower() or "specialist" in gen_agent["name"].lower()
     print(f"PASS: POST /api/ai/generate-agent -> Generated agent: '{gen_agent['name']}' ({gen_agent['id']})")
 
+    # 29. Test Multi-Block Step Unit Tests (Condition, Python Code, Loop, Artifact)
+    multi_block_wf_payload = {
+        "title": "Autonomous Multi-Block Logic Pipeline",
+        "description": "Pipeline verifying Condition, Python Code, Loop, and Artifact blocks",
+        "goal": "Process data, branch on threshold, and produce artifact report",
+        "steps": [
+            {
+                "id": "step_code",
+                "name": "Data Transform Script",
+                "step_type": "python_code",
+                "code": "def execute(inputs, previous_outputs, context):\n    v = inputs.get('count', 10)\n    return {'score': v * 5, 'status': 'computed'}",
+                "depends_on": [],
+            },
+            {
+                "id": "step_cond",
+                "name": "Score Threshold Check",
+                "step_type": "condition",
+                "condition_expr": "{{steps.step_code.output.score}} >= 50",
+                "true_target_step_id": "step_artifact",
+                "false_target_step_id": "step_code",
+                "depends_on": ["step_code"],
+            },
+            {
+                "id": "step_loop",
+                "name": "Quality Retry Loop",
+                "step_type": "loop",
+                "condition_expr": "{{inputs.retry_needed}} == true",
+                "loop_target_step_id": "step_code",
+                "max_loop_iterations": 2,
+                "depends_on": ["step_cond"],
+            },
+            {
+                "id": "step_artifact",
+                "name": "Executive Summary Artifact",
+                "step_type": "artifact",
+                "artifact_title": "Pipeline Execution Briefing",
+                "artifact_type": "markdown",
+                "instructions": "# Executive Report\nGoal: {{goal}}\nComputed Score: {{steps.step_code.output.score}}\nResult: Approved",
+                "depends_on": ["step_cond"],
+            }
+        ],
+        "edges": [
+            {"id": "e1", "source": "step_code", "target": "step_cond"},
+            {"id": "e2", "source": "step_cond", "target": "step_artifact"},
+        ]
+    }
+    res = client.post("/api/workflows", json=multi_block_wf_payload, headers=auth_headers)
+    assert res.status_code == 200, f"Failed to create multi-block workflow: {res.text}"
+    mb_wf = res.json()
+    mb_wf_id = mb_wf["id"]
+
+    # 29a. Unit test Python Code step
+    res_code = client.post(
+        f"/api/workflows/{mb_wf_id}/steps/step_code/test",
+        json={"step_id": "step_code", "mock_inputs": {"count": 12}, "mock_previous_outputs": {}},
+        headers=auth_headers,
+    )
+    assert res_code.status_code == 200, f"Python code step test failed: {res_code.text}"
+    res_code_data = res_code.json()
+    assert res_code_data["status"] == "completed"
+    assert res_code_data["output_data"]["score"] == 60
+
+    # 29b. Unit test Condition step
+    res_cond = client.post(
+        f"/api/workflows/{mb_wf_id}/steps/step_cond/test",
+        json={"step_id": "step_cond", "mock_inputs": {}, "mock_previous_outputs": {"step_code": {"score": 60}}},
+        headers=auth_headers,
+    )
+    assert res_cond.status_code == 200, f"Condition step test failed: {res_cond.text}"
+    res_cond_data = res_cond.json()
+    assert res_cond_data["status"] == "completed"
+    assert res_cond_data["output_data"]["condition"] is True
+    assert res_cond_data["output_data"]["branch"] == "true"
+
+    # 29c. Unit test Artifact step
+    res_art = client.post(
+        f"/api/workflows/{mb_wf_id}/steps/step_artifact/test",
+        json={"step_id": "step_artifact", "mock_inputs": {}, "mock_previous_outputs": {"step_code": {"score": 60}}},
+        headers=auth_headers,
+    )
+    assert res_art.status_code == 200, f"Artifact step test failed: {res_art.text}"
+    res_art_data = res_art.json()
+    assert res_art_data["status"] == "completed"
+    assert "artifact" in res_art_data["output_data"]
+    assert "Computed Score: 60" in res_art_data["output_data"]["artifact"]["content"]
+    print(f"PASS: Multi-block unit tests verified (Python Code, Condition True branch, Artifact generation)")
+
+    # 30. Test Multi-Block End-to-End Workflow Execution
+    res_run = client.post(
+        f"/api/workflows/{mb_wf_id}/run",
+        json={"inputs": {"count": 14, "retry_needed": False}},
+        headers=auth_headers,
+    )
+    assert res_run.status_code == 200, f"Multi-block workflow run failed: {res_run.text}"
+    run_data = res_run.json()
+    assert run_data["status"] == "completed"
+    assert "artifacts" in run_data and len(run_data["artifacts"]) == 1
+    assert run_data["artifacts"][0]["title"] == "Pipeline Execution Briefing"
+    assert len(run_data["step_runs"]) >= 3
+    print(f"PASS: POST /api/workflows/{mb_wf_id}/run -> Successfully executed multi-block pipeline end-to-end with 1 persistent artifact generated")
+
+    # 31. Test Real Web Search Tool Execution
+    from app.agents.researcher.tools import web_search_query, extract_citations
+    search_res = web_search_query("FastAPI Python web framework", max_results=3)
+    assert search_res["status"] == "completed"
+    assert search_res["results_count"] > 0
+    assert len(search_res["sources"]) > 0
+    cited = extract_citations("According to https://fastapi.tiangolo.com and https://docs.python.org, performance is high.")
+    assert len(cited) == 2
+    assert "https://fastapi.tiangolo.com" in cited
+    print(f"PASS: Real web search query executed successfully with {search_res['results_count']} live sources and URL citations")
+
+    # 32. Test Base Conversational Agent & Model Selection Override
+    res_conv = client.post(
+        "/api/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello! How are you doing today?"}],
+            "model": "gemini-2.5-pro",
+        },
+        headers=auth_headers,
+    )
+    assert res_conv.status_code == 200, f"Conversational chat turn failed: {res_conv.text}"
+    conv_data = res_conv.json()
+    assert conv_data["metadata"]["agent_id"] == "general_assistant"
+    assert conv_data["metadata"]["model"] == "gemini-2.5-pro"
+    print(f"PASS: Conversational routing routed to 'general_assistant' with custom model selection: {conv_data['metadata']['model']}")
+
     print("\n========================================")
-    print("ALL 28 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 32 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

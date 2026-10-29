@@ -36,7 +36,7 @@ export default function StepUnitTestModal({
   onClose,
 }: StepUnitTestModalProps) {
   const [activeMode, setActiveMode] = useState<"visual" | "json">("visual");
-  const [activeOutputTab, setActiveOutputTab] = useState<"output" | "prompt" | "tools" | "raw">("output");
+  const [activeOutputTab, setActiveOutputTab] = useState<"output" | "artifacts" | "prompt" | "tools" | "raw">("output");
 
   // Dynamic variable state
   const [formInputs, setFormInputs] = useState<Record<string, string>>({});
@@ -453,6 +453,17 @@ export default function StepUnitTestModal({
                   <span className="font-semibold text-ink text-xs">
                     Outcome: <span className="uppercase font-mono text-[11px] text-semantic-success">{result.status}</span>
                   </span>
+                  {result.branch_taken !== undefined && (
+                    <span
+                      className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded-xs border font-semibold ${
+                        result.branch_taken
+                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                          : "bg-rose-500/15 border-rose-500/40 text-rose-400"
+                      }`}
+                    >
+                      Branch: {result.branch_taken ? "TRUE" : "FALSE"}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3 text-ink-subtle text-[11px] font-mono">
@@ -478,6 +489,19 @@ export default function StepUnitTestModal({
                 >
                   Step Output
                 </button>
+                {Boolean(result.artifacts && result.artifacts.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveOutputTab("artifacts")}
+                    className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
+                      activeOutputTab === "artifacts"
+                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                        : "text-purple-400 hover:text-purple-300"
+                    }`}
+                  >
+                    Artifacts ({result.artifacts?.length || 0})
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setActiveOutputTab("tools")}
@@ -531,6 +555,24 @@ export default function StepUnitTestModal({
                     ? result.output_data.text
                     : JSON.stringify(result.output_data, null, 2)}
                 </pre>
+              )}
+
+              {activeOutputTab === "artifacts" && (
+                <div className="space-y-2 max-h-56 overflow-y-auto font-mono text-[11px]">
+                  {result.artifacts?.map((art, aIdx) => (
+                    <div key={aIdx} className="p-3 rounded-md bg-canvas border border-purple-500/30 space-y-1.5">
+                      <div className="flex items-center justify-between pb-1 border-b border-hairline">
+                        <span className="text-purple-400 font-semibold">{art.title}</span>
+                        <span className="text-[9px] uppercase px-1 rounded-xs bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                          {art.type}
+                        </span>
+                      </div>
+                      <pre className="p-2 rounded bg-surface-1 border border-hairline text-ink whitespace-pre-wrap max-h-36 overflow-y-auto">
+                        {art.content}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
               )}
 
               {activeOutputTab === "tools" && (

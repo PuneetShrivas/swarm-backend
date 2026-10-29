@@ -55,10 +55,10 @@ class SecurityValidator(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         if node.name == "execute":
             self.has_execute_function = True
-            # Check argument count: should accept at least 2 args (input_data, context)
+            # Check argument count: should accept at least 1 arg (e.g. input_data)
             total_args = len(node.args.args)
-            if total_args < 2 and not node.args.vararg:
-                self.errors.append("Function 'execute' must accept at least 2 arguments: (input_data, context).")
+            if total_args < 1 and not node.args.vararg:
+                self.errors.append("Function 'execute' must accept at least 1 argument: (input_data, ...).")
         self.generic_visit(node)
 
 
@@ -144,8 +144,19 @@ def execute_tool_script(
             execute_fn = exec_globals.get("execute")
             if not callable(execute_fn):
                 raise ValueError("Entry point 'execute' is not callable.")
-            # Execute with input_data and context copies
-            result = execute_fn(dict(input_data or {}), dict(context or {}))
+            
+            # Introspect execute signature to support 1, 2, or 3 arguments dynamically
+            import inspect
+            sig = inspect.signature(execute_fn)
+            param_count = len(sig.parameters)
+            if param_count == 1:
+                result = execute_fn(dict(input_data or {}))
+            elif param_count == 2:
+                result = execute_fn(dict(input_data or {}), dict(context or {}))
+            else:
+                prev_outs = (context or {}).get("previous_outputs", {})
+                result = execute_fn(dict(input_data or {}), dict(prev_outs or {}), dict(context or {}))
+
             if not isinstance(result, dict):
                 # Auto-wrap non-dict returns into standard dictionary
                 result = {"result": result}

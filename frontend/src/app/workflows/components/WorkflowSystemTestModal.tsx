@@ -44,7 +44,7 @@ export default function WorkflowSystemTestModal({
   onNavigateToRuns,
 }: WorkflowSystemTestModalProps) {
   const [activeInputMode, setActiveInputMode] = useState<"visual" | "json">("visual");
-  const [activeResultTab, setActiveResultTab] = useState<"final" | "steps" | "raw">("final");
+  const [activeResultTab, setActiveResultTab] = useState<"final" | "artifacts" | "steps" | "raw">("final");
   const [selectedStepIndex, setSelectedStepIndex] = useState<number>(0);
 
   // Form Inputs state
@@ -398,6 +398,21 @@ export default function WorkflowSystemTestModal({
                     <FileText size={11} /> Final Output
                   </span>
                 </button>
+                {Boolean(runResult.artifacts && runResult.artifacts.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveResultTab("artifacts")}
+                    className={`px-2.5 py-0.5 rounded-md font-medium transition-colors ${
+                      activeResultTab === "artifacts"
+                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                        : "text-purple-400 hover:text-purple-300"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <Sparkles size={11} /> Artifacts ({runResult.artifacts?.length || 0})
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setActiveResultTab("steps")}
@@ -458,6 +473,41 @@ export default function WorkflowSystemTestModal({
                       ? runResult.output_data.final_result
                       : JSON.stringify(runResult.output_data, null, 2)}
                   </pre>
+                </div>
+              )}
+
+              {/* Generated Artifacts Viewer */}
+              {activeResultTab === "artifacts" && (
+                <div className="space-y-3 max-h-72 overflow-y-auto">
+                  {runResult.artifacts?.map((art, aIdx) => (
+                    <div
+                      key={aIdx}
+                      className="p-3 rounded-md bg-canvas border border-purple-500/30 space-y-2 font-mono text-[11px]"
+                    >
+                      <div className="flex items-center justify-between pb-1.5 border-b border-hairline">
+                        <div className="flex items-center gap-2">
+                          <span className="text-purple-400 font-semibold">{art.title}</span>
+                          <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-xs bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                            {art.type}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(art.content);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}
+                          className="text-[10px] text-ink-subtle hover:text-ink px-1.5 py-0.5 rounded bg-surface-2 border border-hairline transition-colors flex items-center gap-1"
+                        >
+                          <Copy size={10} /> Copy Content
+                        </button>
+                      </div>
+                      <pre className="p-2.5 rounded bg-surface-1 border border-hairline text-ink leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {art.content}
+                      </pre>
+                    </div>
+                  ))}
                 </div>
               )}
 

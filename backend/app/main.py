@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -89,6 +91,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Active Supabase chat session ID")
     parent_message_id: Optional[str] = Field(None, description="Parent message ID for conversation branching")
     user_message_id: Optional[str] = Field(None, description="Client-assigned user message ID")
+    model: Optional[str] = Field(None, description="Optional model selection override (e.g. gemini-2.5-pro, sonar)")
     workflow_id: Optional[str] = Field(None, description="Optional workflow ID to execute in this turn")
     workflow_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input arguments for workflow execution")
 
@@ -302,7 +305,7 @@ def route_agent(target_id: Optional[str], last_user_content: str):
 
     content_lower = last_user_content.lower()
 
-    # 2. Heuristic Intent Matching (Specialized intents evaluated first)
+    # 2. Heuristic Intent Matching (Domain specialists evaluated first)
     review_keywords = ["audit", "security", "vulnerability", "owasp", "leak", "test coverage", "qa", "lint", "complexity"]
     if any(k in content_lower for k in review_keywords):
         reviewer = agent_registry.get("reviewer")
@@ -333,7 +336,22 @@ def route_agent(target_id: Optional[str], last_user_content: str):
         if researcher:
             return researcher
 
-    # 3. Default to Swarm Orchestrator
+    orchestrator_keywords = ["swarm", "orchestrat", "workflow", "plan our", "pipeline", "multi-agent"]
+    if any(k in content_lower for k in orchestrator_keywords):
+        orchestrator = agent_registry.get_orchestrator()
+        if orchestrator:
+            return orchestrator
+
+    # 3. Conversational intent matching -> general_assistant (for general conversational chat)
+    conversational_phrases = ["how are you", "who are you", "what can you do", "tell me a joke", "chat with me", "good morning", "good evening", "good afternoon"]
+    casual_words = {"hello", "hi", "hey", "greetings", "howdy", "sup"}
+    cleaned_words = re.sub(r"[^\w\s]", " ", content_lower).split()
+    if any(phrase in content_lower for phrase in conversational_phrases) or (cleaned_words and cleaned_words[0] in casual_words):
+        assistant = agent_registry.get("general_assistant")
+        if assistant:
+            return assistant
+
+    # 4. Default to Swarm Orchestrator
     orchestrator = agent_registry.get_orchestrator()
     if orchestrator:
         return orchestrator
@@ -687,7 +705,96 @@ def chat(
                 metadata=wf_metadata,
             )
 
-    # 1. LIVE GEMINI API GENERATION
+    # Determine model choice
+    chosen_model = request.model or getattr(selected_agent, "model", None) or agent_model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # 1. LIVE PERPLEXITY SONAR API GENERATION
+    perplexity_key = os.environ.get("PERPLEXITY_API_KEY")
+    if (
+        chosen_model.startswith("sonar")
+        and perplexity_key
+        and not perplexity_key.startswith("your-")
+        and not perplexity_key.startswith("test-")
+        and os.environ.get("TESTING") != "true"
+    ):
+        try:
+            import httpx
+            headers = {
+                "Authorization": f"Bearer {perplexity_key.strip()}",
+                "Content-Type": "application/json",
+            }
+            perp_messages = [{"role": "system", "content": agent_prompt}]
+            for msg in request.messages:
+                perp_messages.append({"role": "user" if msg.role == "user" else "assistant", "content": msg.content})
+
+            perp_resp = httpx.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json={
+                    "model": chosen_model,
+                    "messages": perp_messages,
+                    "temperature": agent_temp,
+                },
+                timeout=25.0
+            )
+            if perp_resp.status_code == 200:
+                perp_data = perp_resp.json()
+                choice = perp_data.get("choices", [{}])[0]
+                perp_content = choice.get("message", {}).get("content", "")
+                citations = perp_data.get("citations") or []
+                latency_ms = round((time.time() - start_time) * 1000, 2)
+                usage_info = perp_data.get("usage", {})
+                total_tokens = usage_info.get("total_tokens", len(perp_content.split()) + 30)
+                prompt_tokens = usage_info.get("prompt_tokens", 20)
+                completion_tokens = usage_info.get("completion_tokens", len(perp_content.split()))
+
+                tool_calls = [
+                    {
+                        "tool": "perplexity_live_search",
+                        "args": {"model": chosen_model, "query": last_user_message.content[:80]},
+                        "result": {"citations": citations, "count": len(citations)}
+                    }
+                ]
+                agent_node_id = f"agent-{int(time.time()*1000)}"
+                agent_metadata = {
+                    "agent_state": "completed",
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "tool_calls": tool_calls,
+                    "citations": citations,
+                    "tokens_used": total_tokens,
+                    "latency_ms": latency_ms,
+                    "model": chosen_model,
+                    "node_id": agent_node_id,
+                }
+                if current_user and request.session_id:
+                    db_save_message(
+                        user_id=current_user.id,
+                        session_id=request.session_id,
+                        msg_id=agent_node_id,
+                        parent_id=user_node_id,
+                        role="agent",
+                        content=perp_content,
+                        metadata=agent_metadata,
+                        token=current_user.token,
+                    )
+                    db_save_usage(
+                        user_id=current_user.id,
+                        session_id=request.session_id,
+                        message_id=agent_node_id,
+                        model=chosen_model,
+                        agent_id=agent_id,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        latency_ms=latency_ms,
+                        token=current_user.token,
+                    )
+                return Message(role="agent", content=perp_content, metadata=agent_metadata)
+        except Exception as perp_err:
+            print(f"Perplexity API execution note: {perp_err}")
+
+    # 2. LIVE GEMINI API GENERATION
     if client:
         try:
             from google.genai import types
@@ -702,7 +809,7 @@ def chat(
                     )
                 )
 
-            model_name = os.environ.get("GEMINI_MODEL", agent_model)
+            model_name = chosen_model if not chosen_model.startswith("sonar") else os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
             config = types.GenerateContentConfig(
                 system_instruction=agent_prompt,
                 temperature=agent_temp,

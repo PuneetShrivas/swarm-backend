@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-10-29
+
+### Added
+- **Advanced Workflow Block Types (`condition`, `python_code`, `loop`, `artifact`)**:
+  - **Condition Block**: Safe AST expression evaluation directing control flow to configurable `true_target_step_id` or `false_target_step_id`.
+  - **Python Code Block**: Sandboxed in-process Python execution accepting `inputs`, `previous_outputs`, and `context`, with runtime timeouts and syntax validation.
+  - **Loop Block**: Iteration cycles looping back to target steps with safety `max_loop_iterations` limits (1-10) and termination condition expressions.
+  - **Artifact Block**: Persistent structured document generator producing Markdown, Code, JSON, and Executive Reports stored in workflow run records.
+- **DAG Nearest-Edge Dynamic Snapping**:
+  - Outfitted nodes with 4-directional perimeter connection handles (Top, Bottom, Left, Right).
+  - Implemented dynamic nearest-edge calculation (`getOptimalEdgeHandles`) snapping edges to the closest perimeter faces of parent and child blocks.
+  - Enhanced `DataFlowEdge` with branch badges (`True Branch` in emerald, `False Branch` in rose, `Loop Iteration` in cyan).
+- **Interactive Click-to-Expand DAG Blocks**:
+  - Clicking any node expands an inline configuration panel directly on the 2D canvas.
+  - Provides inline code editors, expression inputs, target selectors, and unit testing without leaving the visual canvas.
+  - Floating "+ Add Block" palette to add any of the 5 block types in 1 click.
+- **Real Live Web Search & Perplexity Integration**:
+  - Researcher agent upgraded with real live web searching using DuckDuckGo HTML scraping fallback + Perplexity Sonar API.
+  - URL citation extraction and formatted Markdown sources.
+  - Configured `PERPLEXITY_API_KEY` and `PERPLEXITY_MODEL` in `.env.example` and backend runner.
+- **Base Conversational Agent (`general_assistant`)**:
+  - Added general chat agent with friendly conversational profile.
+  - Intelligent intent routing directing casual greetings to `general_assistant` without colliding with specialist domain keywords.
+- **Model Selection Override**:
+  - Enabled users to select specific models (`gemini-2.5-flash`, `gemini-2.5-pro`, `sonar`, `sonar-pro`) per workflow step and in the Chat screen header.
+
+### Fixed
+- Fixed runtime ReferenceError `onRunSystemTest is not defined` when loading workflow studio.
+
 ## [Unreleased] - 2026-10-28
 
 ### Added

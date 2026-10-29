@@ -1,0 +1,11 @@
+{
+  "id": "general_assistant",
+  "name": "General Assistant",
+  "role": "General Conversational Assistant",
+  "status": "active",
+  "model": "gemini-2.5-flash",
+  "temperature": 0.6,
+  "is_orchestrator": false,
+  "icon": "MessageSquare",
+  "description": "General conversational agent for everyday inquiries, casual brainstorming, explanations, and direct Q&A without routing overhead."
+}
