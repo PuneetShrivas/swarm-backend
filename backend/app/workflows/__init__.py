@@ -21,6 +21,7 @@ from app.workflows.models import (
 from app.workflows.tool_runner import execute_tool_script, validate_tool_code
 from app.workflows.knowledge import extract_file_content, format_knowledge_context
 from app.workflows.engine import WorkflowExecutionEngine, workflow_engine
+from app.workflows.default_workflows import get_default_workflows, seed_default_workflows
 
 __all__ = [
     "WorkflowStep",
@@ -41,4 +42,6 @@ __all__ = [
     "format_knowledge_context",
     "WorkflowExecutionEngine",
     "workflow_engine",
+    "get_default_workflows",
+    "seed_default_workflows",
 ]

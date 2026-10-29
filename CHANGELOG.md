@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Production Default Multi-Agent Workflow Template (`Competitive Research & Report Pipeline`)**:
+  - Implemented built-in workflow template definition (`backend/app/workflows/default_workflows.py`, ID: `default-wf-research-pipeline`) demonstrating all 5 DAG step types: `agent`, `python_code`, `condition`, `loop`, and `artifact`.
+  - Collaborates across 5 specialized agents: `researcher` (live web discovery via Perplexity Sonar), `data_analyst` (statistical breakdown), `coder` (implementation templates), `reviewer` (security & OWASP audit), and `synthesizer`/orchestrator.
+  - Auto-seeded into in-memory store at application startup with `visibility: "public"` and slug `default-research-pipeline`, making it immediately accessible, executable, and forkable for all users.
+  - Added `GET /api/workflows/defaults` endpoint for frontend template discovery.
+  - Added unit test suite covering Python Code sandboxed scoring, Condition gate branching, and Artifact report compilation, alongside full end-to-end DAG execution.
 - **Default Agent Tools & Skills Revamp**:
   - Fully implemented, verified, and exposed functional tools across all 9 default swarm agents (`coder`, `data_analyst`, `researcher`, `reviewer`, `synthesizer`, `orchestrator`, `general_assistant`, `file_creator`, `file_parser`), expanding tool coverage to 4-6 tools per agent.
   - Implemented `execute_python_sandbox` (safe execution scope, AST validation, standard output capturing) and `format_code` for `coder`.

@@ -45,6 +45,7 @@ from app.workflows import (
 )
 from app.workflows.models import WorkflowCreateUpdatePayload
 from app.ai_generator import generate_workflow_spec, generate_agent_spec
+from app.workflows.default_workflows import seed_default_workflows, get_default_workflows
 
 # Load environment variables from .env
 load_dotenv()
@@ -75,6 +76,11 @@ app.add_middleware(
 
 # Initialize Agent Registry
 agent_registry.initialize()
+
+# Seed default workflow templates (idempotent)
+_seeded_count = seed_default_workflows(memory_store)
+if _seeded_count:
+    print(f"Seeded {_seeded_count} default workflow template(s) into memory store.")
 
 # ---------------------------------------------------------
 # Data Models
@@ -1875,6 +1881,12 @@ def create_workflow(
                 print(f"Supabase create_workflow error: {e}")
 
     return memory_store.create_workflow(wf_dict)
+
+
+@app.get("/api/workflows/defaults", response_model=List[Workflow])
+def list_default_workflows():
+    """Returns all built-in default workflow templates available to every user."""
+    return get_default_workflows()
 
 
 @app.get("/api/workflows/{workflow_id}", response_model=Workflow)

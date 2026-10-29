@@ -900,8 +900,120 @@ def execute(input_data: dict, context: dict) -> dict:
     assert res_unauth_mcp.json()["isError"] is True
     print("PASS: Agent Tool & MCP security boundaries accurately reject invalid tools and unconfigured servers")
 
+    # 47. Test Default Workflow Templates Endpoint
+    res_defaults = client.get("/api/workflows/defaults")
+    assert res_defaults.status_code == 200, f"Default workflows endpoint failed: {res_defaults.text}"
+    default_wfs = res_defaults.json()
+    assert len(default_wfs) >= 1, f"Expected at least 1 default workflow, got {len(default_wfs)}"
+    research_wf = default_wfs[0]
+    assert research_wf["id"] == "default-wf-research-pipeline"
+    assert research_wf["visibility"] == "public"
+    assert research_wf["share_slug"] == "default-research-pipeline"
+    assert len(research_wf["steps"]) == 8
+    assert len(research_wf["edges"]) == 8
+    step_types = {s["step_type"] for s in research_wf["steps"]}
+    assert step_types == {"agent", "python_code", "condition", "loop", "artifact"}, f"Expected all 5 step types, got {step_types}"
+    agent_ids = {s["agent_id"] for s in research_wf["steps"] if s["step_type"] == "agent"}
+    assert len(agent_ids) >= 4, f"Expected 4+ unique agents, got {agent_ids}"
+    print(f"PASS: GET /api/workflows/defaults -> {len(default_wfs)} template(s), '{research_wf['title']}' with {len(research_wf['steps'])} steps, all 5 block types present")
+
+    # 48. Test Default Workflow Is Seeded and Accessible via Regular Workflow List
+    res_wf_list = client.get("/api/workflows", headers=auth_headers)
+    assert res_wf_list.status_code == 200
+    wf_list = res_wf_list.json()
+    default_in_list = [w for w in wf_list if w["id"] == "default-wf-research-pipeline"]
+    assert len(default_in_list) == 1, "Default workflow not found in regular workflow list"
+    assert default_in_list[0]["visibility"] == "public"
+    print("PASS: Default workflow is seeded at startup and visible in GET /api/workflows list")
+
+    # 49. Test Default Workflow Individual Step Unit Tests
+    default_wf_id = "default-wf-research-pipeline"
+
+    # 49a. Unit test Python Code scoring step
+    res_ut_score = client.post(
+        f"/api/workflows/{default_wf_id}/steps/step_score/test",
+        json={
+            "step_id": "step_score",
+            "mock_inputs": {"topic": "Cloud Computing"},
+            "mock_previous_outputs": {
+                "step_research": {"text": "Cloud computing market reached $500B in 2025. Sources: https://gartner.com and https://aws.amazon.com provide comprehensive analysis of IaaS, PaaS, SaaS segments."}
+            }
+        },
+        headers=auth_headers,
+    )
+    assert res_ut_score.status_code == 200, f"Scoring step test failed: {res_ut_score.text}"
+    score_data = res_ut_score.json()
+    assert score_data["status"] == "completed"
+    assert score_data["output_data"]["score"] >= 40, f"Score too low: {score_data['output_data']['score']}"
+    assert score_data["output_data"]["has_sources"] is True
+    assert score_data["output_data"]["has_data_points"] is True
+    print(f"PASS: Default workflow step_score unit test -> score={score_data['output_data']['score']}, quality={score_data['output_data']['quality']}")
+
+    # 49b. Unit test Condition gate step (should pass with score >= 40)
+    res_ut_gate = client.post(
+        f"/api/workflows/{default_wf_id}/steps/step_quality_gate/test",
+        json={
+            "step_id": "step_quality_gate",
+            "mock_inputs": {},
+            "mock_previous_outputs": {"step_score": {"score": 75, "quality": "high"}}
+        },
+        headers=auth_headers,
+    )
+    assert res_ut_gate.status_code == 200, f"Condition gate test failed: {res_ut_gate.text}"
+    gate_data = res_ut_gate.json()
+    assert gate_data["status"] == "completed"
+    assert gate_data["output_data"]["condition"] is True
+    assert gate_data["output_data"]["branch"] == "true"
+    assert gate_data["output_data"]["target_step"] == "step_analysis"
+    print("PASS: Default workflow step_quality_gate unit test -> condition=True, target=step_analysis")
+
+    # 49c. Unit test Artifact report step
+    res_ut_art = client.post(
+        f"/api/workflows/{default_wf_id}/steps/step_report/test",
+        json={
+            "step_id": "step_report",
+            "mock_inputs": {"topic": "Edge Computing"},
+            "mock_previous_outputs": {
+                "step_research": {"text": "Edge computing enables low-latency processing."},
+                "step_score": {"score": 82, "quality": "high", "word_count": 50},
+                "step_analysis": {"text": "Market growing at 22% CAGR."},
+                "step_implementation": {"text": "Deploy via Kubernetes edge nodes."},
+                "step_review": {"text": "No critical vulnerabilities found."},
+            }
+        },
+        headers=auth_headers,
+    )
+    assert res_ut_art.status_code == 200, f"Artifact step test failed: {res_ut_art.text}"
+    art_data = res_ut_art.json()
+    assert art_data["status"] == "completed"
+    assert "artifact" in art_data["output_data"]
+    assert art_data["output_data"]["artifact"]["title"] == "Competitive Research Report"
+    assert "Edge Computing" in art_data["output_data"]["artifact"]["content"]
+    assert "Score: 82/100" in art_data["output_data"]["artifact"]["content"]
+    print("PASS: Default workflow step_report artifact unit test -> generated report with interpolated content")
+
+    # 50. Test Default Workflow End-to-End Execution
+    res_e2e = client.post(
+        f"/api/workflows/{default_wf_id}/run",
+        json={"inputs": {"topic": "Kubernetes Autoscaling Strategies"}},
+        headers=auth_headers,
+    )
+    assert res_e2e.status_code == 200, f"Default workflow E2E run failed: {res_e2e.text}"
+    e2e_data = res_e2e.json()
+    assert e2e_data["status"] == "completed", f"Workflow did not complete: {e2e_data.get('error')}"
+    assert len(e2e_data["step_runs"]) >= 6, f"Expected 6+ step runs, got {len(e2e_data['step_runs'])}"
+    assert len(e2e_data["artifacts"]) == 1, f"Expected 1 artifact, got {len(e2e_data.get('artifacts', []))}"
+    assert e2e_data["artifacts"][0]["title"] == "Competitive Research Report"
+    assert e2e_data["total_tokens"] > 0
+    step_ids_executed = [sr["step_id"] for sr in e2e_data["step_runs"]]
+    assert "step_research" in step_ids_executed
+    assert "step_score" in step_ids_executed
+    assert "step_quality_gate" in step_ids_executed
+    assert "step_report" in step_ids_executed
+    print(f"PASS: Default workflow E2E execution completed with {len(e2e_data['step_runs'])} step runs, {len(e2e_data['artifacts'])} artifact(s), {e2e_data['total_tokens']} tokens")
+
     print("\n========================================")
-    print("ALL 46 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 50 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":
