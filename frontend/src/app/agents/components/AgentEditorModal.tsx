@@ -51,7 +51,7 @@ export default function AgentEditorModal({
   const [role, setRole] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [model, setModel] = useState("gemini-3.8-flash");
+  const [model, setModel] = useState("qwen-3.8");
   const [temperature, setTemperature] = useState(0.3);
   const [icon, setIcon] = useState("Bot");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,7 +64,7 @@ export default function AgentEditorModal({
       setRole(agent.role || "");
       setDescription(agent.description || "");
       setSystemPrompt(agent.system_prompt || "");
-      const currentModel = agent.model || "gemini-3.8-flash";
+      const currentModel = agent.model || "qwen-3.8";
       setModel(currentModel === "gemini-2.5-flash" ? "gemini-3.8-flash" : currentModel === "gemini-2.5-pro" ? "gemini-4-argon" : currentModel);
       setTemperature(agent.temperature ?? 0.3);
       setIcon(agent.icon || "Bot");
@@ -76,7 +76,7 @@ export default function AgentEditorModal({
       setSystemPrompt(
         "You are a specialized AI assistant. Provide concise, accurate responses with clear reasoning and actionable recommendations."
       );
-      setModel("gemini-3.8-flash");
+      setModel("qwen-3.8");
       setTemperature(0.3);
       setIcon("Bot");
     }
@@ -296,10 +296,12 @@ export default function AgentEditorModal({
                 onChange={(e) => setModel(e.target.value)}
                 className="w-full text-xs bg-surface-1 border border-hairline hover:border-hairline-strong rounded-md px-3 py-2 text-ink focus:outline-none focus:border-linear-focus transition-colors cursor-pointer"
               >
-                <option value="gemini-3.8-flash">Gemini 3.8 Flash (Ultra Fast)</option>
-                <option value="gemini-4-argon">Gemini 4 Argon (Deep Complex Reasoning)</option>
+                <option value="qwen-3.8">Qwen 3.8 (Groq Default)</option>
+                <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq)</option>
                 <option value="sonar">Perplexity Sonar (Real Live Web Search)</option>
                 <option value="sonar-pro">Perplexity Sonar Pro (Advanced Synthesis)</option>
+                <option value="gemini-3.8-flash">Gemini 3.8 Flash (Fast)</option>
+                <option value="gemini-4-argon">Gemini 4 Argon (Deep Complex Reasoning)</option>
               </select>
             </div>
 

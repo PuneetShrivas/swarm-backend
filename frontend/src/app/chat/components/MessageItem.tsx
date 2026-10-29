@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
 import BrandLogo from "@/components/BrandLogo";
@@ -151,6 +151,34 @@ export default function MessageItem({
       console.error("File download error:", err);
     }
   };
+
+  const resolvedArtifact = useMemo(() => {
+    if (node.metadata?.file_artifact) {
+      return node.metadata.file_artifact as Record<string, unknown>;
+    }
+    if (Array.isArray(node.metadata?.artifacts) && node.metadata.artifacts.length > 0) {
+      return node.metadata.artifacts[0] as Record<string, unknown>;
+    }
+    const isFileAgent = node.metadata?.agent_id === "file_creator" || String(node.metadata?.agent_name || "").toLowerCase().includes("file");
+    const codeMatch = node.content.match(/```([a-zA-Z0-9_-]+)?[ \t]*\r?\n([\s\S]+?)\r?\n```/);
+    if (codeMatch && (isFileAgent || ["csv", "json", "python", "py", "sql", "html", "md", "markdown", "yaml", "sh", "txt"].includes((codeMatch[1] || "").toLowerCase()))) {
+      const lang = (codeMatch[1] || "txt").toLowerCase();
+      const codeBody = codeMatch[2].trim();
+      const extMap: Record<string, string> = { python: "py", py: "py", json: "json", csv: "csv", javascript: "js", js: "js", typescript: "ts", ts: "ts", markdown: "md", md: "md" };
+      const ext = extMap[lang] || lang || "txt";
+      const fnameMatch = node.content.match(/(?:filename|saved as|created|file):\s*[`'"]?([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)[`'"]?/i);
+      const filename = fnameMatch ? fnameMatch[1] : (ext === "csv" ? "sample_data.csv" : `generated_file.${ext}`);
+      const mimeMap: Record<string, string> = { csv: "text/csv", json: "application/json", py: "text/x-python", md: "text/markdown", txt: "text/plain" };
+      return {
+        filename,
+        content: codeBody,
+        mime_type: mimeMap[ext] || "text/plain",
+        size_bytes: codeBody.length,
+        downloadable: true,
+      };
+    }
+    return null;
+  }, [node.metadata, node.content]);
 
   return (
     <motion.div
@@ -524,10 +552,10 @@ export default function MessageItem({
               )}
 
               {/* Downloadable File Artifact Banner */}
-              {(node.metadata?.file_artifact || (Array.isArray(node.metadata?.artifacts) && node.metadata.artifacts.length > 0)) && (
+              {resolvedArtifact && (
                 <div className="mt-3 p-3 rounded-lg bg-surface-2/90 border border-hairline-strong shadow-xs select-none">
                   {(() => {
-                    const rawArt = (node.metadata?.file_artifact || (node.metadata?.artifacts as Record<string, unknown>[])[0]) as Record<string, unknown>;
+                    const rawArt = resolvedArtifact;
                     const fname = String(rawArt.filename || rawArt.name || "generated_file.txt");
                     const fcontent = String(rawArt.content || node.content);
                     const mime = typeof rawArt.mime_type === "string" ? rawArt.mime_type : "text/plain";

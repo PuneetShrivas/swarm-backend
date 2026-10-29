@@ -130,11 +130,13 @@ export default function ChatHeader({
               className="text-[11px] bg-transparent text-ink focus:outline-none cursor-pointer font-medium max-w-[130px] truncate"
               title="Select LLM model for agent execution"
             >
-              <option value="" className="bg-surface-1 text-ink">Default Model</option>
+              <option value="" className="bg-surface-1 text-ink">Qwen 3.8 (Groq Default)</option>
+              <option value="qwen-3.8" className="bg-surface-1 text-ink">Qwen 3.8 (Groq)</option>
+              <option value="llama-3.3-70b-versatile" className="bg-surface-1 text-ink">Llama 3.3 70B (Groq)</option>
+              <option value="sonar" className="bg-surface-1 text-ink">Perplexity Sonar (Web)</option>
+              <option value="sonar-pro" className="bg-surface-1 text-ink">Perplexity Sonar Pro</option>
               <option value="gemini-3.8-flash" className="bg-surface-1 text-ink">Gemini 3.8 Flash</option>
               <option value="gemini-4-argon" className="bg-surface-1 text-ink">Gemini 4 Argon</option>
-              <option value="sonar" className="bg-surface-1 text-ink">Perplexity Sonar</option>
-              <option value="sonar-pro" className="bg-surface-1 text-ink">Perplexity Sonar Pro</option>
             </select>
           </div>
         )}

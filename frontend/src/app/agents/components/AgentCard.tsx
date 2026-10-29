@@ -94,7 +94,9 @@ export default function AgentCard({
   };
 
   const getModelLabel = () => {
-    const m = agent.model || "gemini-3.8-flash";
+    const m = agent.model || "qwen-3.8";
+    if (m === "qwen-3.8" || m === "qwen") return "Qwen 3.8 (Groq)";
+    if (m === "llama-3.3-70b-versatile") return "Llama 3.3 70B";
     if (m === "gemini-3.8-flash" || m === "gemini-2.5-flash") return "Gemini 3.8 Flash";
     if (m === "gemini-4-argon" || m === "gemini-2.5-pro") return "Gemini 4 Argon";
     if (m === "sonar") return "Sonar (Live Web)";

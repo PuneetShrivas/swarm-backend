@@ -149,7 +149,7 @@ export default function AgentPlaygroundModal({
               </div>
               <p className="text-[10px] text-ink-subtle flex items-center gap-1.5 font-mono">
                 <Cpu size={10} className="text-linear-primary" /> Model:{" "}
-                <span className="text-ink font-medium">{agent.model || "gemini-3.8-flash"}</span>
+                <span className="text-ink font-medium">{agent.model || "qwen-3.8"}</span>
               </p>
             </div>
           </div>

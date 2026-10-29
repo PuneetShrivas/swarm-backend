@@ -280,7 +280,32 @@ class WorkflowExecutionEngine:
                 except Exception as e:
                     print(f"Workflow agent Perplexity Sonar generation note: {e}")
 
-        # 2. Live Gemini execution
+        # 2. Live Groq execution (Primary site-wide default)
+        if not is_sonar and not model_name.startswith("gemini-"):
+            groq_key = os.environ.get("GROQ_API_KEY")
+            if (
+                groq_key
+                and not groq_key.startswith("test-")
+                and not groq_key.startswith("your-")
+                and os.environ.get("TESTING") != "true"
+                and os.environ.get("MOCK_GROQ") != "true"
+            ):
+                try:
+                    from app.groq_client import get_groq_client, execute_groq_chat, DEFAULT_GROQ_MODEL
+                    client_groq, _ = get_groq_client()
+                    if client_groq:
+                        content, total_tokens, _, _, _ = execute_groq_chat(
+                            client=client_groq,
+                            messages=[{"role": "user", "content": prompt}],
+                            system_prompt=system_instructions,
+                            requested_model=model_name or DEFAULT_GROQ_MODEL,
+                            temperature=temperature,
+                        )
+                        return content, total_tokens
+                except Exception as e:
+                    print(f"Workflow agent Groq generation note: {e}")
+
+        # 3. Live Gemini execution
         if not is_sonar:
             try:
                 api_key = os.environ.get("GEMINI_API_KEY")

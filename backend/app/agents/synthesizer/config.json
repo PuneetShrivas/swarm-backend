@@ -3,7 +3,7 @@
   "name": "Synthesizer Agent",
   "role": "Technical writing, executive briefings, and cross-agent documentation",
   "status": "active",
-  "model": "gemini-3.8-flash",
+  "model": "qwen-3.8",
   "temperature": 0.4,
   "is_orchestrator": false,
   "icon": "file-text",

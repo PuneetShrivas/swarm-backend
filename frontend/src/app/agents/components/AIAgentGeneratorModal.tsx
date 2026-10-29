@@ -76,7 +76,7 @@ export default function AIAgentGeneratorModal({
         role: rawAgent.role || "Domain Specialist",
         description: rawAgent.description || prompt.trim(),
         system_prompt: rawAgent.system_prompt || "You are a specialized AI assistant.",
-        model: rawAgent.model || "gemini-3.8-flash",
+        model: rawAgent.model || "qwen-3.8",
         temperature: rawAgent.temperature ?? 0.3,
         icon: rawAgent.icon || "Bot",
         is_custom: true,
@@ -297,16 +297,18 @@ export default function AIAgentGeneratorModal({
                     <Cpu size={10} className="text-linear-primary" /> Model
                   </label>
                   <select
-                    value={generatedAgent.model || "gemini-3.8-flash"}
+                    value={generatedAgent.model || "qwen-3.8"}
                     onChange={(e) =>
                       setGeneratedAgent({ ...generatedAgent, model: e.target.value })
                     }
                     className="w-full text-xs bg-canvas border border-hairline rounded-md px-2.5 py-1.5 text-ink focus:outline-none"
                   >
-                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
-                    <option value="gemini-4-argon">Gemini 4 Argon</option>
+                    <option value="qwen-3.8">Qwen 3.8 (Groq Default)</option>
+                    <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq)</option>
                     <option value="sonar">Perplexity Sonar (Live Web)</option>
                     <option value="sonar-pro">Perplexity Sonar Pro</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                    <option value="gemini-4-argon">Gemini 4 Argon</option>
                   </select>
                 </div>
 

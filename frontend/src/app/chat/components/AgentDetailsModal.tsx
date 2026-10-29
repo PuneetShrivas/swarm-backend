@@ -364,7 +364,7 @@ export default function AgentDetailsModal({
             <div className="flex flex-wrap items-center gap-2 mt-4 text-[11px] font-mono">
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-background border border-border/60 text-muted-foreground">
                 <Cpu size={12} className="text-primary" />
-                <span>{agent.model || "gemini-3.8-flash"}</span>
+                <span>{agent.model || "qwen-3.8"}</span>
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-background border border-border/60 text-muted-foreground">
                 <Thermometer size={12} className="text-amber-500" />

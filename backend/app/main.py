@@ -46,6 +46,13 @@ from app.workflows import (
 from app.workflows.models import WorkflowCreateUpdatePayload
 from app.ai_generator import generate_workflow_spec, generate_agent_spec
 from app.workflows.default_workflows import seed_default_workflows, get_default_workflows
+from app.groq_client import (
+    get_groq_client,
+    is_groq_configured,
+    DEFAULT_GROQ_MODEL,
+    execute_groq_chat,
+    resolve_groq_model_candidates,
+)
 
 # Load environment variables from .env
 load_dotenv()
@@ -320,13 +327,16 @@ def get_gemini_client():
 
 def normalize_model_name(model_name: Optional[str]) -> str:
     """
-    Normalizes and maps legacy/deprecated models to latest active models.
-    Maps gemini-2.5-flash / gemini-2.0-flash / gemini-1.5-flash -> gemini-3.8-flash
-    Maps gemini-2.5-pro / gemini-2.0-pro / gemini-1.5-pro -> gemini-4-argon
+    Normalizes and maps model names across Groq, Perplexity, and Gemini.
+    - Groq default: qwen-3.8 (primary default)
+    - Perplexity: sonar, sonar-pro
+    - Gemini: gemini-3.8-flash, gemini-4-argon
     """
     if not model_name or not str(model_name).strip():
-        return os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+        return os.environ.get("DEFAULT_MODEL", DEFAULT_GROQ_MODEL)
     m = str(model_name).strip()
+    if m in ("qwen", "qwen-3", "qwen 3.8", "qwen-3.8", "default"):
+        return "qwen-3.8"
     if m in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"):
         return "gemini-3.8-flash"
     if m in ("gemini-2.5-pro", "gemini-2.0-pro", "gemini-1.5-pro", "gemini-pro"):
@@ -340,6 +350,8 @@ def normalize_model_name(model_name: Optional[str]) -> str:
 def route_agent(target_id: Optional[str], last_user_content: str):
     """
     Selects the target agent or auto-routes based on prompt intent and agent specialties.
+    Prioritizes file creation requests so CSV/dataset/script generation is never hijacked
+    by general data analysis or conversational agents.
     """
     # 1. Explicit target selection
     if target_id and target_id.strip():
@@ -352,25 +364,23 @@ def route_agent(target_id: Optional[str], last_user_content: str):
 
     content_lower = last_user_content.lower()
 
-    # 2. Heuristic Intent Matching (Domain specialists evaluated first)
-    review_keywords = ["audit", "security", "vulnerability", "owasp", "leak", "test coverage", "qa", "lint", "complexity"]
-    if any(k in content_lower for k in review_keywords):
-        reviewer = agent_registry.get("reviewer")
-        if reviewer:
-            return reviewer
-
-    data_keywords = ["statistics", "mean", "median", "table", "csv", "percentile", "trend", "distribution", "variance", "stdev", "metrics"]
-    if any(k in content_lower for k in data_keywords):
-        analyst = agent_registry.get("data_analyst")
-        if analyst:
-            return analyst
-
-    # File Creation & Ingestion Specialists
+    # 2. File Creation Specialists (EVALUATED FIRST to prevent data analyst interception)
     file_create_keywords = [
         "create file", "generate file", "make file", "write to file", "download file",
-        "export file", "save file", "create script", "generate csv", "generate report file", "export dataset"
+        "export file", "save file", "create script", "generate csv", "generate report file",
+        "export dataset", "sample csv", "create csv", "make csv", "build csv", "produce csv",
+        "csv file", "json file", "sample file", "generate a file", "create a file", "generate a csv",
+        "create a csv", "sample data file", "generate dataset", "create spreadsheet", "generate spreadsheet",
+        "give me a csv", "give me a file", "output as csv", "provide a csv", "create a spreadsheet"
     ]
-    if any(k in content_lower for k in file_create_keywords):
+    is_file_creation = (
+        any(k in content_lower for k in file_create_keywords)
+        or (
+            any(verb in content_lower for verb in ["create", "generate", "make", "export", "download", "produce", "write", "build", "provide", "give me"])
+            and any(noun in content_lower for noun in ["csv", "file", "json", "spreadsheet", "dataset", "markdown file", "txt file"])
+        )
+    )
+    if is_file_creation:
         creator = agent_registry.get("file_creator")
         if creator:
             return creator
@@ -383,6 +393,20 @@ def route_agent(target_id: Optional[str], last_user_content: str):
         parser = agent_registry.get("file_parser")
         if parser:
             return parser
+
+    # Security & Code Audit Reviewer
+    review_keywords = ["audit", "security", "vulnerability", "owasp", "leak", "test coverage", "qa", "lint", "complexity"]
+    if any(k in content_lower for k in review_keywords):
+        reviewer = agent_registry.get("reviewer")
+        if reviewer:
+            return reviewer
+
+    # Data Analyst (Mathematical & statistical analysis; excludes file synthesis)
+    data_keywords = ["statistics", "mean", "median", "table analysis", "percentile", "trend", "distribution", "variance", "stdev", "metrics", "data analysis", "data analyst", "analyze data"]
+    if any(k in content_lower for k in data_keywords):
+        analyst = agent_registry.get("data_analyst")
+        if analyst:
+            return analyst
 
     synthesis_keywords = ["executive summary", "briefing", "readme", "documentation", "tldr", "docs", "manual", "guide"]
     if any(k in content_lower for k in synthesis_keywords):
@@ -785,53 +809,87 @@ def get_usage(current_user: AuthUser = Depends(get_current_user)):
 # ---------------------------------------------------------
 
 def extract_file_artifact_from_turn(content: str, agent_id: str, prompt: str = "") -> Optional[Dict[str, Any]]:
-    """Detects and extracts a downloadable file artifact from agent response."""
-    code_match = re.search(r"```([a-zA-Z0-9_-]+)?\n([\s\S]+?)\n```", content)
-    if not code_match:
-        if agent_id == "file_creator" and content.strip():
-            filename = f"artifact_{int(time.time())}.txt"
-            return {
-                "id": f"art-{int(time.time()*1000)}",
-                "filename": filename,
-                "name": filename,
-                "type": "txt",
-                "mime_type": "text/plain",
-                "content": content.strip(),
-                "size_bytes": len(content.strip().encode("utf-8")),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "origin_agent": agent_id,
-                "downloadable": True,
-            }
+    """
+    Detects and extracts a downloadable file artifact from agent response.
+    Supports standard code blocks with language identifiers, CRLF linebreaks,
+    and automatic tabular CSV/data parsing for file_creator agents.
+    """
+    if not content or not content.strip():
         return None
 
-    lang = (code_match.group(1) or "text").lower()
-    code_body = code_match.group(2).strip()
-    if not code_body:
-        return None
-
+    prompt_lower = prompt.lower()
     ext_map = {
         "python": "py", "py": "py",
         "javascript": "js", "js": "js", "typescript": "ts", "ts": "ts",
         "json": "json", "csv": "csv", "sql": "sql", "html": "html",
         "markdown": "md", "md": "md", "yaml": "yaml", "yml": "yml",
-        "bash": "sh", "sh": "sh", "shell": "sh"
+        "bash": "sh", "sh": "sh", "shell": "sh", "text": "txt", "txt": "txt"
     }
-    ext = ext_map.get(lang, "txt")
+    mime_map = {
+        "py": "text/x-python", "js": "application/javascript", "ts": "application/typescript",
+        "json": "application/json", "csv": "text/csv", "sql": "application/sql",
+        "html": "text/html", "md": "text/markdown", "txt": "text/plain", "sh": "application/x-sh",
+        "yaml": "text/yaml", "yml": "text/yaml"
+    }
 
+    # Handle code fence with optional lang, spaces, and CRLF or LF newlines
+    code_match = re.search(r"```([a-zA-Z0-9_-]+)?[ \t]*\r?\n([\s\S]+?)\r?\n```", content)
+    code_body = ""
+    ext = ""
+
+    if code_match:
+        lang = (code_match.group(1) or "").strip().lower()
+        code_body = code_match.group(2).strip()
+        ext = ext_map.get(lang, "")
+        if not ext:
+            if "csv" in prompt_lower or ("," in code_body and "\n" in code_body and "{" not in code_body):
+                ext = "csv"
+            elif "json" in prompt_lower or code_body.startswith("{") or code_body.startswith("["):
+                ext = "json"
+            elif "python" in prompt_lower or "def " in code_body or "import " in code_body:
+                ext = "py"
+            else:
+                ext = "txt"
+    else:
+        # Fallback: Check if agent is file_creator or prompt explicitly asks to generate/create a file
+        is_file_intent = agent_id == "file_creator" or any(k in prompt_lower for k in [
+            "generate csv", "sample csv", "create csv", "make csv", "generate file", "create file", "csv file", "download file"
+        ])
+        if is_file_intent:
+            code_body = content.strip()
+            if "csv" in prompt_lower or ("," in code_body and "\n" in code_body and "{" not in code_body):
+                ext = "csv"
+            elif "json" in prompt_lower or code_body.startswith("{") or code_body.startswith("["):
+                ext = "json"
+            elif "python" in prompt_lower or "def " in code_body or "import " in code_body:
+                ext = "py"
+            else:
+                ext = "txt"
+        else:
+            return None
+
+    if not code_body:
+        return None
+
+    # Detect filename in content or prompt
     fname_match = re.search(r"(?:filename|saved as|created|file):\s*[`'\"]?([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)[`'\"]?", content, re.IGNORECASE)
     if not fname_match:
         fname_match = re.search(r"[`']([a-zA-Z0-9_\-.]+\.(?:py|json|csv|md|js|ts|html|sql|yaml|yml|sh|txt))[`']", prompt, re.IGNORECASE)
 
     if fname_match:
         filename = fname_match.group(1)
+        if "." not in filename:
+            filename = f"{filename}.{ext}"
     else:
-        filename = f"generated_file_{int(time.time())}.{ext}"
+        if ext == "csv":
+            filename = f"dataset_{int(time.time())}.csv"
+        elif ext == "json":
+            filename = f"data_{int(time.time())}.json"
+        elif ext == "py":
+            filename = f"script_{int(time.time())}.py"
+        else:
+            filename = f"generated_file_{int(time.time())}.{ext}"
 
-    mime_map = {
-        "py": "text/x-python", "js": "application/javascript", "ts": "application/typescript",
-        "json": "application/json", "csv": "text/csv", "sql": "application/sql",
-        "html": "text/html", "md": "text/markdown", "txt": "text/plain", "sh": "application/x-sh"
-    }
     mime = mime_map.get(ext, "text/plain")
 
     return {
@@ -1060,6 +1118,19 @@ def chat(
                 }
                 if renamed_session_title:
                     agent_metadata["session_title"] = renamed_session_title
+
+                # Extract and catalog any generated file artifacts
+                turn_artifact = extract_file_artifact_from_turn(perp_content, agent_id, last_user_message.content)
+                if turn_artifact:
+                    agent_metadata["file_artifact"] = turn_artifact
+                    agent_metadata["artifacts"] = [turn_artifact]
+                    memory_store.save_artifact({
+                        **turn_artifact,
+                        "user_id": current_user.id if current_user else "guest-user",
+                        "source_type": "chat",
+                        "source_title": agent_name,
+                    })
+
                 if current_user and request.session_id:
                     db_save_message(
                         user_id=current_user.id,
@@ -1087,7 +1158,103 @@ def chat(
         except Exception as perp_err:
             print(f"Perplexity API execution note: {perp_err}")
 
-    # 2. LIVE GEMINI API GENERATION
+    # 2. LIVE GROQ API GENERATION (Primary Default Provider Site-wide)
+    client_groq, groq_key = get_groq_client()
+    if (
+        client_groq
+        and not chosen_model.startswith("sonar")
+        and not chosen_model.startswith("gemini-")
+        and os.environ.get("TESTING") != "true"
+        and os.environ.get("MOCK_GROQ") != "true"
+    ):
+        try:
+            groq_msgs = []
+            for msg in request.messages:
+                groq_msgs.append({"role": msg.role, "content": msg.content})
+
+            groq_content, total_tokens, prompt_tokens, completion_tokens, used_model = execute_groq_chat(
+                client=client_groq,
+                messages=groq_msgs,
+                system_prompt=agent_prompt,
+                requested_model=chosen_model or DEFAULT_GROQ_MODEL,
+                temperature=agent_temp,
+            )
+            latency_ms = round((time.time() - start_time) * 1000, 2)
+            agent_node_id = f"agent-{int(time.time()*1000)}"
+
+            tool_calls = [
+                {
+                    "tool": "groq_lpu_inference",
+                    "args": {
+                        "model": used_model,
+                        "agent_id": agent_id,
+                    },
+                    "result": {
+                        "status": "completed",
+                        "provider": "groq",
+                        "latency_ms": latency_ms,
+                    }
+                }
+            ]
+
+            agent_metadata = {
+                "agent_state": "completed",
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "tool_calls": tool_calls,
+                "skills_invoked": [s.id for s in agent_skills[:2]],
+                "tokens_used": total_tokens,
+                "latency_ms": latency_ms,
+                "model": used_model,
+                "node_id": agent_node_id,
+            }
+            if renamed_session_title:
+                agent_metadata["session_title"] = renamed_session_title
+
+            turn_artifact = extract_file_artifact_from_turn(groq_content, agent_id, last_user_message.content)
+            if turn_artifact:
+                agent_metadata["file_artifact"] = turn_artifact
+                agent_metadata["artifacts"] = [turn_artifact]
+                memory_store.save_artifact({
+                    **turn_artifact,
+                    "user_id": current_user.id if current_user else "guest-user",
+                    "source_type": "chat",
+                    "source_title": agent_name,
+                })
+
+            if current_user and request.session_id:
+                db_save_message(
+                    user_id=current_user.id,
+                    session_id=request.session_id,
+                    msg_id=agent_node_id,
+                    parent_id=user_node_id,
+                    role="agent",
+                    content=groq_content,
+                    metadata=agent_metadata,
+                    token=current_user.token,
+                )
+                db_save_usage(
+                    user_id=current_user.id,
+                    session_id=request.session_id,
+                    message_id=agent_node_id,
+                    model=used_model,
+                    agent_id=agent_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    latency_ms=latency_ms,
+                    token=current_user.token,
+                )
+
+            return Message(
+                role="agent",
+                content=groq_content,
+                metadata=agent_metadata,
+            )
+        except Exception as groq_err:
+            print(f"Groq API execution note: {groq_err}")
+
+    # 3. LIVE GEMINI API GENERATION
     if client:
         try:
             from google.genai import types
@@ -1271,13 +1438,34 @@ def chat(
     ]
 
     if agent_id == "file_creator":
-        sample_code = "# Auto-Generated Python Automation Script\nimport datetime\n\ndef main():\n    print(f'Swarm automated file execution at {datetime.datetime.utcnow()}')\n\nif __name__ == '__main__':\n    main()\n"
-        fallback_content = (
-            f"### 📄 File Generated Successfully\n\n"
-            f"I have created the requested file artifact: `automation_script.py`.\n\n"
-            f"```python\n{sample_code}\n```\n\n"
-            f"You can download this file directly using the **Download File** button below."
-        )
+        p_lower = last_user_message.content.lower()
+        if "csv" in p_lower:
+            sample_code = "id,name,role,department,salary\n1,Alice Smith,Principal Engineer,AI Platforms,185000\n2,Bob Jones,Data Scientist,Analytics,162000\n3,Carol Danvers,Product Manager,Growth,174000\n4,David Miller,DevOps Lead,Infrastructure,168000\n5,Eve Polastri,Security Analyst,SecOps,159000"
+            filename = "sample_data.csv"
+            fallback_content = (
+                f"### 📄 CSV Dataset Generated Successfully\n\n"
+                f"I have created the requested CSV dataset: `{filename}`.\n\n"
+                f"```csv\n{sample_code}\n```\n\n"
+                f"You can review the rows above or download the file directly using the **Download File** card below."
+            )
+        elif "json" in p_lower:
+            sample_code = '{\n  "version": "1.0",\n  "dataset": "sample_records",\n  "records": [\n    {"id": 1, "name": "Item A", "status": "active"},\n    {"id": 2, "name": "Item B", "status": "pending"}\n  ]\n}'
+            filename = "sample_data.json"
+            fallback_content = (
+                f"### 📄 JSON File Generated Successfully\n\n"
+                f"I have created the requested JSON file: `{filename}`.\n\n"
+                f"```json\n{sample_code}\n```\n\n"
+                f"You can download this file directly using the **Download File** button below."
+            )
+        else:
+            sample_code = "# Auto-Generated Python Automation Script\nimport datetime\n\ndef main():\n    print(f'Swarm automated file execution at {datetime.datetime.utcnow()}')\n\nif __name__ == '__main__':\n    main()\n"
+            filename = "automation_script.py"
+            fallback_content = (
+                f"### 📄 File Generated Successfully\n\n"
+                f"I have created the requested file artifact: `{filename}`.\n\n"
+                f"```python\n{sample_code}\n```\n\n"
+                f"You can download this file directly using the **Download File** button below."
+            )
     elif agent_id == "file_parser":
         fallback_content = (
             f"### 📊 Document Ingestion & Schema Diagnostics\n\n"
@@ -1292,12 +1480,12 @@ def chat(
             f"Hello! I am **{agent_name}** (`{agent_id}`).\n\n"
             f"**My Role:** {agent_role}\n\n"
             f"I received your inquiry:\n> \"*{last_user_message.content}*\"\n\n"
-            f"### ⚙️ Gemini API Setup Required\n"
-            f"To enable live generative responses from Google Gemini:\n"
+            f"### ⚙️ LLM Provider Setup\n"
+            f"To enable live generative responses from Groq (ultra fast LPU) or Google Gemini:\n"
             f"1. Open `backend/.env`\n"
-            f"2. Add your Gemini API Key: `GEMINI_API_KEY=\"your_key_here\"` (get one free at [Google AI Studio](https://aistudio.google.com/))\n"
+            f"2. Add your Groq API Key: `GROQ_API_KEY=\"your_groq_key_here\"` (or `GEMINI_API_KEY` for Gemini)\n"
             f"3. Once added, the backend will immediately stream live AI responses for this agent!\n\n"
-            f"The frontend interactive features (sessions, history, branching, tool inspection, and usage tracking) are fully active and connected to this endpoint."
+            f"The frontend interactive features (sessions, history, branching, tool inspection, and usage tracking) are fully active."
         )
 
     agent_node_id = f"agent-{int(time.time()*1000)}"
@@ -1541,7 +1729,7 @@ def test_custom_agent(
     # 2. Resolve agent system prompt, model, temperature, and name
     system_prompt = payload.system_prompt
     agent_name = "Agent"
-    model_name = payload.model or "gemini-3.8-flash"
+    model_name = payload.model or DEFAULT_GROQ_MODEL
     temperature = payload.temperature if payload.temperature is not None else 0.3
     agent_obj = None
 
@@ -1642,7 +1830,38 @@ def test_custom_agent(
             except Exception as e:
                 print(f"Perplexity Sonar agent test error: {e}")
 
-    # 5. Live execution via Gemini
+    # 5. Live execution via Groq (Primary Default Provider)
+    client_groq, groq_key = get_groq_client()
+    if (
+        client_groq
+        and not is_sonar
+        and not model_name.startswith("gemini-")
+        and os.environ.get("TESTING") != "true"
+        and os.environ.get("MOCK_GROQ") != "true"
+    ):
+        try:
+            content, total_tokens, prompt_tokens, completion_tokens, used_model = execute_groq_chat(
+                client=client_groq,
+                messages=[{"role": "user", "content": input_text}],
+                system_prompt=system_prompt,
+                requested_model=model_name or DEFAULT_GROQ_MODEL,
+                temperature=temperature,
+            )
+            latency_ms = round((time.time() - start_time) * 1000, 2)
+            return AgentTestResponse(
+                status="success",
+                content=content,
+                response=content,
+                tokens_used=total_tokens,
+                latency_ms=latency_ms,
+                duration_ms=latency_ms,
+                agent_id=payload.agent_id or "agent",
+                tool_calls=tool_calls,
+            )
+        except Exception as e:
+            print(f"Groq agent test note: {e}")
+
+    # 6. Live execution via Gemini
     client, api_key = get_gemini_client()
     if client and not is_sonar and os.environ.get("TESTING") != "true" and os.environ.get("MOCK_GEMINI") != "true":
         try:

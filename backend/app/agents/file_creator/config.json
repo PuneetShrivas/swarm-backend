@@ -3,7 +3,7 @@
   "name": "File & Document Architect",
   "role": "Synthesizes production files, scripts, documents, datasets, and downloadable artifacts",
   "status": "active",
-  "model": "gemini-3.8-flash",
+  "model": "qwen-3.8",
   "temperature": 0.2,
   "is_orchestrator": false,
   "icon": "FileCode",

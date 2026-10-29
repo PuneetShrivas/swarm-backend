@@ -200,7 +200,7 @@ export default function AppUnifiedSidebar({
             agData.map((a: Record<string, unknown>) => ({
               id: String(a.id),
               name: String(a.name || a.id),
-              model: String(a.model || "gemini-3.8-flash"),
+              model: String(a.model || "qwen-3.8"),
               role: String(a.role || ""),
             }))
           );
@@ -214,7 +214,7 @@ export default function AppUnifiedSidebar({
             setAgentRuns(
               usData.recent_activity.map((u: Record<string, unknown>) => ({
                 agent_id: String(u.agent_id || "orchestrator"),
-                model: String(u.model || "gemini-3.8-flash"),
+                model: String(u.model || "qwen-3.8"),
                 total_tokens: Number(u.total_tokens || 0),
                 latency_ms: Number(u.latency_ms || 0),
                 created_at: String(u.created_at || ""),

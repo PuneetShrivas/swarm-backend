@@ -7,6 +7,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Fixed
+- **File Generator Agent Routing & Artifact Emission**:
+  - Reordered routing heuristics in `route_agent` (`backend/app/main.py`) so file creation intents (`generate a sample csv file`, `create csv`, `download file`, composite creation verbs + file/csv/json nouns) evaluate before `data_keywords`, preventing `data_analyst` from intercepting CSV creation queries.
+  - Upgraded code fence extraction regex in `extract_file_artifact_from_turn` to support CRLF (`\r\n`), trailing whitespace after language fence identifiers, and tabular plain text CSV fallbacks.
+  - Connected `extract_file_artifact_from_turn` across all completion channels (Groq, Gemini, Perplexity Sonar, and demo simulation), guaranteeing that `metadata.file_artifact` and `metadata.artifacts` are attached to message metadata.
+  - Added client-side fallback detection in `frontend/src/app/chat/components/MessageItem.tsx` to reliably render the interactive file download card with one-click download.
+- **WorkflowStep Model Persistence**:
+  - Added `model` property to `WorkflowStep` in `backend/app/workflows/models.py` ensuring step-level model configurations (such as Perplexity `sonar` on the research step) are properly serialized and validated.
+
+### Added
+- **Groq Model Provider Site-wide Integration & Default Provider**:
+  - Installed official `groq` 1.7.0 SDK and added `groq>=0.18.0` to `backend/requirements.txt`.
+  - Implemented `backend/app/groq_client.py` providing Groq client initialization, model candidate resolution (`qwen-3.8` -> `qwen/qwen3.8-27b`, `qwen-2.5-32b`, `qwen-2.5-coder-32b`), and low-latency LPU chat completions.
+  - Configured Groq as primary site-wide default model provider when `GROQ_API_KEY` is present across `/api/chat`, `/api/custom-agents/test`, and workflow step execution, retaining secondary support for Gemini and Perplexity.
+  - Updated prebuilt agent configs to default to `"qwen-3.8"`, while strictly maintaining `"sonar"` on `researcher`.
+  - Updated frontend model selectors in `ChatHeader.tsx`, `AgentCard.tsx`, `AgentEditorModal.tsx`, `AIAgentGeneratorModal.tsx`, `VisualGraphEditor.tsx`, and `StepCardEditor.tsx` to display and default to `Qwen 3.8 (Groq)`.
+- **Perplexity Sonar Web Search Enforcement in Default Workflow**:
+  - Verified and locked `step_research` in `default-wf-research-pipeline` to `agent_id: "researcher"` and `model: "sonar"`, ensuring live web discovery, market trend synthesis, and citation generation.
+
 - **Custom Agent Testing Playground API Compatibility (`/api/custom-agents/test`)**:
   - Relaxed strict validation on `AgentTestRequest` by making `system_prompt` and `input_prompt` optional and adding `prompt` alias, enabling agent playground execution with `{ agent_id, prompt }`.
   - Added automatic agent resolution from prebuilt registry or user custom profiles to hydrate missing `system_prompt`, `model`, and persona parameters.

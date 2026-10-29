@@ -3,7 +3,7 @@
   "name": "Swarm Orchestrator",
   "role": "Autonomous swarm coordinator, task planner, and intent dispatcher",
   "status": "active",
-  "model": "gemini-3.8-flash",
+  "model": "qwen-3.8",
   "temperature": 0.4,
   "is_orchestrator": true,
   "icon": "bot",

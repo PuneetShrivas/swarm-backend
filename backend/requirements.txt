@@ -5,3 +5,5 @@ supabase
 python-dotenv
 google-genai
 httpx
+groq>=0.18.0
+

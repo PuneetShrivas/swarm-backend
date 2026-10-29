@@ -1036,8 +1036,82 @@ def execute(input_data: dict, context: dict) -> dict:
     assert any(w.get("share_slug") == "default-research-pipeline" or w.get("id") in ("0193e182-5af1-5bf1-bfe2-970663d16eb8", "default-wf-research-pipeline") for w in guest_wfs), "Default workflow missing in guest list"
     print(f"PASS: GET /api/workflows without auth header returned {len(guest_wfs)} public workflow(s) including default template")
 
+    # 53. Test File Creator Agent Routing and CSV Artifact Emission
+    res_chat_csv = client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "generate a sample csv file"}]},
+        headers=auth_headers,
+    )
+    assert res_chat_csv.status_code == 200, f"Chat CSV generation failed: {res_chat_csv.text}"
+    chat_csv_data = res_chat_csv.json()
+    meta = chat_csv_data.get("metadata", {})
+    assert meta.get("agent_id") == "file_creator", f"Expected routing to 'file_creator', got '{meta.get('agent_id')}'"
+    assert "file_artifact" in meta and meta["file_artifact"] is not None, "Expected 'file_artifact' in chat metadata"
+    artifact = meta["file_artifact"]
+    assert artifact.get("type") == "csv", f"Expected artifact type 'csv', got '{artifact.get('type')}'"
+    assert artifact.get("downloadable") is True
+    assert artifact.get("filename", "").endswith(".csv")
+    assert "content" in artifact and len(artifact["content"]) > 0
+    assert "artifacts" in meta and len(meta["artifacts"]) > 0
+    print(f"PASS: POST /api/chat 'generate a sample csv file' routed to file_creator with downloadable CSV artifact: '{artifact.get('filename')}' ({artifact.get('size_bytes')} bytes)")
+
+    # 54. Test extract_file_artifact_from_turn Robustness (CRLF, trailing whitespace, plain CSV)
+    from app.main import extract_file_artifact_from_turn
+    # CRLF with language
+    crlf_sample = "### Generated File\r\n```csv\r\nid,metric,value\r\n1,latency,12ms\r\n2,throughput,4500\r\n```\r\n"
+    art_crlf = extract_file_artifact_from_turn(crlf_sample, "file_creator", "generate a sample csv file")
+    assert art_crlf is not None and art_crlf["type"] == "csv", f"CRLF extraction failed: {art_crlf}"
+    # Trailing whitespace on language fence
+    space_sample = "Here is the dataset:\n```csv   \nname,score\nalice,98\nbob,92\n```"
+    art_space = extract_file_artifact_from_turn(space_sample, "data_analyst", "export dataset csv")
+    assert art_space is not None and art_space["type"] == "csv", f"Trailing space extraction failed: {art_space}"
+    # Plain CSV without code block for file_creator
+    plain_sample = "id,name,role\n1,Alex,Architect\n2,Jordan,Lead\n"
+    art_plain = extract_file_artifact_from_turn(plain_sample, "file_creator", "generate csv file")
+    assert art_plain is not None and art_plain["type"] == "csv", f"Plain text CSV extraction failed: {art_plain}"
+    print("PASS: extract_file_artifact_from_turn verified robust across CRLF, trailing whitespace, and tabular plain text")
+
+    # 55. Test Groq Model Normalizer & Model Candidates
+    from app.main import normalize_model_name
+    from app.groq_client import resolve_groq_model_candidates, DEFAULT_GROQ_MODEL
+    assert normalize_model_name("qwen-3.8") == "qwen-3.8"
+    assert normalize_model_name("qwen") == "qwen-3.8"
+    assert normalize_model_name(None) == "qwen-3.8"
+    assert normalize_model_name("") == "qwen-3.8"
+    assert normalize_model_name("sonar") == "sonar"
+    assert normalize_model_name("gemini-2.5-flash") == "gemini-3.8-flash"
+    assert normalize_model_name("gemini-2.5-pro") == "gemini-4-argon"
+
+    groq_candidates = resolve_groq_model_candidates("qwen-3.8")
+    assert len(groq_candidates) > 0
+    assert any("qwen" in c.lower() for c in groq_candidates)
+    assert DEFAULT_GROQ_MODEL == "qwen-3.8"
+    print(f"PASS: Groq model normalization verified: default={DEFAULT_GROQ_MODEL}, candidates count={len(groq_candidates)}")
+
+    # 56. Test Site-wide Prebuilt Agent Models & Default Workflow Perplexity Research Step
+    res_fc = client.get("/api/agents/file_creator")
+    assert res_fc.status_code == 200
+    assert res_fc.json()["model"] == "qwen-3.8", f"Expected file_creator model 'qwen-3.8', got '{res_fc.json().get('model')}'"
+
+    res_orch = client.get("/api/agents/orchestrator")
+    assert res_orch.status_code == 200
+    assert res_orch.json()["model"] == "qwen-3.8", f"Expected orchestrator model 'qwen-3.8', got '{res_orch.json().get('model')}'"
+
+    res_res = client.get("/api/agents/researcher")
+    assert res_res.status_code == 200
+    assert res_res.json()["model"] == "sonar", f"Expected researcher model 'sonar', got '{res_res.json().get('model')}'"
+
+    res_defaults = client.get("/api/workflows/defaults")
+    assert res_defaults.status_code == 200
+    wf_tmpl = res_defaults.json()[0]
+    step_research = next((s for s in wf_tmpl["steps"] if s["id"] == "step_research"), None)
+    assert step_research is not None, "Missing step_research in default workflow template"
+    assert step_research["model"] == "sonar", f"Expected step_research model 'sonar', got '{step_research.get('model')}'"
+    assert step_research["agent_id"] == "researcher"
+    print(f"PASS: Site-wide models verified: Groq Qwen 3.8 default across agents, Perplexity Sonar on researcher and default workflow step")
+
     print("\n========================================")
-    print("ALL 52 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 56 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":
