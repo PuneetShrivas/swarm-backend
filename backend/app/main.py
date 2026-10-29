@@ -1307,6 +1307,27 @@ def _execute_chat_turn(
         or f"user-{int(time.time()*1000)}"
     )
     if current_user and request.session_id:
+        user_meta = dict(last_user_message.metadata or {})
+        artifacts_to_persist = request.attached_artifacts or attached_arts or []
+        if artifacts_to_persist and not user_meta.get("attached_artifacts"):
+            persisted_arts = []
+            for a in artifacts_to_persist:
+                if isinstance(a, dict):
+                    persisted_arts.append({
+                        "id": a.get("id"),
+                        "name": a.get("name") or a.get("filename"),
+                        "filename": a.get("filename") or a.get("name"),
+                        "type": a.get("type"),
+                        "size_bytes": a.get("size_bytes"),
+                        "is_base64": a.get("is_base64"),
+                        "mime_type": a.get("mime_type"),
+                        "content": a.get("content") if len(str(a.get("content", ""))) < 65536 else "",
+                        "downloadable": True,
+                    })
+                elif isinstance(a, str):
+                    persisted_arts.append({"id": a, "filename": a, "name": a})
+            user_meta["attached_artifacts"] = persisted_arts
+
         db_save_message(
             user_id=current_user.id,
             session_id=request.session_id,
@@ -1314,7 +1335,7 @@ def _execute_chat_turn(
             parent_id=request.parent_message_id,
             role="user",
             content=last_user_message.content,
-            metadata=last_user_message.metadata,
+            metadata=user_meta,
             token=current_user.token,
         )
 

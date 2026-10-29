@@ -332,13 +332,21 @@ export function reconstructTreeFromMessages(
   const nodes: Record<string, ChatNode> = {};
 
   messages.forEach((m) => {
+    let parsedMetadata = m.metadata;
+    if (typeof parsedMetadata === "string") {
+      try {
+        parsedMetadata = JSON.parse(parsedMetadata);
+      } catch {
+        parsedMetadata = {};
+      }
+    }
     nodes[m.id] = {
       id: m.id,
       parentId: m.parent_id,
       childrenIds: [],
       role: m.role,
       content: m.content,
-      metadata: m.metadata || {},
+      metadata: parsedMetadata || {},
       rating: m.rating,
       createdAt: new Date(m.created_at).getTime() || Date.now(),
     };

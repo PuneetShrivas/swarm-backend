@@ -104,7 +104,7 @@ export default function MessageItem({
     return { host: urlStr.slice(0, 32), path: "", isUrl: false, fullUrl: urlStr };
   };
 
-  const isUser = node.role === "user";
+  const isUser = String(node.role || "").toLowerCase() === "user";
   const hasMultipleVersions = siblingInfo.total > 1;
   const hasToolCalls =
     node.metadata?.tool_calls && node.metadata.tool_calls.length > 0;
@@ -226,13 +226,24 @@ export default function MessageItem({
 
   // Context artifacts attached to this turn (e.g. uploaded files or studio artifacts)
   const attachedArtifacts = useMemo(() => {
-    const fromMeta = node.metadata?.attached_artifacts;
+    let meta = node.metadata;
+    if (typeof meta === "string") {
+      try {
+        meta = JSON.parse(meta);
+      } catch {
+        meta = {};
+      }
+    }
+    const fromMeta = meta?.attached_artifacts || (meta as Record<string, unknown>)?.attachedArtifacts;
     if (Array.isArray(fromMeta) && fromMeta.length > 0) {
       return fromMeta as Array<Record<string, unknown>>;
     }
-    const fromArts = node.metadata?.artifacts;
+    const fromArts = meta?.artifacts;
     if (isUser && Array.isArray(fromArts) && fromArts.length > 0) {
       return fromArts as Array<Record<string, unknown>>;
+    }
+    if (isUser && meta?.file_artifact) {
+      return [meta.file_artifact as Record<string, unknown>];
     }
     return [];
   }, [node.metadata, isUser]);
@@ -336,8 +347,9 @@ export default function MessageItem({
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {attachedArtifacts.map((art, aIdx) => {
-                  const fname = String(art.filename || art.name || "attachment");
+                {attachedArtifacts.map((rawArt, aIdx) => {
+                  const art = typeof rawArt === "string" ? { filename: rawArt, name: rawArt } : (rawArt || {});
+                  const fname = String(art.filename || art.name || art.title || "attachment");
                   const ext = (String(art.type || fname.split(".").pop() || "txt")).toLowerCase();
                   const sizeBytes = Number(art.size_bytes) || 0;
                   const sizeKb = sizeBytes > 0 ? `${(sizeBytes / 1024).toFixed(1)} KB` : "";

@@ -103,7 +103,9 @@ def generate_workflow_spec(
         '    {"source": "step_1", "target": "step_2"}\n'
         "  ]\n"
         "}\n\n"
-        "CRITICAL MODEL DIRECTIVE: When creating workflow steps that involve web search, real-time data, stock prices, financial market quotes, ticker lookups, breaking news, or live information discovery, ALWAYS assign agent_id 'researcher' or specify model 'sonar' (Perplexity Sonar). Perplexity is the mandatory model for all live information and web search tasks.\n\n"
+        "CRITICAL MODEL DIRECTIVE: When creating workflow steps that involve web search, real-time data, breaking news, or live web discovery, ALWAYS assign agent_id 'researcher' or specify model 'sonar' (Perplexity Sonar). Perplexity is the mandatory model for all live information and web search tasks.\n\n"
+        "CRITICAL ORCHESTRATION DIRECTIVE: For all multi-step workflows, the final step MUST ALWAYS be a synthesis step assigned to agent 'synthesizer' to consolidate previous step outputs and deliver a cohesive final output directly in line with the high-level workflow goal.\n\n"
+        "GENERAL DATA ANALYST DIRECTIVE: The data_analyst agent is a general-purpose numerical, statistical, and tabular analysis agent across all domains. Do NOT inject scenario-specific or finance-specific constraints (e.g. price-to-earnings, stock quotes) into data analyst steps unless explicitly requested by the user.\n\n"
         f"Available Agents to assign:\n{agent_roster_summary}\n\n"
         f"Available Script Tools:\n{tools_summary}\n"
     )
@@ -151,6 +153,21 @@ def generate_workflow_spec(
                     elif s.get("agent_id") == "researcher":
                         s["model"] = "sonar"
 
+                # Ensure multi-step workflows conclude with a goal-aligned synthesis step
+                if len(data["steps"]) >= 2 and data["steps"][-1].get("agent_id") != "synthesizer":
+                    last_step_id = data["steps"][-1].get("id", f"step_{len(data['steps'])}")
+                    synth_id = f"step_{len(data['steps']) + 1}"
+                    data["steps"].append({
+                        "id": synth_id,
+                        "name": "Goal-Aligned Final Synthesis",
+                        "step_type": "agent",
+                        "agent_id": "synthesizer",
+                        "instructions": f"Synthesize all preceding step outputs into a cohesive, structured final response directly fulfilling the user's goal: '{prompt}'. Ensure actionable takeaways and thorough satisfaction of the initial objective: {{{{steps.{last_step_id}.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "depends_on": [last_step_id],
+                    })
+
                 if "edges" not in data or not isinstance(data["edges"], list) or not data["edges"]:
                     edges = []
                     for s in data["steps"]:
@@ -187,7 +204,7 @@ def generate_workflow_spec(
                     "name": "Quantitative Valuation Analysis",
                     "step_type": "agent",
                     "agent_id": "data_analyst",
-                    "instructions": "Evaluate price-to-earnings, momentum indicators, and variance based on live market quotes: {{steps.step_1.output.text}}",
+                    "instructions": "Analyze numerical market data, calculate percentage changes, ratios, and variance based on live quotes: {{steps.step_1.output.text}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "depends_on": ["step_1"],
@@ -195,10 +212,9 @@ def generate_workflow_spec(
                 {
                     "id": "step_3",
                     "name": "Market Intelligence Briefing",
-                    "step_type": "artifact",
-                    "artifact_title": "Real-Time Market & Stock Report",
-                    "artifact_type": "report",
-                    "instructions": "Synthesize verified quotes and analysis into an executive market briefing: {{steps.step_2.output.text}}",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize all verified quotes and numerical metrics into an executive briefing in direct alignment with the goal '{prompt}': {{{{steps.step_2.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "depends_on": ["step_2"],
@@ -607,7 +623,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Quantitative Valuation Analysis",
                     "step_type": "agent",
                     "agent_id": "data_analyst",
-                    "instructions": "Evaluate price-to-earnings, momentum indicators, and financial variance based on live market quotes: {{steps.step_1.output.text}}",
+                    "instructions": f"Perform quantitative analysis on the discovered data, calculate key metrics, identify trends and anomalies, and structure findings: {{{{steps.step_1.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -618,7 +634,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Market Intelligence Briefing",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Synthesize verified quotes and numerical valuation into an executive market briefing with clear takeaways: {{steps.step_2.output.text}}",
+                    "instructions": f"Synthesize all verified discoveries and quantitative evaluations into a cohesive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -631,14 +647,14 @@ def synthesize_on_the_fly_workflow(
             ],
         }
 
-    # B) Research + Production Code + Quality Review
+    # B) Research + Production Code + Quality Review + Goal Synthesis
     has_research_kw = any(k in prompt_lower for k in ["research", "investigate", "find out", "learn about", "look up", "documentation", "spec"])
     has_code_kw = any(k in prompt_lower for k in ["code", "implement", "python", "script", "program", "build", "develop", "function", "api"])
     if has_research_kw and has_code_kw:
         return {
             "id": f"ephemeral_wf_{slug_id}",
             "title": f"Technical Research, Engineering & Code Review Pipeline ({slug_id})",
-            "description": "Collaborative research, production implementation, and security/quality review.",
+            "description": "Collaborative research, production implementation, security review, and goal-aligned synthesis.",
             "goal": prompt_clean,
             "is_ephemeral": True,
             "is_multi_step": True,
@@ -677,20 +693,32 @@ def synthesize_on_the_fly_workflow(
                     "attached_artifact_ids": [],
                     "depends_on": ["step_2"],
                 },
+                {
+                    "id": "step_4",
+                    "name": "Technical Synthesis & Usage Guide",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize technical implementation details, architecture overview, security review results, and execution instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_3.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_3"],
+                },
             ],
             "edges": [
                 {"source": "step_1", "target": "step_2"},
                 {"source": "step_2", "target": "step_3"},
+                {"source": "step_3", "target": "step_4"},
             ],
         }
 
-    # C) Security Vulnerability Audit & Hardened Refactor
+    # C) Security Vulnerability Audit & Hardened Refactor + Synthesis
     has_sec_kw = any(k in prompt_lower for k in ["security", "vulnerability", "audit", "cve", "owasp", "pen test", "penetration", "exploit"])
     if has_sec_kw:
         return {
             "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Security Audit & Remediation Pipeline ({slug_id})",
-            "description": "Comprehensive security audit and hardened implementation.",
+            "title": f"Security Audit, Remediation & Briefing Pipeline ({slug_id})",
+            "description": "Comprehensive security audit, hardened implementation, and executive synthesis.",
             "goal": prompt_clean,
             "is_ephemeral": True,
             "is_multi_step": True,
@@ -717,9 +745,21 @@ def synthesize_on_the_fly_workflow(
                     "attached_artifact_ids": [],
                     "depends_on": ["step_1"],
                 },
+                {
+                    "id": "step_3",
+                    "name": "Security Remediation & Executive Briefing",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize security audit findings, vulnerability remediations, and defensive best practices into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
             ],
             "edges": [
                 {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
             ],
         }
 
@@ -740,7 +780,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Statistical & Numerical Analysis",
                     "step_type": "agent",
                     "agent_id": "data_analyst",
-                    "instructions": f"Analyze numerical dataset, calculate key metrics, and summarize patterns: {prompt_clean}",
+                    "instructions": f"Analyze data and numerical parameters, calculate descriptive metrics, identify patterns, and structure clean data: {prompt_clean}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": art_ids,
@@ -762,7 +802,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Dataset Summary & Verification",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Review generated file artifact, summarize column structure, row counts, key insights, and file access instructions: {{steps.step_2.output.text}}",
+                    "instructions": f"Synthesize all analytical metrics and generated file artifact details into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -806,7 +846,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Executive Synthesis & Strategic Briefing",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Consolidate into an executive briefing with key findings and structured takeaways: {{steps.step_1.output.text}}",
+                    "instructions": f"Consolidate research findings and evidence into a comprehensive, cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -861,7 +901,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Artifact Quality & Executive Summary",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Review generated file artifact, summarize column structure, row counts, key insights, and file access instructions: {{steps.step_2.output.text}}",
+                    "instructions": f"Review generated file artifact, summarize column structure, row counts, key insights, and file access instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -915,7 +955,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Technical Documentation & Instructions",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Synthesize technical implementation overview, architecture notes, and runtime usage instructions: {{steps.step_2.output.text}}",
+                    "instructions": f"Synthesize technical implementation details, architecture notes, security review results, and execution instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -970,7 +1010,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Executive Synthesis & Strategic Briefing",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Synthesize comprehensive executive summary with structured sections, citations, and actionable takeaways: {{steps.step_2.output.text}}",
+                    "instructions": f"Synthesize verified findings, citations, and analytical comparisons into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -984,10 +1024,10 @@ def synthesize_on_the_fly_workflow(
         }
 
     # I) Quantitative Analytics & Statistical Evaluation Workflow (2 Steps)
-    has_math = any(k in prompt_lower for k in [
-        "math", "calculate", "average", "median", "statistics", "analytics", "percentage",
-        "variance", "forecast", "sum", "formula", "computation"
-    ])
+    has_math = bool(re.search(
+        r"\b(math|calculate|average|median|statistics|analytics|percentage|variance|forecast|sum|formula|computation)\b",
+        prompt_lower
+    ))
     if has_math:
         return {
             "id": f"ephemeral_wf_{slug_id}",
@@ -1013,7 +1053,7 @@ def synthesize_on_the_fly_workflow(
                     "name": "Executive Analytics Briefing",
                     "step_type": "agent",
                     "agent_id": "synthesizer",
-                    "instructions": "Translate numerical results into clear executive insights, structured markdown tables, and key takeaways: {{steps.step_1.output.text}}",
+                    "instructions": f"Translate numerical results, statistical analyses, and structured data into a cohesive, comprehensive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
@@ -1025,7 +1065,7 @@ def synthesize_on_the_fly_workflow(
             ],
         }
 
-    # J) Document Ingestion, Schema Extraction & RAG Pipeline (2 Steps)
+    # J) Document Ingestion, Schema Extraction & RAG Pipeline (3 Steps)
     has_parse = any(k in prompt_lower for k in [
         "parse", "inspect", "extract schema", "rag", "ingest", "read file", "unstructured"
     ])
@@ -1060,9 +1100,21 @@ def synthesize_on_the_fly_workflow(
                     "attached_artifact_ids": [],
                     "depends_on": ["step_1"],
                 },
+                {
+                    "id": "step_3",
+                    "name": "Document Insights Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize all parsed document contents, structured schemas, and analytical findings into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
             ],
             "edges": [
                 {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
             ],
         }
 
@@ -1121,7 +1173,7 @@ def synthesize_on_the_fly_workflow(
                 "name": "Cohesive Synthesis & Executive Response",
                 "step_type": "agent",
                 "agent_id": "synthesizer",
-                "instructions": "Synthesize a comprehensive, polished response with structured headings, bullet points, and actionable takeaways: {{steps.step_1.output.text}}",
+                "instructions": f"Synthesize a comprehensive, polished response with structured headings, bullet points, and actionable takeaways directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
                 "tool_ids": [],
                 "knowledge_file_ids": [],
                 "attached_artifact_ids": [],

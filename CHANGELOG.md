@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **User Message Context Chips Visibility, General Data Analyst & Orchestrator Goal Synthesis**:
+  - **User Message Context Chips Retention & Rendering (`frontend/src/app/chat/`)**:
+    - Fixed `ChatInput.onSend` callback in `frontend/src/app/chat/page.tsx` to forward both message text and attached artifacts `(content, arts) => handleSend(content, arts)`.
+    - Enhanced `reconstructTreeFromMessages` in `frontend/src/app/chat/types.ts` to parse `metadata` if returned as a JSON string from Supabase/PostgreSQL upon session reload.
+    - Enhanced `frontend/src/app/chat/components/MessageItem.tsx` with case-insensitive `isUser` checks, safe resolution of `attached_artifacts` across camelCase and snake_case, and formatted context pills with colored format badges, file icons, and download links.
+    - Updated `backend/app/main.py` to persist `attached_artifacts` descriptors into user message metadata in `db_save_message`.
+  - **Domain-Agnostic Data Analyst Agent (`backend/app/agents/data_analyst/prompt.md` & `backend/app/ai_generator.py`)**:
+    - Replaced scenario-specific financial commands ("P/E ratios, momentum indicators") with universal quantitative, statistical, descriptive, and tabular analysis directives across scientific, operational, business, and ML domains.
+    - Added explicit system instruction prohibiting defaulting to stock/equity metrics unless specifically requested by the user.
+  - **Goal-Aligned Orchestrator Multi-Agent Workflow Synthesis (`backend/app/ai_generator.py`)**:
+    - Updated all multi-agent workflow decomposition patterns (Document Ingestion, Security Audits, Full-Stack Coding, Research, Multi-Agent Analytics) to conclude with a `synthesizer` step.
+    - Configured synthesizer step prompt instructions to evaluate and consolidate previous step outputs in direct alignment with the high-level user goal.
+    - Added automated post-processing in `generate_workflow_spec` to ensure any DAG with $\ge 2$ steps terminates with a goal-aligned `synthesizer`.
+  - **Automated Tests**: Added Tests 75–77 in `backend/test_endpoints.py` verifying context chips session persistence, domain-agnostic data analyst directives, and goal-aligned workflow synthesis. All 77 backend tests passing cleanly. Next.js build passes with 0 errors across 14 routes.
+
 - **Multi-Format File Attachment Parsing & User Message Context Chips**:
   - **Universal Document Text Extraction Engine (`backend/app/agents/file_parser/tools.py`)**:
     - Implemented `decode_content_to_bytes` with robust sanitization: strips data URIs (`data:...;base64,`), replaces URL spaces with `+`, removes line breaks, and pads missing 4-byte `=`.

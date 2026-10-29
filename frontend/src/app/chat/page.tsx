@@ -1013,7 +1013,7 @@ function ChatContent() {
 
           {/* Bottom Input Area */}
           <ChatInput
-            onSend={(content) => handleSend(content)}
+            onSend={(content, arts) => handleSend(content, arts)}
             isLoading={isLoading}
             onStop={handleStop}
             onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}

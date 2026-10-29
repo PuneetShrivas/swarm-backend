@@ -1,5 +1,6 @@
 import sys
 import json
+import uuid
 from fastapi.testclient import TestClient
 from app.main import app, agents_db
 
@@ -1758,8 +1759,123 @@ All targets achieved.
     assert chat_resp["metadata"]["agent_state"] == "completed"
     print("PASS: POST /api/chat executed turn with attached PDF artifact and verified clean agent completion")
 
+    # ---------------------------------------------------------
+    # Test 75: User Message Metadata Persistence with Context Artifacts
+    # ---------------------------------------------------------
+    res_sess_create = client.post("/api/sessions", json={"title": "Context Persistence Session"}, headers=auth_headers)
+    assert res_sess_create.status_code == 200, f"Session create failed: {res_sess_create.text}"
+    test_sess_id = res_sess_create.json()["id"]
+
+    user_turn_with_art = {
+        "session_id": test_sess_id,
+        "user_message_id": f"user-msg-{uuid.uuid4().hex[:6]}",
+        "messages": [
+            {
+                "role": "user",
+                "content": "Review this attached architectural specification document",
+            }
+        ],
+        "attached_artifacts": [docx_art, csv_art],
+        "artifact_ids": [docx_art.get("id", "art-docx-1"), csv_art.get("id", "art-csv-1")],
+    }
+    res_turn = client.post("/api/chat", json=user_turn_with_art, headers=auth_headers)
+    assert res_turn.status_code == 200, f"Chat failed: {res_turn.text}"
+
+    # Verify session detail returns user message with attached_artifacts metadata
+    res_sess_check = client.get(f"/api/sessions/{test_sess_id}", headers=auth_headers)
+    assert res_sess_check.status_code == 200
+    sess_msgs = res_sess_check.json().get("messages", [])
+    user_msgs = [m for m in sess_msgs if m.get("role") == "user"]
+    assert len(user_msgs) > 0, "Expected at least one user message saved in session"
+    last_saved_user = user_msgs[-1]
+    saved_meta = last_saved_user.get("metadata", {})
+    assert "attached_artifacts" in saved_meta, f"Expected attached_artifacts in saved user metadata: {saved_meta}"
+    persisted = saved_meta["attached_artifacts"]
+    assert len(persisted) == 2, f"Expected 2 persisted artifacts, got {len(persisted)}"
+    assert any(a.get("filename") == "architecture_spec.docx" for a in persisted)
+    assert any(a.get("filename") == "metrics.csv" for a in persisted)
+    print("PASS: User message metadata persistence verified with attached context chips in session history")
+
+    # ---------------------------------------------------------
+    # Test 76: General-Purpose Data Analyst Agent System Directives
+    # ---------------------------------------------------------
+    from pathlib import Path
+    data_analyst_prompt_path = Path(__file__).parent / "app" / "agents" / "data_analyst" / "prompt.md"
+    prompt_text = data_analyst_prompt_path.read_text(encoding="utf-8")
+    assert "You are the **Data Analyst Agent**" in prompt_text
+    assert "all domains" in prompt_text.lower()
+    clean_prompt = prompt_text.replace("*", "").lower()
+    assert "not finance-specific" in clean_prompt or "not finance specific" in clean_prompt
+    assert "price-to-earnings" not in clean_prompt
+    assert "stock ticker" not in clean_prompt
+
+    # Verify fallback on-the-fly workflow instructions do not inject stock metrics for general data analysis
+    from app.ai_generator import synthesize_on_the_fly_workflow
+    wf_data_analysis = synthesize_on_the_fly_workflow("analyze this customer churn dataset and generate csv file")
+    da_step = next(s for s in wf_data_analysis["steps"] if s["agent_id"] == "data_analyst")
+    assert "price-to-earnings" not in da_step["instructions"].lower()
+    assert "momentum indicators" not in da_step["instructions"].lower()
+    print("PASS: General-purpose Data Analyst agent directives verified without scenario-specific finance mandates")
+
+    # ---------------------------------------------------------
+    # Test 77: Mandatory Goal-Aligned Synthesis in On-The-Fly Workflows
+    # ---------------------------------------------------------
+    # 1. Document Parsing Query -> 3 steps ending with synthesizer aligned to goal
+    query_parse = "parse this invoice document and summarize key expenses"
+    wf_parse = synthesize_on_the_fly_workflow(query_parse)
+    assert len(wf_parse["steps"]) == 3, f"Expected 3 steps, got {len(wf_parse['steps'])}"
+    assert wf_parse["steps"][-1]["agent_id"] == "synthesizer"
+    assert "invoice" in wf_parse["steps"][-1]["instructions"].lower() or query_parse.lower() in wf_parse["steps"][-1]["instructions"].lower()
+
+    # 2. Security Audit Query -> 3 steps ending with synthesizer aligned to goal
+    query_sec = "security vulnerability audit and penetration test on our auth endpoint"
+    wf_sec = synthesize_on_the_fly_workflow(query_sec)
+    assert len(wf_sec["steps"]) == 3, f"Expected 3 steps, got {len(wf_sec['steps'])}"
+    assert wf_sec["steps"][-1]["agent_id"] == "synthesizer"
+    assert "auth endpoint" in wf_sec["steps"][-1]["instructions"].lower()
+
+    # 3. Coding Query -> 3 steps ending with synthesizer aligned to goal
+    query_code = "write a python function to compute moving average and unit test it"
+    wf_code = synthesize_on_the_fly_workflow(query_code)
+    assert len(wf_code["steps"]) == 3, f"Expected 3 steps, got {len(wf_code['steps'])}"
+    assert wf_code["steps"][-1]["agent_id"] == "synthesizer"
+    assert "moving average" in wf_code["steps"][-1]["instructions"].lower()
+
+    # 4. Research Query -> 3 steps ending with synthesizer aligned to goal
+    query_research = "what are the latest breakthroughs in solid state batteries"
+    wf_res = synthesize_on_the_fly_workflow(query_research)
+    assert len(wf_res["steps"]) == 3, f"Expected 3 steps, got {len(wf_res['steps'])}"
+    assert wf_res["steps"][-1]["agent_id"] == "synthesizer"
+    assert "solid state batteries" in wf_res["steps"][-1]["instructions"].lower()
+
+    # 5. LLM Workflow Spec Generation -> verify final synthesis step enforcement
+    from app.ai_generator import generate_workflow_spec
+    mock_spec_client = MagicMock()
+    mock_spec_client.models.generate_content.return_value = MagicMock(
+        text=json.dumps({
+            "title": "Custom Data Pipeline",
+            "description": "Multi-step data pipeline",
+            "goal": "Process telemetry events and extract trends",
+            "steps": [
+                {"id": "step_1", "name": "Extract Events", "step_type": "agent", "agent_id": "file_parser"},
+                {"id": "step_2", "name": "Compute Trends", "step_type": "agent", "agent_id": "data_analyst"},
+            ],
+            "edges": [{"source": "step_1", "target": "step_2"}]
+        })
+    )
+    spec_result = generate_workflow_spec(
+        prompt="Process telemetry events and extract trends",
+        available_agents=[],
+        available_tools=[],
+        client=mock_spec_client,
+    )
+    assert len(spec_result["steps"]) == 3, f"Expected 3 steps with appended synthesizer, got {len(spec_result['steps'])}"
+    assert spec_result["steps"][-1]["agent_id"] == "synthesizer"
+    assert "Process telemetry events" in spec_result["steps"][-1]["instructions"]
+    print("PASS: On-the-fly workflows verified to conclude with a goal-aligned synthesizer step across all scenarios")
+
     print("\n========================================")
-    print("ALL 74 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 77 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":
