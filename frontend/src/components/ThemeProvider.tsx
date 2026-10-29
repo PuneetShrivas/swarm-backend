@@ -5,6 +5,7 @@ import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
 
 export type ThemeMode = "light" | "dark" | "system";
 export type ThemePalette = "slate" | "nebula" | "emerald" | "amber" | "frost";
+export type WorkspaceBackground = "plain" | "dots" | "grid";
 
 export interface PaletteOption {
   id: ThemePalette;
@@ -57,6 +58,8 @@ interface AppThemeContextType {
   setMode: (mode: ThemeMode) => void;
   palette: ThemePalette;
   setPalette: (palette: ThemePalette) => void;
+  backgroundPattern: WorkspaceBackground;
+  setBackgroundPattern: (pattern: WorkspaceBackground) => void;
   resolvedTheme: "light" | "dark";
   mounted: boolean;
 }
@@ -66,6 +69,7 @@ const AppThemeContext = createContext<AppThemeContextType | undefined>(undefined
 function PaletteManager({ children }: { children: React.ReactNode }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [palette, setPaletteState] = useState<ThemePalette>("slate");
+  const [backgroundPattern, setBackgroundPatternState] = useState<WorkspaceBackground>("plain");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -80,9 +84,18 @@ function PaletteManager({ children }: { children: React.ReactNode }) {
       } else {
         document.documentElement.setAttribute("data-palette", "slate");
       }
+
+      const savedBg = localStorage.getItem("swarm-background-pattern") as WorkspaceBackground | null;
+      if (savedBg && ["plain", "dots", "grid"].includes(savedBg)) {
+        setBackgroundPatternState(savedBg);
+        document.documentElement.setAttribute("data-background", savedBg);
+      } else {
+        document.documentElement.setAttribute("data-background", "plain");
+      }
     } catch {
       // LocalStorage unavailable
       document.documentElement.setAttribute("data-palette", "slate");
+      document.documentElement.setAttribute("data-background", "plain");
     }
     setMounted(true);
   }, []);
@@ -97,6 +110,16 @@ function PaletteManager({ children }: { children: React.ReactNode }) {
     document.documentElement.setAttribute("data-palette", newPalette);
   };
 
+  const setBackgroundPattern = (pattern: WorkspaceBackground) => {
+    setBackgroundPatternState(pattern);
+    try {
+      localStorage.setItem("swarm-background-pattern", pattern);
+    } catch {
+      // Ignore storage errors
+    }
+    document.documentElement.setAttribute("data-background", pattern);
+  };
+
   const handleSetMode = (mode: ThemeMode) => {
     setTheme(mode);
   };
@@ -108,6 +131,8 @@ function PaletteManager({ children }: { children: React.ReactNode }) {
         setMode: handleSetMode,
         palette,
         setPalette,
+        backgroundPattern,
+        setBackgroundPattern,
         resolvedTheme: (resolvedTheme as "light" | "dark") || "dark",
         mounted,
       }}

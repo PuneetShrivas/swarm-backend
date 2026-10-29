@@ -7,6 +7,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Persistent Collapsible Studio Sidebar Across Chat, Workflows & Agents**:
+  - Created `AppUnifiedSidebar.tsx` deployed across `/chat`, `/workflows`, `/agents`, and `/artifacts`.
+  - Built-in collapse toggle between full `w-64` panel and slim `w-14` icon rail, persisted in `localStorage` under `swarm_sidebar_collapsed`.
+  - Organized into grouped collapsible sections: Conversations (with search & inline actions), Workflows (with grouped Recent Workflow Runs history, execution status, and durations), and Agents (with execution telemetry).
+- **Default File Creation & Ingestion Agents with Download Capabilities**:
+  - Implemented modular agents `file_creator` (generates code, tabular data, documents, and config files) and `file_parser` (ingests, validates schemas, and extracts structured data).
+  - Built natural language intent routing and automated artifact extractor (`extract_file_artifact_from_turn`) that preserves generated file blocks as persistent download artifacts.
+  - Added in-chat **Download File** banner in `MessageItem.tsx` providing immediate single-click Blob downloads without reloading.
+- **Artifacts Studio Page & Top Navigation (`/artifacts`)**:
+  - Added `Artifacts` tab to `AppNavigationRail` alongside Chat, Workflows, and Agents.
+  - Built dedicated `/artifacts` dashboard with search filter, category pills (Code, Documents, Data, All), interactive spotlight cards, code preview modal with line counters, copy to clipboard, direct Blob download, and deletion.
+  - Exposed backend REST endpoints `GET /api/artifacts`, `POST /api/artifacts`, `DELETE /api/artifacts/{id}`, and `GET /api/workflow-runs`.
+- **Interactive Creator-Grade Hover Components**:
+  - Implemented `SpotlightCard.tsx` with dynamic cursor radial gradient tracking and `InteractiveHoverButton.tsx` with spring hover physics and expanding arrow animations.
+  - Deployed across agent cards, workflow studio cards, and action chips.
+- **Workspace Canvas Background Customizer**:
+  - Added `WorkspaceBackground` selector in `ThemeSwitcher.tsx` supporting `plain`, `dots` (radial dot matrix), and `grid` (engineering blueprint grid).
+  - Persisted in `localStorage` (`swarm-background-pattern`) with dark/light mode responsive opacity.
+- **True Multi-Resolution Favicon Refresh**:
+  - Generated true multi-resolution `.ico` assets (`16x16`, `32x32`, `48x48`, `64x64`) into `src/app/favicon.ico` and `public/favicon.ico` from brand mark.
+  - Added version query parameters (`?v=3`) in `layout.tsx` metadata to bust aggressive browser cache.
 - **Chat UX Intelligence & Contextual Auto-Titling**:
   - Implemented `extract_contextual_title` in backend to strip filler prefixes and derive clean, 3-6 word contextual conversation titles from prompt intent.
   - Added support for `prompt` in `POST /api/sessions` and automatic session renaming on first chat turn on generic sessions, returning `session_title` via turn metadata.

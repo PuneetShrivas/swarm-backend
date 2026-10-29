@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { Bot, Loader2, Workflow, Sparkles } from "lucide-react";
@@ -25,12 +26,13 @@ import {
 import MessageItem from "./components/MessageItem";
 import ChatInput from "./components/ChatInput";
 import ChatHeader from "./components/ChatHeader";
-import SessionSidebar from "./components/SessionSidebar";
+import AppUnifiedSidebar from "@/components/AppUnifiedSidebar";
 import UsageModal from "./components/UsageModal";
 import AgentDetailsModal from "./components/AgentDetailsModal";
 import WorkflowPickerModal from "./components/WorkflowPickerModal";
 
 export default function Chat() {
+  const router = useRouter();
   const [conversation, setConversation] = useState<ConversationState>(() =>
     createInitialState()
   );
@@ -561,26 +563,18 @@ export default function Chat() {
       />
 
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Session History & Swarm Sidebar */}
-        <SessionSidebar
+        {/* Unified Persistent Studio Sidebar */}
+        <AppUnifiedSidebar
+          activePage="chat"
           sessions={sessions}
           activeSessionId={activeSessionId}
           onSelectSession={handleSelectSession}
           onCreateSession={handleCreateSession}
           onDeleteSession={handleDeleteSession}
           onRenameSession={handleRenameSession}
-          userEmail={userEmail}
-          onSignOut={handleSignOut}
-          onOpenUsage={() => setIsUsageModalOpen(true)}
-          totalTokensUsed={usage?.total_tokens ?? 0}
-          agents={agents}
-          selectedAgentId={selectedAgentId}
-          onSelectAgent={setSelectedAgentId}
           isLoadingSessions={isLoadingSessions}
-          onInspectAgent={(ag) => {
-            setInspectingAgent(ag);
-            setIsAgentDetailsOpen(true);
-          }}
+          onCreateWorkflow={() => router.push("/workflows")}
+          onCreateAgent={() => router.push("/agents")}
         />
 
         {/* Main Chat Feed Area */}

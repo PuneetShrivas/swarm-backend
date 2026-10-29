@@ -511,3 +511,41 @@ strong {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
 }
+
+/* =========================================================
+   Workspace Background Patterns (Plain, Dots, Grid)
+   ========================================================= */
+[data-background="dots"] body,
+[data-background="dots"] .bg-canvas {
+  background-image: radial-gradient(rgba(120, 120, 140, 0.16) 1.25px, transparent 1.25px) !important;
+  background-size: 20px 20px !important;
+}
+.dark[data-background="dots"] body,
+.dark[data-background="dots"] .bg-canvas,
+[data-background="dots"].dark body,
+[data-background="dots"].dark .bg-canvas {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1.25px, transparent 1.25px) !important;
+  background-size: 20px 20px !important;
+}
+
+[data-background="grid"] body,
+[data-background="grid"] .bg-canvas {
+  background-image:
+    linear-gradient(to right, rgba(120, 120, 140, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 120, 140, 0.1) 1px, transparent 1px) !important;
+  background-size: 24px 24px !important;
+}
+.dark[data-background="grid"] body,
+.dark[data-background="grid"] .bg-canvas,
+[data-background="grid"].dark body,
+[data-background="grid"].dark .bg-canvas {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 1px, transparent 1px) !important;
+  background-size: 24px 24px !important;
+}
+
+[data-background="plain"] body,
+[data-background="plain"] .bg-canvas {
+  background-image: none !important;
+}

@@ -704,8 +704,54 @@ def execute(input_data: dict, context: dict) -> dict:
     assert "Quantum" in saved_title, f"Saved session title was not updated: {saved_title}"
     print(f"PASS: POST /api/chat automatically renamed generic session to: '{saved_title}'")
 
+    # 38. Test File Creator Agent Routing and Artifact Generation
+    res_file_create = client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "Generate file for customer data pipeline in python"}]},
+        headers=auth_headers
+    )
+    assert res_file_create.status_code == 200, f"File creation chat failed: {res_file_create.text}"
+    fc_meta = res_file_create.json().get("metadata", {})
+    assert fc_meta.get("agent_id") == "file_creator", f"Expected routing to file_creator, got {fc_meta.get('agent_id')}"
+    assert "file_artifact" in fc_meta or "artifacts" in fc_meta, f"Expected file artifact in metadata: {fc_meta}"
+    print(f"PASS: POST /api/chat routed to file_creator and generated downloadable file artifact: '{fc_meta.get('file_artifact', {}).get('filename')}'")
+
+    # 39. Test File Parser Agent Routing
+    res_file_parse = client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "Parse file logs and extract schema diagnostics"}]},
+        headers=auth_headers
+    )
+    assert res_file_parse.status_code == 200, f"File parser chat failed: {res_file_parse.text}"
+    fp_meta = res_file_parse.json().get("metadata", {})
+    assert fp_meta.get("agent_id") == "file_parser", f"Expected routing to file_parser, got {fp_meta.get('agent_id')}"
+    print(f"PASS: POST /api/chat routed to file_parser for schema and document inspection")
+
+    # 40. Test Artifacts API (POST, GET, DELETE /api/artifacts)
+    art_payload = {
+        "name": "sales_projection_q4.csv",
+        "type": "csv",
+        "content": "month,revenue,profit\nOct,12000,3400\nNov,15000,4200\nDec,22000,7100\n",
+        "origin_agent": "file_creator",
+        "source_type": "chat"
+    }
+    res_post_art = client.post("/api/artifacts", json=art_payload, headers=auth_headers)
+    assert res_post_art.status_code == 200, f"Failed to create artifact: {res_post_art.text}"
+    created_art = res_post_art.json()
+    assert created_art["name"] == "sales_projection_q4.csv"
+    art_id = created_art["id"]
+
+    res_list_art = client.get("/api/artifacts", headers=auth_headers)
+    assert res_list_art.status_code == 200
+    all_arts = res_list_art.json()
+    assert any(a["id"] == art_id for a in all_arts), "Created artifact not found in artifacts list"
+
+    res_del_art = client.delete(f"/api/artifacts/{art_id}", headers=auth_headers)
+    assert res_del_art.status_code == 200
+    print(f"PASS: /api/artifacts endpoints verified: created, listed ({len(all_arts)} items), and deleted artifact '{art_id}'")
+
     print("\n========================================")
-    print("ALL 37 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 40 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

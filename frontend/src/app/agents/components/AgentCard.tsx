@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { SpotlightCard } from "@/components/ui/SpotlightCard";
 import {
   Bot,
   Search,
@@ -80,6 +81,12 @@ export default function AgentCard({
     if (id === "synthesizer" || iconName === "filetext") {
       return <FileText size={14} className="text-cyan-400" />;
     }
+    if (id === "file_creator" || iconName === "filecode" || iconName === "file-plus") {
+      return <FileText size={14} className="text-teal-400" />;
+    }
+    if (id === "file_parser" || iconName === "filesearch" || iconName === "file-search") {
+      return <Search size={14} className="text-rose-400" />;
+    }
     if (iconName === "sparkles") {
       return <Sparkles size={14} className="text-linear-primary" />;
     }
@@ -96,7 +103,7 @@ export default function AgentCard({
   };
 
   return (
-    <div className="p-4 rounded-lg bg-surface-1 border border-hairline hover:border-hairline-strong transition-all shadow-card flex flex-col justify-between font-sans group select-none">
+    <SpotlightCard className="p-4 flex flex-col justify-between font-sans select-none">
       {/* Top Header */}
       <div>
         <div className="flex items-start justify-between gap-2 mb-2 pb-2 border-b border-hairline">
@@ -228,6 +235,6 @@ export default function AgentCard({
           )}
         </div>
       </div>
-    </div>
+    </SpotlightCard>
   );
 }

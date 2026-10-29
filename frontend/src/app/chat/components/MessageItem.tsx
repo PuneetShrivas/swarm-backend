@@ -8,6 +8,8 @@ import {
   User,
   Copy,
   Check,
+  Download,
+  FileCode,
   Pencil,
   RotateCcw,
   ThumbsUp,
@@ -131,6 +133,22 @@ export default function MessageItem({
     if (siblingInfo.index < siblingInfo.total) {
       const nextId = siblingInfo.siblingIds[siblingInfo.index];
       onSwitchBranch(nextId);
+    }
+  };
+
+  const handleDownloadFile = (filename: string, content: string, mime?: string) => {
+    try {
+      const blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "download.txt";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("File download error:", err);
     }
   };
 
@@ -502,6 +520,52 @@ export default function MessageItem({
                         <span>{sk}</span>
                       </span>
                     ))}
+                </div>
+              )}
+
+              {/* Downloadable File Artifact Banner */}
+              {(node.metadata?.file_artifact || (Array.isArray(node.metadata?.artifacts) && node.metadata.artifacts.length > 0)) && (
+                <div className="mt-3 p-3 rounded-lg bg-surface-2/90 border border-hairline-strong shadow-xs select-none">
+                  {(() => {
+                    const rawArt = (node.metadata?.file_artifact || (node.metadata?.artifacts as Record<string, unknown>[])[0]) as Record<string, unknown>;
+                    const fname = String(rawArt.filename || rawArt.name || "generated_file.txt");
+                    const fcontent = String(rawArt.content || node.content);
+                    const mime = typeof rawArt.mime_type === "string" ? rawArt.mime_type : "text/plain";
+                    const sizeKb = typeof rawArt.size_bytes === "number" ? (rawArt.size_bytes / 1024).toFixed(1) : (fcontent.length / 1024).toFixed(1);
+                    const ext = fname.includes(".") ? fname.split(".").pop() : "file";
+
+                    return (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-md bg-linear-primary/10 border border-linear-primary/30 text-linear-primary flex items-center justify-center shrink-0">
+                            <FileCode size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-ink truncate flex items-center gap-1.5">
+                              <span className="truncate">{fname}</span>
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-1 text-ink-subtle border border-hairline font-mono uppercase">
+                                {ext}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-ink-subtle font-mono">
+                              {sizeKb} KB · Ready for Download
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadFile(fname, fcontent, mime)}
+                            className="px-3 py-1.5 rounded-md bg-linear-primary hover:bg-linear-hover text-white text-xs font-medium inline-flex items-center gap-1.5 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer"
+                          >
+                            <Download size={12} />
+                            <span>Download File</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </>

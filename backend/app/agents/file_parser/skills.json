@@ -1,0 +1,12 @@
+[
+  {
+    "id": "schema-parsing",
+    "name": "Schema Ingestion & Parsing",
+    "description": "Extracts structured schemas and columnar properties from raw documents"
+  },
+  {
+    "id": "anomaly-detection",
+    "name": "Log & Syntax Anomaly Detection",
+    "description": "Pinpoints syntax errors and structural malformations in input streams"
+  }
+]

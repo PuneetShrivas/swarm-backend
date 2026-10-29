@@ -7,6 +7,7 @@ import AgentEditorModal from "./components/AgentEditorModal";
 import AgentPlaygroundModal from "./components/AgentPlaygroundModal";
 import AIAgentGeneratorModal from "./components/AIAgentGeneratorModal";
 import AgentDetailsModal from "@/app/chat/components/AgentDetailsModal";
+import AppUnifiedSidebar from "@/components/AppUnifiedSidebar";
 import UsageModal from "@/app/chat/components/UsageModal";
 import { UserUsageSummary, Agent as ChatAgent } from "@/app/chat/types";
 import { supabase, getAuthHeaders } from "@/lib/supabase";
@@ -207,8 +208,19 @@ export default function AgentsPage() {
         }}
       />
 
-      {/* 2. Main Studio Body */}
-      <main className="flex-1 p-4 md:p-6 max-w-6xl w-full mx-auto space-y-6">
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Unified Persistent Studio Sidebar */}
+        <AppUnifiedSidebar
+          activePage="agents"
+          onCreateAgent={() => {
+            setEditingAgent(null);
+            setIsCreateModalOpen(true);
+          }}
+        />
+
+        <div className="flex-1 flex flex-col bg-canvas overflow-y-auto h-full">
+          {/* 2. Main Studio Body */}
+          <main className="flex-1 p-4 md:p-6 max-w-6xl w-full mx-auto space-y-6">
         {/* Header Banner */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-hairline">
           <div>
@@ -401,6 +413,8 @@ export default function AgentsPage() {
           </div>
         )}
       </main>
+        </div>
+      </div>
 
       {/* 3. Modals */}
 

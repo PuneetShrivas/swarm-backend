@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "schema_validator",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "tools": ["read_file", "get_file_info"]
+    }
+  ]
+}

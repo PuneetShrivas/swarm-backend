@@ -1,0 +1,11 @@
+{
+  "id": "file_parser",
+  "name": "File Ingestion & Parser",
+  "role": "Parses, validates, and extracts structured intelligence from raw documents, logs, and datasets",
+  "status": "active",
+  "model": "gemini-3.8-flash",
+  "temperature": 0.1,
+  "is_orchestrator": false,
+  "icon": "FileSearch",
+  "description": "Ingests raw text, CSV tables, server logs, code snippets, and JSON schemas, validating integrity and extracting structured summary metrics."
+}

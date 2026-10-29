@@ -7,6 +7,8 @@ import {
 } from "./types";
 import AIWorkflowGeneratorModal from "./components/AIWorkflowGeneratorModal";
 import AppNavigationRail from "@/app/components/AppNavigationRail";
+import AppUnifiedSidebar from "@/components/AppUnifiedSidebar";
+import { SpotlightCard } from "@/components/ui/SpotlightCard";
 import {
   Plus,
   Search,
@@ -195,8 +197,16 @@ export default function WorkflowsDashboardPage() {
         onSignOut={handleSignOut}
       />
 
-      {/* 2. Workflows Studio Header Banner */}
-      <div className="border-b border-hairline bg-surface-1/40 px-4 md:px-8 py-5">
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Unified Persistent Studio Sidebar */}
+        <AppUnifiedSidebar
+          activePage="workflows"
+          onCreateWorkflow={() => setIsCreateOpen(true)}
+        />
+
+        <div className="flex-1 flex flex-col bg-canvas overflow-y-auto h-full">
+          {/* 2. Workflows Studio Header Banner */}
+          <div className="border-b border-hairline bg-surface-1/40 px-4 md:px-8 py-5">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -351,10 +361,10 @@ export default function WorkflowsDashboardPage() {
               const stepCount = wf.steps?.length || 0;
 
               return (
-                <div
+                <SpotlightCard
                   key={wf.id}
                   onClick={() => router.push(`/workflows/${wf.id}`)}
-                  className="p-5 rounded-lg bg-surface-1 border border-hairline hover:border-hairline-strong hover:bg-surface-2 transition-colors cursor-pointer flex flex-col justify-between group"
+                  className="p-5 flex flex-col justify-between cursor-pointer group"
                 >
                   <div>
                     {/* Card Header */}
@@ -416,12 +426,14 @@ export default function WorkflowsDashboardPage() {
                       </button>
                     </div>
                   </div>
-                </div>
+                </SpotlightCard>
               );
             })}
           </div>
         )}
       </main>
+        </div>
+      </div>
 
       {/* Create Workflow Modal */}
       {isCreateOpen && (

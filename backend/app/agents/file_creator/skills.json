@@ -1,0 +1,12 @@
+[
+  {
+    "id": "file-synthesis",
+    "name": "File & Document Generation",
+    "description": "Constructs complete executable files and tabular datasets"
+  },
+  {
+    "id": "artifact-packaging",
+    "name": "Artifact Packaging",
+    "description": "Encapsulates downloadable file payloads with verified MIME types"
+  }
+]

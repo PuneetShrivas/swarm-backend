@@ -6,6 +6,7 @@ import {
   MessageSquare,
   Users,
   Workflow,
+  FolderArchive,
   Zap,
   LogOut,
   LogIn,
@@ -14,7 +15,7 @@ import BrandLogo from "@/components/BrandLogo";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 interface AppNavigationRailProps {
-  currentTab: "chat" | "agents" | "workflows";
+  currentTab: "chat" | "agents" | "workflows" | "artifacts";
   totalTokensUsed?: number;
   onOpenUsage?: () => void;
   userEmail?: string | null;
@@ -71,6 +72,18 @@ export default function AppNavigationRail({
         >
           <Workflow size={12} className={currentTab === "workflows" ? "text-linear-primary" : ""} />
           <span>Workflows</span>
+        </Link>
+
+        <Link
+          href="/artifacts"
+          className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-pill font-medium transition-colors ${
+            currentTab === "artifacts"
+              ? "bg-surface-2 text-ink border border-hairline-strong shadow-xs font-semibold"
+              : "text-ink-subtle hover:text-ink"
+          }`}
+        >
+          <FolderArchive size={12} className={currentTab === "artifacts" ? "text-linear-primary" : ""} />
+          <span>Artifacts</span>
         </Link>
       </nav>
 

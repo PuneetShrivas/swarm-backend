@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "filesystem_exporter",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "tools": ["write_file", "get_file_info"]
+    }
+  ]
+}

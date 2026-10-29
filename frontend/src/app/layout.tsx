@@ -37,9 +37,13 @@ export const metadata: Metadata = {
   creator: "Swarm Platform Engineering",
   publisher: "Swarm",
   icons: {
-    icon: "/swarm-logo.png",
-    shortcut: "/swarm-logo.png",
-    apple: "/swarm-logo.png",
+    icon: [
+      { url: "/favicon.ico?v=3", sizes: "any" },
+      { url: "/swarm-logo.png?v=3", type: "image/png", sizes: "512x512" },
+      { url: "/icon.png?v=3", type: "image/png", sizes: "512x512" },
+    ],
+    shortcut: "/favicon.ico?v=3",
+    apple: "/apple-icon.png?v=3",
   },
   openGraph: {
     title: "Swarm — Autonomous Multi-Agent Orchestration & Workflow Studio",

@@ -2,8 +2,8 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sun, Moon, Monitor, Palette, Check, Sparkles } from "lucide-react";
-import { useAppTheme, PALETTES, ThemeMode } from "./ThemeProvider";
+import { Sun, Moon, Monitor, Palette, Check, Sparkles, Square, CircleDot, Grid3x3 } from "lucide-react";
+import { useAppTheme, PALETTES, ThemeMode, WorkspaceBackground } from "./ThemeProvider";
 
 interface ThemeSwitcherProps {
   align?: "left" | "right";
@@ -11,7 +11,7 @@ interface ThemeSwitcherProps {
 }
 
 export function ThemeSwitcher({ align = "right", compact = false }: ThemeSwitcherProps) {
-  const { mode, setMode, palette, setPalette, resolvedTheme, mounted } = useAppTheme();
+  const { mode, setMode, palette, setPalette, backgroundPattern, setBackgroundPattern, resolvedTheme, mounted } = useAppTheme();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -126,6 +126,37 @@ export function ThemeSwitcher({ align = "right", compact = false }: ThemeSwitche
                     >
                       {m.icon}
                       <span>{m.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Background Pattern Selector */}
+            <div className="mb-3">
+              <span className="text-[11px] font-medium text-muted-foreground block mb-1.5 px-0.5">
+                Workspace Canvas
+              </span>
+              <div className="grid grid-cols-3 gap-1 bg-muted/60 p-1 rounded-lg border border-border/40">
+                {[
+                  { id: "plain", label: "Plain", icon: <Square className="w-3 h-3" /> },
+                  { id: "dots", label: "Dots", icon: <CircleDot className="w-3 h-3" /> },
+                  { id: "grid", label: "Grid", icon: <Grid3x3 className="w-3 h-3" /> },
+                ].map((bg) => {
+                  const isActive = backgroundPattern === bg.id;
+                  return (
+                    <button
+                      key={bg.id}
+                      type="button"
+                      onClick={() => setBackgroundPattern(bg.id as WorkspaceBackground)}
+                      className={`relative flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[11px] font-medium transition-all ${
+                        isActive
+                          ? "bg-card text-foreground shadow-sm font-semibold"
+                          : "text-muted-foreground hover:text-foreground hover:bg-card/40"
+                      }`}
+                    >
+                      {bg.icon}
+                      <span>{bg.label}</span>
                     </button>
                   );
                 })}

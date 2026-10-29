@@ -51,6 +51,7 @@ class MemoryStore:
         self.knowledge_files: Dict[str, Dict[str, Any]] = {}
         self.workflow_runs: Dict[str, Dict[str, Any]] = {}
         self.workflow_step_runs: Dict[str, List[Dict[str, Any]]] = {}
+        self.artifacts: Dict[str, Dict[str, Any]] = {}
 
     def get_sessions(self, user_id: str) -> List[Dict[str, Any]]:
         user_sessions = [s for s in self.sessions.values() if s.get("user_id") == user_id]
@@ -266,5 +267,23 @@ class MemoryStore:
     def get_step_runs(self, run_id: str) -> List[Dict[str, Any]]:
         runs = self.workflow_step_runs.get(run_id, [])
         return sorted(runs, key=lambda s: s.get("step_index", 0))
+
+    def get_artifacts(self, user_id: str) -> List[Dict[str, Any]]:
+        user_artifacts = [a for a in self.artifacts.values() if a.get("user_id") in (user_id, "guest-user", "default") or not a.get("user_id")]
+        return sorted(user_artifacts, key=lambda a: a.get("created_at", ""), reverse=True)
+
+    def get_artifact(self, artifact_id: str) -> Optional[Dict[str, Any]]:
+        return self.artifacts.get(artifact_id)
+
+    def save_artifact(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
+        self.artifacts[artifact["id"]] = artifact
+        return artifact
+
+    def delete_artifact(self, artifact_id: str, user_id: str) -> bool:
+        art = self.artifacts.get(artifact_id)
+        if art and (art.get("user_id") in (user_id, "guest-user", "default") or not art.get("user_id")):
+            del self.artifacts[artifact_id]
+            return True
+        return False
 
 memory_store = MemoryStore()
