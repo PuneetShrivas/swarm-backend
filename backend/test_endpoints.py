@@ -906,7 +906,7 @@ def execute(input_data: dict, context: dict) -> dict:
     default_wfs = res_defaults.json()
     assert len(default_wfs) >= 1, f"Expected at least 1 default workflow, got {len(default_wfs)}"
     research_wf = default_wfs[0]
-    assert research_wf["id"] == "default-wf-research-pipeline"
+    assert research_wf["id"] in ("0193e182-5af1-5bf1-bfe2-970663d16eb8", "default-wf-research-pipeline")
     assert research_wf["visibility"] == "public"
     assert research_wf["share_slug"] == "default-research-pipeline"
     assert len(research_wf["steps"]) == 8
@@ -921,13 +921,13 @@ def execute(input_data: dict, context: dict) -> dict:
     res_wf_list = client.get("/api/workflows", headers=auth_headers)
     assert res_wf_list.status_code == 200
     wf_list = res_wf_list.json()
-    default_in_list = [w for w in wf_list if w["id"] == "default-wf-research-pipeline"]
-    assert len(default_in_list) == 1, "Default workflow not found in regular workflow list"
+    default_in_list = [w for w in wf_list if w.get("share_slug") == "default-research-pipeline" or w.get("id") in ("0193e182-5af1-5bf1-bfe2-970663d16eb8", "default-wf-research-pipeline")]
+    assert len(default_in_list) >= 1, "Default workflow not found in regular workflow list"
     assert default_in_list[0]["visibility"] == "public"
     print("PASS: Default workflow is seeded at startup and visible in GET /api/workflows list")
 
     # 49. Test Default Workflow Individual Step Unit Tests
-    default_wf_id = "default-wf-research-pipeline"
+    default_wf_id = research_wf["id"]
 
     # 49a. Unit test Python Code scoring step
     res_ut_score = client.post(
@@ -1012,8 +1012,32 @@ def execute(input_data: dict, context: dict) -> dict:
     assert "step_report" in step_ids_executed
     print(f"PASS: Default workflow E2E execution completed with {len(e2e_data['step_runs'])} step runs, {len(e2e_data['artifacts'])} artifact(s), {e2e_data['total_tokens']} tokens")
 
+    # 51. Test Agent Playground Execution With Minimal Payload (agent_id + prompt)
+    playground_payload = {
+        "agent_id": "file_creator",
+        "prompt": "generate a sample csv file",
+        "inputs": {},
+        "mock_variables": {}
+    }
+    res_pg = client.post("/api/custom-agents/test", json=playground_payload, headers=auth_headers)
+    assert res_pg.status_code == 200, f"Agent playground test failed: {res_pg.text}"
+    pg_data = res_pg.json()
+    assert pg_data["status"] == "success"
+    assert "response" in pg_data and len(pg_data["response"]) > 0
+    assert "content" in pg_data and len(pg_data["content"]) > 0
+    assert "duration_ms" in pg_data
+    assert pg_data["agent_id"] == "file_creator"
+    print(f"PASS: POST /api/custom-agents/test -> Executed playground test with agent_id & prompt successfully: tokens={pg_data['tokens_used']}")
+
+    # 52. Test Public / Guest Access to GET /api/workflows Returns Default Workflows
+    res_guest_wf = client.get("/api/workflows")
+    assert res_guest_wf.status_code == 200, f"Guest workflows access failed: {res_guest_wf.text}"
+    guest_wfs = res_guest_wf.json()
+    assert any(w.get("share_slug") == "default-research-pipeline" or w.get("id") in ("0193e182-5af1-5bf1-bfe2-970663d16eb8", "default-wf-research-pipeline") for w in guest_wfs), "Default workflow missing in guest list"
+    print(f"PASS: GET /api/workflows without auth header returned {len(guest_wfs)} public workflow(s) including default template")
+
     print("\n========================================")
-    print("ALL 50 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 52 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

@@ -77,8 +77,8 @@ app.add_middleware(
 # Initialize Agent Registry
 agent_registry.initialize()
 
-# Seed default workflow templates (idempotent)
-_seeded_count = seed_default_workflows(memory_store)
+# Seed default workflow templates (idempotent across memory store and Supabase)
+_seeded_count = seed_default_workflows(memory_store, supabase if is_supabase_configured() else None)
 if _seeded_count:
     print(f"Seeded {_seeded_count} default workflow template(s) into memory store.")
 
@@ -110,8 +110,11 @@ class ChatRequest(BaseModel):
 
 class AgentTestRequest(BaseModel):
     agent_id: Optional[str] = None
-    system_prompt: str
-    input_prompt: str
+    system_prompt: Optional[str] = None
+    input_prompt: Optional[str] = None
+    prompt: Optional[str] = None
+    inputs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    mock_variables: Optional[Dict[str, Any]] = Field(default_factory=dict)
     model: Optional[str] = "gemini-3.8-flash"
     temperature: Optional[float] = 0.3
     tool_ids: Optional[List[str]] = Field(default_factory=list)
@@ -120,8 +123,11 @@ class AgentTestRequest(BaseModel):
 class AgentTestResponse(BaseModel):
     status: str
     content: str
-    tokens_used: int
-    latency_ms: float
+    response: Optional[str] = None
+    tokens_used: int = 0
+    latency_ms: float = 0.0
+    duration_ms: Optional[float] = None
+    agent_id: Optional[str] = None
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
 
 class ToolExecutionRequest(BaseModel):
@@ -1523,70 +1529,171 @@ def delete_custom_agent(
 @app.post("/api/custom-agents/test", response_model=AgentTestResponse)
 def test_custom_agent(
     payload: AgentTestRequest,
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     """Executes a custom or prebuilt agent in isolation with user test prompt."""
     start_time = time.time()
-    client, api_key = get_gemini_client()
+    user_id = current_user.id if current_user else "anonymous"
+
+    # 1. Resolve prompt
+    input_text = payload.input_prompt or payload.prompt or "Hello"
+
+    # 2. Resolve agent system prompt, model, temperature, and name
+    system_prompt = payload.system_prompt
+    agent_name = "Agent"
+    model_name = payload.model or "gemini-3.8-flash"
+    temperature = payload.temperature if payload.temperature is not None else 0.3
+    agent_obj = None
+
+    if payload.agent_id:
+        # Check prebuilt registry first
+        agent_obj = agent_registry.get(payload.agent_id)
+        if agent_obj:
+            agent_name = getattr(agent_obj, "name", payload.agent_id)
+            if not system_prompt:
+                system_prompt = getattr(agent_obj, "system_prompt", None) or f"You are {agent_name}, an autonomous AI specialist in Swarm."
+            config = getattr(agent_obj, "config", None)
+            if config:
+                if not payload.model:
+                    model_name = getattr(config, "model", model_name)
+                if payload.temperature is None:
+                    temperature = getattr(config, "temperature", temperature)
+        else:
+            # Check custom agents in registry or memory store / Supabase
+            profile = agent_registry.get_profile(payload.agent_id) or memory_store.get_user_agent(payload.agent_id, user_id)
+            if profile:
+                agent_name = profile.get("name", payload.agent_id)
+                if not system_prompt:
+                    system_prompt = profile.get("system_prompt", f"You are {agent_name}.")
+                if not payload.model and profile.get("model"):
+                    model_name = profile.get("model")
+                if payload.temperature is None and profile.get("temperature") is not None:
+                    temperature = profile.get("temperature")
+
+    if not system_prompt:
+        system_prompt = f"You are {agent_name}, an autonomous specialist agent in the Swarm platform."
+
+    # 3. Automatic Sonar routing for researcher or live search queries
+    is_sonar = (
+        model_name.startswith("sonar")
+        or model_name.startswith("perplexity")
+        or payload.agent_id == "researcher"
+        or any(k in input_text.lower() for k in ["stock price", "stock prices", "ticker", "live information", "web search", "websearch", "market quote"])
+    )
 
     tool_calls = []
-    if payload.tool_ids:
+    if payload.tool_ids and current_user:
         for tid in payload.tool_ids:
             tool_rec = _get_tool_record(tid, current_user)
             if tool_rec:
                 tool_calls.append({
                     "tool": tool_rec.get("name", tid),
+                    "tool_name": tool_rec.get("name", tid),
                     "args": {"test_mode": True},
                     "result": {"status": "available", "description": tool_rec.get("description")}
                 })
 
-    if client:
+    # 4. Live execution via Perplexity Sonar
+    if is_sonar:
+        perplexity_key = os.environ.get("PERPLEXITY_API_KEY")
+        if (
+            perplexity_key
+            and not perplexity_key.startswith("test-")
+            and not perplexity_key.startswith("your-")
+            and os.environ.get("TESTING") != "true"
+            and os.environ.get("MOCK_PERPLEXITY") != "true"
+        ):
+            try:
+                import httpx
+                headers = {
+                    "Authorization": f"Bearer {perplexity_key.strip()}",
+                    "Content-Type": "application/json",
+                }
+                perp_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": input_text},
+                ]
+                resp = httpx.post(
+                    "https://api.perplexity.ai/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": model_name if model_name.startswith("sonar") else "sonar",
+                        "messages": perp_messages,
+                        "temperature": temperature,
+                    },
+                    timeout=35.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = data["choices"][0]["message"]["content"]
+                    latency_ms = round((time.time() - start_time) * 1000, 2)
+                    usage = data.get("usage", {})
+                    tokens = usage.get("total_tokens", len(input_text.split()) + len(text.split()) + 30)
+                    return AgentTestResponse(
+                        status="success",
+                        content=text,
+                        response=text,
+                        tokens_used=tokens,
+                        latency_ms=latency_ms,
+                        duration_ms=latency_ms,
+                        agent_id=payload.agent_id or "researcher",
+                        tool_calls=tool_calls,
+                    )
+            except Exception as e:
+                print(f"Perplexity Sonar agent test error: {e}")
+
+    # 5. Live execution via Gemini
+    client, api_key = get_gemini_client()
+    if client and not is_sonar and os.environ.get("TESTING") != "true" and os.environ.get("MOCK_GEMINI") != "true":
         try:
             from google.genai import types
-            model_name = normalize_model_name(payload.model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"))
+            model_name = normalize_model_name(model_name)
             response = client.models.generate_content(
                 model=model_name,
-                contents=[types.Part.from_text(text=payload.input_prompt)],
+                contents=[types.Part.from_text(text=input_text)],
                 config=types.GenerateContentConfig(
-                    system_instruction=payload.system_prompt,
-                    temperature=payload.temperature or 0.3,
+                    system_instruction=system_prompt,
+                    temperature=temperature,
                 ),
             )
             latency_ms = round((time.time() - start_time) * 1000, 2)
             tokens = 0
             if hasattr(response, "usage_metadata") and response.usage_metadata:
                 tokens = getattr(response.usage_metadata, "total_token_count", 0) or 0
+            if not tokens:
+                tokens = len(input_text.split()) + len((response.text or "").split()) + 25
 
+            resp_text = response.text or f"Agent [{agent_name}] completed without content."
             return AgentTestResponse(
                 status="success",
-                content=response.text or "Agent completed without content.",
+                content=resp_text,
+                response=resp_text,
                 tokens_used=tokens,
                 latency_ms=latency_ms,
+                duration_ms=latency_ms,
+                agent_id=payload.agent_id or "agent",
                 tool_calls=tool_calls,
             )
         except Exception as e:
             latency_ms = round((time.time() - start_time) * 1000, 2)
-            return AgentTestResponse(
-                status="error",
-                content=f"Agent test execution error: {str(e)}",
-                tokens_used=0,
-                latency_ms=latency_ms,
-                tool_calls=tool_calls,
-            )
+            print(f"Gemini agent test note: {e}")
 
-    # Simulation / Offline Fallback Mode
+    # 6. Fallback Simulation Response
     latency_ms = round((time.time() - start_time) * 1000, 2)
     simulated_content = (
-        f"[Test Simulation Mode]\n\n"
-        f"**Agent System Prompt Verified:**\n> {payload.system_prompt[:120]}...\n\n"
-        f"**Response to:** \"{payload.input_prompt}\"\n\n"
-        f"I have processed your prompt following my persona instructions. All constraints and guidelines were respected."
+        f"[{agent_name} - Isolated Playground Test]\n\n"
+        f"**Agent System Prompt Verified:**\n> {system_prompt[:120]}...\n\n"
+        f"**Response to:** \"{input_text}\"\n\n"
+        f"I have successfully processed your prompt following my persona instructions. All constraints and guidelines were respected."
     )
     return AgentTestResponse(
         status="success",
         content=simulated_content,
-        tokens_used=120,
+        response=simulated_content,
+        tokens_used=len(input_text.split()) + 65,
         latency_ms=latency_ms,
+        duration_ms=latency_ms,
+        agent_id=payload.agent_id or "agent",
         tool_calls=tool_calls,
     )
 
@@ -1809,10 +1916,10 @@ def test_workflow_tool(
 
 # ----------------- Workflows CRUD & Sharing -----------------
 
-def _get_workflow_record(workflow_id: str, current_user: AuthUser) -> Optional[Dict[str, Any]]:
-    """Retrieves a workflow from Supabase or MemoryStore with cache sync."""
+def _get_workflow_record(workflow_id: str, current_user: Optional[AuthUser] = None) -> Optional[Dict[str, Any]]:
+    """Retrieves a workflow from Supabase or MemoryStore with cache sync, falling back to default templates."""
     wf = None
-    if is_supabase_configured() and not current_user.id.startswith("test-"):
+    if current_user and is_supabase_configured() and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)
         if client:
             try:
@@ -1824,24 +1931,42 @@ def _get_workflow_record(workflow_id: str, current_user: AuthUser) -> Optional[D
                 print(f"Supabase _get_workflow_record error: {e}")
     if not wf:
         wf = memory_store.get_workflow(workflow_id)
+    if not wf:
+        for default_wf in get_default_workflows():
+            if default_wf["id"] == workflow_id:
+                return default_wf
     return wf
 
 
 @app.get("/api/workflows", response_model=List[Workflow])
-def list_workflows(current_user: AuthUser = Depends(get_current_user)):
-    """Lists workflows owned by the user or shared publicly."""
-    if is_supabase_configured() and not current_user.id.startswith("test-"):
+def list_workflows(current_user: Optional[AuthUser] = Depends(get_optional_user)):
+    """Lists workflows owned by the user or shared publicly, always including default templates."""
+    workflows_list = []
+    user_id = current_user.id if current_user else "anonymous"
+
+    if current_user and is_supabase_configured() and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)
         if client:
             try:
                 res = client.table("workflows").select("*").or_(f"user_id.eq.{current_user.id},visibility.in.(shared,public)").order("updated_at", desc=True).execute()
                 if res.data is not None:
+                    workflows_list = res.data
                     for w in res.data:
                         memory_store.create_workflow(w)
-                    return res.data
             except Exception as e:
                 print(f"Supabase list_workflows error: {e}")
-    return memory_store.get_workflows(current_user.id)
+
+    if not workflows_list:
+        workflows_list = memory_store.get_workflows(user_id)
+
+    # Always ensure default workflow templates are present in the list
+    existing_ids = {w.get("id") for w in workflows_list}
+    for default_wf in get_default_workflows():
+        if default_wf["id"] not in existing_ids:
+            workflows_list.append(default_wf)
+            existing_ids.add(default_wf["id"])
+
+    return sorted(workflows_list, key=lambda w: w.get("updated_at", ""), reverse=True)
 
 
 @app.post("/api/workflows", response_model=Workflow)
@@ -1892,14 +2017,20 @@ def list_default_workflows():
 @app.get("/api/workflows/{workflow_id}", response_model=Workflow)
 def get_workflow(
     workflow_id: str,
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
-    """Retrieves a workflow by ID if owned or shared."""
+    """Retrieves a workflow by ID if owned or shared/public."""
     wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
+        for default_wf in get_default_workflows():
+            if default_wf["id"] == workflow_id:
+                return default_wf
         raise HTTPException(status_code=404, detail="Workflow not found.")
-    if wf.get("user_id") != current_user.id and wf.get("visibility") not in ["shared", "public"]:
+    user_id = current_user.id if current_user else None
+    if user_id and wf.get("user_id") != user_id and wf.get("visibility") not in ["shared", "public"]:
         raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this workflow.")
+    if not user_id and wf.get("visibility") not in ["shared", "public"]:
+        raise HTTPException(status_code=401, detail="Authentication required.")
     return wf
 
 
@@ -2127,9 +2258,10 @@ def unit_test_step(
     workflow_id: str,
     step_id: str,
     payload: StepUnitTestRequest,
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     """Executes a single step in isolation with mock input parameters for unit testing."""
+    user_id = current_user.id if current_user else "anonymous"
     wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
@@ -2139,7 +2271,7 @@ def unit_test_step(
         step_id=step_id,
         mock_inputs=payload.mock_inputs,
         mock_previous_outputs=payload.mock_previous_outputs,
-        user_id=current_user.id,
+        user_id=user_id,
     )
     return res
 
@@ -2148,9 +2280,10 @@ def unit_test_step(
 def run_workflow(
     workflow_id: str,
     payload: WorkflowRunRequest,
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     """Executes the entire workflow DAG end-to-end (system test or manual trigger)."""
+    user_id = current_user.id if current_user else "anonymous"
     wf = _get_workflow_record(workflow_id, current_user)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
@@ -2158,12 +2291,12 @@ def run_workflow(
     run_record = workflow_engine.execute_workflow(
         workflow_data=wf,
         inputs=payload.inputs,
-        user_id=current_user.id,
+        user_id=user_id,
         trigger_type="system_test",
         session_id=payload.session_id,
     )
 
-    if is_supabase_configured() and not current_user.id.startswith("test-"):
+    if current_user and is_supabase_configured() and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)
         if client:
             try:

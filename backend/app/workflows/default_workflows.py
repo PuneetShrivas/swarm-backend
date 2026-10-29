@@ -11,9 +11,10 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 
-# Stable deterministic IDs for default workflows (prevents duplicate seeding)
-DEFAULT_RESEARCH_WORKFLOW_ID = "default-wf-research-pipeline"
-DEFAULT_SYSTEM_USER_ID = "system"
+# Stable deterministic UUIDs for default workflows (UUID format is required by Supabase Postgres)
+DEFAULT_RESEARCH_WORKFLOW_ID = "0193e182-5af1-5bf1-bfe2-970663d16eb8"
+DEFAULT_SYSTEM_USER_ID = "e03db8b5-79f4-59ed-bdb5-18e730df8d2a"
+DEFAULT_LEGACY_ID = "default-wf-research-pipeline"
 
 
 def _build_research_pipeline() -> Dict[str, Any]:
@@ -289,10 +290,10 @@ def get_default_workflows() -> List[Dict[str, Any]]:
     return [_build_research_pipeline()]
 
 
-def seed_default_workflows(memory_store: Any) -> int:
+def seed_default_workflows(memory_store: Any, supabase_client: Any = None) -> int:
     """
-    Seeds default workflow templates into the in-memory store.
-    Idempotent — skips workflows that already exist.
+    Seeds default workflow templates into the in-memory store and Supabase if available.
+    Idempotent — skips workflows that already exist in memory_store.
     Returns count of newly seeded workflows.
     """
     seeded = 0
@@ -301,4 +302,20 @@ def seed_default_workflows(memory_store: Any) -> int:
         if not existing:
             memory_store.create_workflow(wf)
             seeded += 1
+        else:
+            memory_store.create_workflow(wf)
+
+        # Register legacy ID alias in memory store for backward compatibility
+        memory_store.workflows[DEFAULT_LEGACY_ID] = wf
+
+        # Attempt to also seed into Supabase workflows table if connected
+        if supabase_client is not None:
+            try:
+                check = supabase_client.table("workflows").select("id").eq("id", wf["id"]).execute()
+                if not check.data:
+                    supabase_client.table("workflows").insert(wf).execute()
+                    print(f"Seeded default workflow '{wf['id']}' into Supabase.")
+            except Exception as e:
+                print(f"Supabase default workflow seeding note: {e}")
+
     return seeded

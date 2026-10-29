@@ -77,10 +77,40 @@ export default function WorkflowsDashboardPage() {
       });
       if (res.ok) {
         const data: Workflow[] = await res.json();
+        const hasDefaults = data.some((w) => w.id === "default-wf-research-pipeline" || w.user_id === "system");
+        if (!hasDefaults) {
+          try {
+            const defRes = await fetch(`${apiUrl}/api/workflows/defaults`);
+            if (defRes.ok) {
+              const defs: Workflow[] = await defRes.json();
+              const existingIds = new Set(data.map((w) => w.id));
+              defs.forEach((dw) => {
+                if (!existingIds.has(dw.id)) data.push(dw);
+              });
+            }
+          } catch {
+            // ignore
+          }
+        }
         setWorkflows(data);
+      } else {
+        const defRes = await fetch(`${apiUrl}/api/workflows/defaults`);
+        if (defRes.ok) {
+          const defs: Workflow[] = await defRes.json();
+          setWorkflows(defs);
+        }
       }
     } catch (err) {
       console.error("Fetch workflows error:", err);
+      try {
+        const defRes = await fetch(`${apiUrl}/api/workflows/defaults`);
+        if (defRes.ok) {
+          const defs: Workflow[] = await defRes.json();
+          setWorkflows(defs);
+        }
+      } catch {
+        // ignore
+      }
     } finally {
       setIsLoading(false);
     }
@@ -357,6 +387,7 @@ export default function WorkflowsDashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredWorkflows.map((wf) => {
+              const isDefault = wf.id === "default-wf-research-pipeline" || wf.user_id === "system";
               const isShared = wf.visibility === "shared" || wf.visibility === "public";
               const stepCount = wf.steps?.length || 0;
 
@@ -369,7 +400,7 @@ export default function WorkflowsDashboardPage() {
                   <div>
                     {/* Card Header */}
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span className="w-6 h-6 rounded-md bg-surface-2 text-linear-primary border border-hairline flex items-center justify-center shrink-0">
                           <Sparkles size={12} />
                         </span>
@@ -378,7 +409,11 @@ export default function WorkflowsDashboardPage() {
                         </h3>
                       </div>
 
-                      {isShared ? (
+                      {isDefault ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-pill bg-linear-primary/10 text-linear-primary border border-linear-primary/30 font-mono flex items-center gap-1 shrink-0">
+                          <Sparkles size={9} /> Default Template
+                        </span>
+                      ) : isShared ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-pill bg-surface-2 text-linear-primary border border-hairline font-mono flex items-center gap-1 shrink-0">
                           <Globe size={9} /> Shared
                         </span>
@@ -417,13 +452,15 @@ export default function WorkflowsDashboardPage() {
                           )}
                         </button>
                       )}
-                      <button
-                        onClick={(e) => handleDelete(wf.id, e)}
-                        className="p-1 rounded-md text-ink-subtle hover:text-red-400 hover:bg-surface-3 transition-colors"
-                        title="Delete workflow"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {!isDefault && (
+                        <button
+                          onClick={(e) => handleDelete(wf.id, e)}
+                          className="p-1 rounded-md text-ink-subtle hover:text-red-400 hover:bg-surface-3 transition-colors"
+                          title="Delete workflow"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </SpotlightCard>

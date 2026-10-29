@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 2026-10-29
 
+### Fixed
+- **Custom Agent Testing Playground API Compatibility (`/api/custom-agents/test`)**:
+  - Relaxed strict validation on `AgentTestRequest` by making `system_prompt` and `input_prompt` optional and adding `prompt` alias, enabling agent playground execution with `{ agent_id, prompt }`.
+  - Added automatic agent resolution from prebuilt registry or user custom profiles to hydrate missing `system_prompt`, `model`, and persona parameters.
+  - Added field aliases `response` and `duration_ms` in `AgentTestResponse` for seamless frontend compatibility with `AgentPlaygroundModal.tsx`.
+- **Default Workflow Visibility on Workflows Studio Page**:
+  - Ensured `GET /api/workflows` always merges built-in default templates (`Competitive Research & Report Pipeline`) into the results for all authenticated users and unauthenticated guests, resolving Supabase query exclusion.
+  - Added deterministic RFC 4122 UUID identifiers (`0193e182-5af1-5bf1-bfe2-970663d16eb8`) for Supabase Postgres schema compatibility.
+  - Added fallback in `frontend/src/app/workflows/page.tsx` to automatically query `/api/workflows/defaults` if `/api/workflows` returns 401 or empty.
+  - Added a distinctive "Default Template" pill badge on workflow cards and disabled deletion for system templates.
+
 ### Added
 - **Production Default Multi-Agent Workflow Template (`Competitive Research & Report Pipeline`)**:
   - Implemented built-in workflow template definition (`backend/app/workflows/default_workflows.py`, ID: `default-wf-research-pipeline`) demonstrating all 5 DAG step types: `agent`, `python_code`, `condition`, `loop`, and `artifact`.

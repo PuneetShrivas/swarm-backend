@@ -26,7 +26,7 @@ interface AgentPlaygroundModalProps {
 }
 
 interface AgentTestResult {
-  status: "completed" | "error";
+  status: "completed" | "success" | "error";
   agent_id: string;
   response: string;
   tokens_used: number;
@@ -89,6 +89,10 @@ export default function AgentPlaygroundModal({
         body: JSON.stringify({
           agent_id: agent.id,
           prompt: testPrompt.trim(),
+          input_prompt: testPrompt.trim(),
+          system_prompt: agent.system_prompt || undefined,
+          model: agent.model || undefined,
+          temperature: agent.temperature,
           inputs: {},
           mock_variables: {},
         }),
@@ -99,8 +103,17 @@ export default function AgentPlaygroundModal({
         throw new Error(errorData.detail || `Agent test failed with status ${res.status}`);
       }
 
-      const data: AgentTestResult = await res.json();
-      setResult(data);
+      const rawData = await res.json();
+      const normalizedData: AgentTestResult = {
+        status: rawData.status === "error" ? "error" : "completed",
+        agent_id: rawData.agent_id || agent.id,
+        response: rawData.response || rawData.content || "Agent completed without response.",
+        tokens_used: rawData.tokens_used || 0,
+        duration_ms: rawData.duration_ms || rawData.latency_ms || 0,
+        tool_calls: rawData.tool_calls || [],
+        error: rawData.error || null,
+      };
+      setResult(normalizedData);
       setActiveTab("response");
     } catch (err: unknown) {
       setErrorMessage((err as Error).message || "Agent test execution error.");
@@ -219,7 +232,7 @@ export default function AgentPlaygroundModal({
             <div className="p-3.5 rounded-lg bg-surface-1 border border-hairline space-y-3 mt-2 animate-fade-in">
               <div className="flex items-center justify-between pb-2 border-b border-hairline">
                 <div className="flex items-center gap-2">
-                  {result.status === "completed" ? (
+                  {result.status === "completed" || result.status === "success" ? (
                     <CheckCircle2 size={15} className="text-semantic-success" />
                   ) : (
                     <XCircle size={15} className="text-red-400" />
