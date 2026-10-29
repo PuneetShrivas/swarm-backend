@@ -35,6 +35,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Expandable "+X more" view for responses with more than 4 citations.
   - Cleaned up tool execution JSON traces by removing raw URL dump blocks.
 
+### Fixed
+- **Vercel Production FastAPI Deployment**:
+  - Resolved `404 Not Found` (`{"detail": "Not Found"}`) across all production routes on `https://swarm-backend-lyart.vercel.app`.
+  - Migrated from legacy `api/*.py` single-function rewrite pattern to Vercel's native zero-config FastAPI serverless architecture.
+  - Added clean top-level `backend/main.py` entrypoint exposing the FastAPI `app` with serverless path resolution.
+  - Removed outdated `backend/api/index.py` and deleted URL-corrupting rewrite rule in `backend/vercel.json`.
+  - Successfully deployed via modern Vercel CLI v65 with verified live health (`/api/health`), agents roster (`/api/agents`), and Swagger UI (`/docs`).
+
 ### Changed
 - **Gemini 3.8 Flash & Latest Models Upgrade**:
   - Replaced deprecated `gemini-2.5-flash` with `gemini-3.8-flash` across all backend configs, generators, schemas, and tests, resolving 404 NOT_FOUND errors.
@@ -165,6 +173,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `MessageItem`: Styled user and agent bubbles, syntax-highlighted code block formatting, tool call disclosure accordion, and sibling branch switcher (`< 1 / 2 >`).
   - `ChatInput`: Floating input dock with auto-resize textarea, focus ring glow, and keyboard shortcut tips.
   - `UsageModal`: Themed telemetry modal with glowing token/query metric cards, breakdown by agent and model, and execution latency logs.
+
+### Fixed
+- **Vercel Production FastAPI Deployment**:
+  - Resolved `404 Not Found` (`{"detail": "Not Found"}`) across all production routes on `https://swarm-backend-lyart.vercel.app`.
+  - Migrated from legacy `api/*.py` single-function rewrite pattern to Vercel's native zero-config FastAPI serverless architecture.
+  - Added clean top-level `backend/main.py` entrypoint exposing the FastAPI `app` with serverless path resolution.
+  - Removed outdated `backend/api/index.py` and deleted URL-corrupting rewrite rule in `backend/vercel.json`.
+  - Successfully deployed via modern Vercel CLI v65 with verified live health (`/api/health`), agents roster (`/api/agents`), and Swagger UI (`/docs`).
 
 ### Changed
 - Refactored `frontend/tailwind.config.ts` and `frontend/src/app/globals.css` to use semantic HSL tokens (`background`, `foreground`, `card`, `primary`, `muted`, `accent`, `border`, `ring`).
