@@ -1138,8 +1138,165 @@ def execute(input_data: dict, context: dict) -> dict:
     assert "art-test-studio-01" not in [a["id"] for a in res_get_after.json()]
     print("PASS: /api/artifacts POST, GET, and DELETE lifecycle verified for Artifacts Studio")
 
+    # 58. Test Binary Document Generation Tooling (PDF, PPTX, DOCX, XLSX)
+    from app.agents.file_creator.tools import (
+        generate_pdf_document,
+        generate_presentation_deck,
+        generate_word_document,
+        generate_spreadsheet_workbook,
+    )
+    # PDF
+    pdf_out = generate_pdf_document(
+        title="Autonomous Swarm Research Report",
+        subtitle="Quarterly Multi-Agent Intelligence Briefing",
+        sections=[
+            {"heading": "Executive Summary", "content": "Autonomous agent swarms demonstrate 4x throughput."},
+            {"heading": "Performance Metrics", "bullets": ["Latency: 12ms", "Accuracy: 99.4%"]}
+        ],
+        tables=[{"headers": ["Agent", "Status"], "rows": [["Coder", "Active"], ["Researcher", "Active"]]}],
+        filename="swarm_briefing.pdf"
+    )
+    assert pdf_out["status"] == "created"
+    assert pdf_out["file_type"] == "pdf"
+    assert pdf_out["is_base64"] is True
+    assert len(pdf_out["content"]) > 500
+
+    # PPTX
+    pptx_out = generate_presentation_deck(
+        title="Q3 Strategy Presentation",
+        subtitle="Swarm Architecture & Scaling",
+        slides=[
+            {"title": "Core Milestones", "bullet_points": ["Milestone A", "Milestone B"]},
+            {"title": "System Architecture", "layout": "two_column", "left_points": ["FastAPI", "Vercel"], "right_points": ["Supabase", "Groq"]}
+        ],
+        filename="strategy_deck.pptx"
+    )
+    assert pptx_out["status"] == "created"
+    assert pptx_out["file_type"] == "pptx"
+    assert pptx_out["slide_count"] >= 3
+    assert len(pptx_out["content"]) > 1000
+
+    # DOCX
+    docx_out = generate_word_document(
+        title="Project Implementation Specification",
+        subtitle="Technical Design Document",
+        sections=[
+            {"heading": "System Architecture", "paragraphs": ["The platform coordinates modular agents via DAG workflows."]},
+            {"heading": "Action Items", "bullets": ["Deploy endpoints", "Validate tests"]}
+        ],
+        filename="project_spec.docx"
+    )
+    assert docx_out["status"] == "created"
+    assert docx_out["file_type"] == "docx"
+    assert docx_out["section_count"] == 2
+    assert len(docx_out["content"]) > 1000
+
+    # XLSX
+    xlsx_out = generate_spreadsheet_workbook(
+        sheets=[{
+            "sheet_name": "Revenue Forecast",
+            "headers": ["Product", "Q1", "Q2", "Q3", "Total"],
+            "rows": [["Agent Swarm", 50000, 75000, 110000, "=SUM(B2:D2)"]],
+            "include_totals": True
+        }],
+        filename="financial_model.xlsx"
+    )
+    assert xlsx_out["status"] == "created"
+    assert xlsx_out["file_type"] == "xlsx"
+    assert xlsx_out["sheet_count"] == 1
+    assert len(xlsx_out["content"]) > 500
+
+    # Direct tool execution endpoint probe
+    res_direct_gen = client.post(
+        "/api/agents/file_creator/tools/generate_pdf_document/execute",
+        json={"arguments": {"title": "API Test PDF", "filename": "api_test.pdf"}},
+    )
+    assert res_direct_gen.status_code == 200, f"Direct tool execution failed: {res_direct_gen.text}"
+    assert res_direct_gen.json()["result"]["file_type"] == "pdf"
+    print("PASS: Binary Document Generation Tools verified: PDF, PPTX, DOCX, XLSX with Base64 encoding")
+
+    # 59. Test Binary Document Ingestion & Parsing Tooling (PDF, PPTX, DOCX, XLSX)
+    from app.agents.file_parser.tools import parse_binary_document
+    # Parse generated PDF
+    parsed_pdf = parse_binary_document("swarm_briefing.pdf", pdf_out["content"], file_type="pdf")
+    assert parsed_pdf["status"] == "parsed"
+    assert parsed_pdf["format"] == "pdf"
+    assert parsed_pdf["page_count"] >= 1
+    assert "Autonomous Swarm Research Report" in parsed_pdf["extracted_text"]
+
+    # Parse generated PPTX
+    parsed_pptx = parse_binary_document("strategy_deck.pptx", pptx_out["content"], file_type="pptx")
+    assert parsed_pptx["status"] == "parsed"
+    assert parsed_pptx["format"] == "pptx"
+    assert parsed_pptx["slide_count"] >= 3
+    assert "Q3 Strategy Presentation" in parsed_pptx["extracted_text"]
+
+    # Parse generated DOCX
+    parsed_docx = parse_binary_document("project_spec.docx", docx_out["content"], file_type="docx")
+    assert parsed_docx["status"] == "parsed"
+    assert parsed_docx["format"] == "docx"
+    assert "Project Implementation Specification" in parsed_docx["extracted_text"]
+
+    # Parse generated XLSX
+    parsed_xlsx = parse_binary_document("financial_model.xlsx", xlsx_out["content"], file_type="xlsx")
+    assert parsed_xlsx["status"] == "parsed"
+    assert parsed_xlsx["format"] == "xlsx"
+    assert parsed_xlsx["sheet_count"] >= 1
+    assert "Agent Swarm" in parsed_xlsx["extracted_text"]
+    print("PASS: Binary Document Ingestion Tools verified: PDF, PPTX, DOCX, XLSX extraction")
+
+    # 60. Test RAG Document Ingestion, Indexing, and Context Retrieval Endpoints
+    rag_payload = {
+        "filename": "swarm_security_architecture.md",
+        "content": (
+            "# Swarm Security Architecture\n"
+            "All multi-agent communication routes through secure JWT authentication.\n"
+            "Each worker agent operates inside an isolated sandbox with memory boundaries.\n\n"
+            "# RAG Data Isolation\n"
+            "Document chunks are indexed using hybrid BM25 and vector similarity.\n"
+            "Cross-tenant data leakage is strictly blocked by user RLS policies.\n"
+        ),
+        "chunk_size": 100,
+        "chunk_overlap": 20
+    }
+    res_ingest = client.post("/api/documents/ingest", json=rag_payload, headers=auth_headers)
+    assert res_ingest.status_code == 200, f"RAG Ingest failed: {res_ingest.text}"
+    ingest_data = res_ingest.json()
+    assert ingest_data["status"] == "indexed"
+    assert ingest_data["chunk_count"] >= 2
+    doc_id = ingest_data["document_id"]
+
+    # Query RAG Context
+    query_payload = {"query": "How is multi-agent communication secured?", "top_k": 2}
+    res_query = client.post("/api/documents/rag/query", json=query_payload, headers=auth_headers)
+    assert res_query.status_code == 200, f"RAG Query failed: {res_query.text}"
+    query_data = res_query.json()
+    assert query_data["status"] == "success"
+    assert query_data["results_count"] > 0
+    top_chunk = query_data["chunks"][0]
+    assert "JWT authentication" in top_chunk["content"]
+    assert top_chunk["confidence"] > 0.0
+
+    # Generate RAG Context Block for Agent Prompts
+    res_context = client.post("/api/documents/rag/context", json=query_payload, headers=auth_headers)
+    assert res_context.status_code == 200
+    context_data = res_context.json()
+    assert context_data["status"] == "context_generated"
+    assert "### [Retrieved Document Context via RAG]" in context_data["formatted_context_block"]
+    assert "swarm_security_architecture.md" in context_data["sources"]
+
+    # List & Delete Document
+    res_list_docs = client.get("/api/documents", headers=auth_headers)
+    assert res_list_docs.status_code == 200
+    assert any(d["document_id"] == doc_id for d in res_list_docs.json())
+
+    res_del_doc = client.delete(f"/api/documents/{doc_id}", headers=auth_headers)
+    assert res_del_doc.status_code == 200
+    assert res_del_doc.json()["status"] == "deleted"
+    print("PASS: RAG Ingest, BM25/Vector retrieval, prompt context generation, and index lifecycle verified")
+
     print("\n========================================")
-    print("ALL 57 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 60 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

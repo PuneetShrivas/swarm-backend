@@ -10,6 +10,9 @@ import {
   Check,
   Download,
   FileCode,
+  FileText,
+  FileSpreadsheet,
+  Presentation,
   Pencil,
   RotateCcw,
   ThumbsUp,
@@ -136,13 +139,43 @@ export default function MessageItem({
     }
   };
 
-  const handleDownloadFile = (filename: string, content: string, mime?: string) => {
+  const handleDownloadFile = (filename: string, content: string, mime?: string, is_base64?: boolean) => {
     try {
-      const blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+      const fname = filename || "download.txt";
+      const ext = (fname.split(".").pop() || "").toLowerCase();
+      const isBinary =
+        Boolean(is_base64) ||
+        ["pdf", "pptx", "docx", "xlsx", "zip"].includes(ext);
+
+      const effectiveMime =
+        mime ||
+        (ext === "pdf"
+          ? "application/pdf"
+          : ext === "pptx"
+          ? "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          : ext === "docx"
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : ext === "xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : "text/plain;charset=utf-8");
+
+      let blob: Blob;
+      if (isBinary) {
+        const cleanB64 = content.replace(/^data:[^;]+;base64,/, "").trim();
+        const byteChars = atob(cleanB64);
+        const byteNumbers = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        blob = new Blob([byteNumbers], { type: effectiveMime });
+      } else {
+        blob = new Blob([content], { type: effectiveMime });
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename || "download.txt";
+      a.download = fname;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -559,14 +592,23 @@ export default function MessageItem({
                     const fname = String(rawArt.filename || rawArt.name || "generated_file.txt");
                     const fcontent = String(rawArt.content || node.content);
                     const mime = typeof rawArt.mime_type === "string" ? rawArt.mime_type : "text/plain";
+                    const isBase64 = Boolean(rawArt.is_base64) || rawArt.encoding === "base64";
                     const sizeKb = typeof rawArt.size_bytes === "number" ? (rawArt.size_bytes / 1024).toFixed(1) : (fcontent.length / 1024).toFixed(1);
-                    const ext = fname.includes(".") ? fname.split(".").pop() : "file";
+                    const ext = (fname.includes(".") ? fname.split(".").pop() : "file")?.toLowerCase() || "file";
+
+                    const renderIcon = () => {
+                      if (ext === "pdf") return <FileText size={16} className="text-red-400" />;
+                      if (ext === "pptx" || ext === "ppt") return <Presentation size={16} className="text-orange-400" />;
+                      if (ext === "docx" || ext === "doc") return <FileText size={16} className="text-blue-400" />;
+                      if (ext === "xlsx" || ext === "xls" || ext === "csv") return <FileSpreadsheet size={16} className="text-emerald-400" />;
+                      return <FileCode size={16} className="text-linear-primary" />;
+                    };
 
                     return (
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-md bg-linear-primary/10 border border-linear-primary/30 text-linear-primary flex items-center justify-center shrink-0">
-                            <FileCode size={16} />
+                          <div className="w-8 h-8 rounded-md bg-linear-primary/10 border border-linear-primary/30 flex items-center justify-center shrink-0">
+                            {renderIcon()}
                           </div>
                           <div className="min-w-0">
                             <div className="text-xs font-semibold text-ink truncate flex items-center gap-1.5">
@@ -584,7 +626,7 @@ export default function MessageItem({
                         <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={() => handleDownloadFile(fname, fcontent, mime)}
+                            onClick={() => handleDownloadFile(fname, fcontent, mime, isBase64)}
                             className="px-3 py-1.5 rounded-md bg-linear-primary hover:bg-linear-hover text-white text-xs font-medium inline-flex items-center gap-1.5 transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer"
                           >
                             <Download size={12} />

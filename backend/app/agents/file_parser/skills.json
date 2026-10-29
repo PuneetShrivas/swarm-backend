@@ -1,20 +1,32 @@
 [
   {
+    "id": "binary_document_ingestion",
+    "name": "Binary Document Ingestion & Parsing",
+    "description": "Ingests and parses PDFs, PowerPoint decks (.pptx), Word documents (.docx), and Excel spreadsheets (.xlsx), extracting clean text and structural elements.",
+    "triggers": ["parse pdf", "parse pptx", "parse docx", "parse excel", "read pdf", "read powerpoint", "read word document", "ingest binary file"]
+  },
+  {
+    "id": "rag_document_retrieval",
+    "name": "RAG Document Retrieval & Context Passing",
+    "description": "Performs hybrid BM25 and semantic search over ingested document chunks, returning ranked passages with confidence scores and source citations.",
+    "triggers": ["rag search", "query document", "find context in file", "search document", "document rag", "context retrieval"]
+  },
+  {
     "id": "schema_parsing",
     "name": "Schema Ingestion & Parsing",
     "description": "Ingests raw text, JSON, YAML, and CSV files, automatically validating syntax and inferring structural data schemas.",
     "triggers": ["parse file", "parse json", "parse csv", "extract schema", "validate schema", "inspect file", "ingest document"]
   },
   {
-    "id": "anomaly_detection",
-    "name": "Log & Syntax Anomaly Detection",
-    "description": "Scans log files, server outputs, and source code for syntax breaks, formatting irregularities, and AST violations.",
-    "triggers": ["parse log", "find anomaly", "detect error in file", "validate syntax", "check errors"]
-  },
-  {
     "id": "tabular_profiling",
     "name": "Tabular Data Profiling",
     "description": "Profiles CSV tables, detects delimiters, verifies rectangular column consistency, and infers primitive data types.",
     "triggers": ["profile table", "analyze csv", "csv delimiter", "column types", "inspect dataset"]
+  },
+  {
+    "id": "anomaly_detection",
+    "name": "Log & Syntax Anomaly Detection",
+    "description": "Scans log files, server outputs, and source code for syntax breaks, formatting irregularities, and AST violations.",
+    "triggers": ["parse log", "find anomaly", "detect error in file", "validate syntax", "check errors"]
   }
 ]

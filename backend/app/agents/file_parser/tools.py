@@ -2,7 +2,294 @@ import json
 import ast
 import csv
 import io
-from typing import Dict, Any, List
+import base64
+import re
+from typing import Dict, Any, List, Optional
+
+# Binary document ingestion libraries
+from pypdf import PdfReader
+from pptx import Presentation
+from docx import Document
+from openpyxl import load_workbook
+
+# RAG Knowledge Store
+from app.rag.store import rag_store, chunk_text, tokenize
+
+
+def parse_binary_document(
+    filename: str,
+    content_base64: str,
+    file_type: str = "auto"
+) -> Dict[str, Any]:
+    """
+    Ingests and extracts text, metadata, and structural sections from binary files
+    such as PDFs, PowerPoint decks (.pptx), Word documents (.docx), and Excel spreadsheets (.xlsx).
+    """
+    try:
+        clean_b64 = re.sub(r"^data:[^;]+;base64,", "", content_base64.strip())
+        raw_bytes = base64.b64decode(clean_b64)
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to decode base64 binary content: {str(e)}"}
+
+    fname_lower = filename.lower()
+    fmt = file_type.lower()
+    if fmt == "auto":
+        if fname_lower.endswith(".pdf"):
+            fmt = "pdf"
+        elif fname_lower.endswith(".pptx") or fname_lower.endswith(".ppt"):
+            fmt = "pptx"
+        elif fname_lower.endswith(".docx") or fname_lower.endswith(".doc"):
+            fmt = "docx"
+        elif fname_lower.endswith(".xlsx") or fname_lower.endswith(".xls"):
+            fmt = "xlsx"
+        else:
+            fmt = "binary"
+
+    extracted_text = ""
+    sections: List[Dict[str, Any]] = []
+
+    try:
+        if fmt == "pdf":
+            reader = PdfReader(io.BytesIO(raw_bytes))
+            page_count = len(reader.pages)
+            meta = reader.metadata or {}
+            page_texts = []
+            for p_idx, page in enumerate(reader.pages):
+                txt = (page.extract_text() or "").strip()
+                page_texts.append(txt)
+                sections.append({
+                    "section_type": "page",
+                    "index": p_idx + 1,
+                    "title": f"Page {p_idx + 1}",
+                    "content": txt
+                })
+            extracted_text = "\n\n".join(page_texts)
+            return {
+                "status": "parsed",
+                "filename": filename,
+                "format": "pdf",
+                "page_count": page_count,
+                "word_count": len(extracted_text.split()),
+                "extracted_text": extracted_text,
+                "metadata": {
+                    "author": str(meta.get("/Author", "Unknown")),
+                    "title": str(meta.get("/Title", filename)),
+                    "creator": str(meta.get("/Creator", "PDF Engine")),
+                },
+                "sections": sections[:10]  # First 10 sections preview
+            }
+
+        elif fmt == "pptx":
+            prs = Presentation(io.BytesIO(raw_bytes))
+            slide_count = len(prs.slides)
+            slide_texts = []
+            for s_idx, slide in enumerate(prs.slides):
+                s_title = slide.shapes.title.text if slide.shapes.title else f"Slide {s_idx + 1}"
+                body_parts = []
+                for shape in slide.shapes:
+                    if shape.has_text_frame and shape != slide.shapes.title:
+                        for p in shape.text_frame.paragraphs:
+                            if p.text.strip():
+                                body_parts.append(p.text.strip())
+                combined = f"# {s_title}\n" + "\n".join(f"- {b}" for b in body_parts)
+                slide_texts.append(combined)
+                sections.append({
+                    "section_type": "slide",
+                    "index": s_idx + 1,
+                    "title": s_title,
+                    "bullet_points": body_parts
+                })
+            extracted_text = "\n\n".join(slide_texts)
+            return {
+                "status": "parsed",
+                "filename": filename,
+                "format": "pptx",
+                "slide_count": slide_count,
+                "word_count": len(extracted_text.split()),
+                "extracted_text": extracted_text,
+                "sections": sections
+            }
+
+        elif fmt == "docx":
+            doc = Document(io.BytesIO(raw_bytes))
+            doc_lines = []
+            for p in doc.paragraphs:
+                txt = p.text.strip()
+                if txt:
+                    doc_lines.append(txt)
+                    if p.style.name.startswith("Heading"):
+                        sections.append({"section_type": "heading", "title": txt, "style": p.style.name})
+
+            # Extract table contents
+            table_count = len(doc.tables)
+            for t_idx, table in enumerate(doc.tables):
+                t_rows = []
+                for row in table.rows:
+                    t_rows.append([cell.text.strip() for cell in row.cells])
+                if t_rows:
+                    sections.append({
+                        "section_type": "table",
+                        "index": t_idx + 1,
+                        "rows": t_rows
+                    })
+                    for row_cells in t_rows:
+                        doc_lines.append(" | ".join(row_cells))
+
+            extracted_text = "\n\n".join(doc_lines)
+            return {
+                "status": "parsed",
+                "filename": filename,
+                "format": "docx",
+                "paragraph_count": len(doc.paragraphs),
+                "table_count": table_count,
+                "word_count": len(extracted_text.split()),
+                "extracted_text": extracted_text,
+                "sections": sections[:10]
+            }
+
+        elif fmt == "xlsx":
+            wb = load_workbook(io.BytesIO(raw_bytes), data_only=True)
+            sheet_summaries = []
+            all_sheets_text = []
+
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                rows = list(ws.iter_rows(values_only=True))
+                row_count = len(rows)
+                col_count = len(rows[0]) if rows else 0
+
+                sheet_lines = [f"=== Sheet: {sheet_name} ({row_count} rows, {col_count} cols) ==="]
+                for r in rows[:25]:  # Preview first 25 rows
+                    row_vals = [str(v) if v is not None else "" for v in r]
+                    if any(row_vals):
+                        sheet_lines.append(", ".join(row_vals))
+
+                sheet_text = "\n".join(sheet_lines)
+                all_sheets_text.append(sheet_text)
+                sheet_summaries.append({
+                    "sheet_name": sheet_name,
+                    "row_count": row_count,
+                    "col_count": col_count,
+                    "headers": [str(c) for c in (rows[0] if rows else []) if c is not None]
+                })
+
+            extracted_text = "\n\n".join(all_sheets_text)
+            return {
+                "status": "parsed",
+                "filename": filename,
+                "format": "xlsx",
+                "sheet_count": len(wb.sheetnames),
+                "sheets": sheet_summaries,
+                "word_count": len(extracted_text.split()),
+                "extracted_text": extracted_text
+            }
+
+        else:
+            return {"status": "unsupported_format", "format": fmt, "message": f"Unsupported binary format '{fmt}'."}
+
+    except Exception as e:
+        return {"status": "error", "format": fmt, "message": f"Parsing exception: {str(e)}"}
+
+
+def ingest_and_index_document(
+    filename: str,
+    content: str = "",
+    content_base64: str = "",
+    file_type: str = "auto",
+    chunk_size: int = 150,
+    chunk_overlap: int = 30
+) -> Dict[str, Any]:
+    """
+    Ingests any document (plain text, code, CSV, JSON, Markdown, or binary Base64 PDF/PPTX/DOCX/XLSX),
+    extracts structural text, chunks it into semantic passages, and indexes into the RAG Knowledge Store.
+    """
+    fname_lower = filename.lower()
+    text_to_index = content
+
+    # If binary content or binary extension, extract text first
+    if content_base64 or fname_lower.endswith((".pdf", ".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls")):
+        parse_res = parse_binary_document(filename, content_base64 or content, file_type=file_type)
+        if parse_res.get("status") == "parsed":
+            text_to_index = parse_res.get("extracted_text", "")
+        else:
+            text_to_index = content or ""
+
+    if not text_to_index.strip():
+        return {
+            "status": "error",
+            "filename": filename,
+            "message": "Document contains no readable text to index."
+        }
+
+    # Ingest and index into RAG store
+    result = rag_store.ingest_document(
+        filename=filename,
+        content=text_to_index,
+        metadata={"file_type": file_type, "source": "file_parser"},
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
+    )
+    return result
+
+
+def query_document_context(
+    query: str,
+    top_k: int = 3,
+    document_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Retrieves Top-K relevant contextual chunks from ingested documents using hybrid BM25 lexical
+    scoring and vector similarity. Returns citations, relevance scores, and text excerpts.
+    """
+    chunks = rag_store.query_context(query=query, top_k=top_k, document_id=document_id)
+    return {
+        "status": "success",
+        "query": query,
+        "results_count": len(chunks),
+        "chunks": chunks,
+        "has_context": len(chunks) > 0
+    }
+
+
+def generate_rag_context(
+    query: str,
+    top_k: int = 3,
+    document_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Constructs an enriched prompt context block formatted with source file citations and relevance
+    confidence scores, designed for passing into other swarm agents (orchestrator, researcher, coder, synthesizer).
+    """
+    context_block = rag_store.generate_rag_context_block(query=query, top_k=top_k, document_id=document_id)
+    chunks = rag_store.query_context(query=query, top_k=top_k, document_id=document_id)
+    return {
+        "status": "context_generated",
+        "query": query,
+        "retrieved_chunks_count": len(chunks),
+        "sources": list(set(c["filename"] for c in chunks)),
+        "formatted_context_block": context_block
+    }
+
+
+def list_indexed_documents() -> Dict[str, Any]:
+    """
+    Lists all documents currently indexed in the RAG Knowledge Store along with chunk counts.
+    """
+    docs = rag_store.list_documents()
+    return {
+        "status": "success",
+        "total_documents": len(docs),
+        "documents": docs
+    }
+
+
+def clear_indexed_documents() -> Dict[str, Any]:
+    """
+    Clears all documents and chunk indexes from the RAG Knowledge Store.
+    """
+    rag_store.clear()
+    return {"status": "cleared", "message": "RAG Knowledge Store index has been cleared."}
+
 
 def parse_document_payload(filename: str, content: str, mode: str = "auto") -> Dict[str, Any]:
     """
@@ -11,7 +298,7 @@ def parse_document_payload(filename: str, content: str, mode: str = "auto") -> D
     lines = content.splitlines()
     total_lines = len(lines)
     size_bytes = len(content.encode("utf-8"))
-    
+
     detected_format = "text"
     if filename.endswith(".json") or (content.strip().startswith("{") and content.strip().endswith("}")):
         detected_format = "json"
@@ -34,6 +321,7 @@ def parse_document_payload(filename: str, content: str, mode: str = "auto") -> D
         "preview_snippet": lines[0][:120] if lines else ""
     }
 
+
 def extract_json_schema(content: str) -> Dict[str, Any]:
     """
     Infers property types, keys, and generates a valid JSON Schema draft-07 representation.
@@ -42,7 +330,7 @@ def extract_json_schema(content: str) -> Dict[str, Any]:
         data = json.loads(content)
     except Exception as e:
         return {"status": "error", "message": f"Invalid JSON string: {str(e)}"}
-        
+
     def infer_type(val):
         if val is None:
             return "null"
@@ -90,6 +378,7 @@ def extract_json_schema(content: str) -> Dict[str, Any]:
         "top_level_keys": list(data.keys()) if isinstance(data, dict) else len(data) if isinstance(data, list) else 1
     }
 
+
 def analyze_csv_delimiter(content: str) -> Dict[str, Any]:
     """
     Analyzes raw tabular text, discovers delimiter, validates column uniformity, and infers column types.
@@ -97,7 +386,7 @@ def analyze_csv_delimiter(content: str) -> Dict[str, Any]:
     lines = [l for l in content.splitlines() if l.strip()]
     if not lines:
         return {"status": "error", "message": "Content is empty."}
-        
+
     sample = "\n".join(lines[:10])
     sniffer = csv.Sniffer()
     try:
@@ -110,13 +399,12 @@ def analyze_csv_delimiter(content: str) -> Dict[str, Any]:
     rows = list(reader)
     if not rows:
         return {"status": "error", "message": "No rows found in CSV."}
-        
+
     headers = rows[0]
     data_rows = rows[1:]
     col_count = len(headers)
     is_uniform = all(len(r) == col_count for r in data_rows)
 
-    # Infer column types from first data row
     column_types = {}
     if data_rows:
         sample_row = data_rows[0]
@@ -141,6 +429,7 @@ def analyze_csv_delimiter(content: str) -> Dict[str, Any]:
         "column_types": column_types
     }
 
+
 def validate_ast_syntax(code: str, language: str = "python") -> Dict[str, Any]:
     """
     Parses code through the Abstract Syntax Tree (AST) engine to verify structural integrity and detect syntax errors.
@@ -148,44 +437,127 @@ def validate_ast_syntax(code: str, language: str = "python") -> Dict[str, Any]:
     if language.lower() not in ["python", "py"]:
         return {
             "status": "unsupported_language",
-            "message": f"AST validation natively supports Python; validated '{language}' through basic tokenization."
+            "message": f"Syntax AST validation is currently optimized for Python, received '{language}'."
         }
-        
+
     try:
         tree = ast.parse(code)
-        node_counts = {
-            "functions": len([n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]),
-            "classes": len([n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]),
-            "imports": len([n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]),
-            "total_ast_nodes": len(list(ast.walk(tree)))
-        }
+        func_defs = [n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+        class_defs = [n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+        import_modules = []
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                import_modules.extend([alias.name for alias in n.names])
+            elif isinstance(n, ast.ImportFrom):
+                if n.module:
+                    import_modules.append(n.module)
+
         return {
             "status": "valid",
-            "language": "python",
             "syntax_valid": True,
-            "metrics": node_counts
+            "functions_count": len(func_defs),
+            "classes_count": len(class_defs),
+            "functions": func_defs,
+            "classes": class_defs,
+            "imports": import_modules
         }
     except SyntaxError as e:
         return {
             "status": "syntax_error",
-            "language": "python",
             "syntax_valid": False,
-            "error": str(e.msg),
+            "error": str(e),
             "line": e.lineno,
             "offset": e.offset,
-            "error_text": e.text
+            "text": e.text
         }
 
+
 TOOLS = [
+    {
+        "name": "parse_binary_document",
+        "description": "Extracts text, metadata, slide/page count, and sections from binary files (PDF, PPTX, DOCX, XLSX).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Filename with extension (e.g. document.pdf, deck.pptx, model.xlsx)"},
+                "content_base64": {"type": "string", "description": "Base64-encoded binary content string"},
+                "file_type": {"type": "string", "description": "Document format ('pdf', 'pptx', 'docx', 'xlsx', or 'auto')"}
+            },
+            "required": ["filename", "content_base64"]
+        },
+        "handler_name": "parse_binary_document"
+    },
+    {
+        "name": "ingest_and_index_document",
+        "description": "Ingests a document (text, code, CSV, JSON, Markdown, or binary Base64 PDF/PPTX/DOCX/XLSX), chunks it, and indexes it into the RAG Knowledge Store.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Filename with extension"},
+                "content": {"type": "string", "description": "Plain text content if text document"},
+                "content_base64": {"type": "string", "description": "Base64 string if binary document (PDF, PPTX, DOCX, XLSX)"},
+                "chunk_size": {"type": "integer", "description": "Target word count per chunk (default: 150)"},
+                "chunk_overlap": {"type": "integer", "description": "Word overlap between chunks (default: 30)"}
+            },
+            "required": ["filename"]
+        },
+        "handler_name": "ingest_and_index_document"
+    },
+    {
+        "name": "query_document_context",
+        "description": "Performs hybrid BM25 and vector similarity retrieval over all indexed document chunks. Returns Top-K relevant passages with confidence scores.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query, question, or key concepts"},
+                "top_k": {"type": "integer", "description": "Number of top relevant chunks to retrieve (default: 3)"},
+                "document_id": {"type": "string", "description": "Optional document ID to scope retrieval"}
+            },
+            "required": ["query"]
+        },
+        "handler_name": "query_document_context"
+    },
+    {
+        "name": "generate_rag_context",
+        "description": "Constructs an enriched prompt context block from retrieved document chunks with citations for injection into other swarm agents or chat prompts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Topic or query to retrieve context for"},
+                "top_k": {"type": "integer", "description": "Number of passages to format (default: 3)"},
+                "document_id": {"type": "string", "description": "Optional document ID filter"}
+            },
+            "required": ["query"]
+        },
+        "handler_name": "generate_rag_context"
+    },
+    {
+        "name": "list_indexed_documents",
+        "description": "Lists all documents currently indexed in the RAG Knowledge Store.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        },
+        "handler_name": "list_indexed_documents"
+    },
+    {
+        "name": "clear_indexed_documents",
+        "description": "Clears all indexed documents and chunks from the RAG Knowledge Store.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        },
+        "handler_name": "clear_indexed_documents"
+    },
     {
         "name": "parse_document_payload",
         "description": "Ingests and parses document or file payload, computing structural diagnostics and summaries.",
         "parameters": {
             "type": "object",
             "properties": {
-                "filename": {"type": "string", "description": "Name of the file with extension"},
-                "content": {"type": "string", "description": "Raw text content of the document"},
-                "mode": {"type": "string", "description": "Parsing strategy ('auto', 'json', 'csv', 'code')"}
+                "filename": {"type": "string", "description": "Original file name"},
+                "content": {"type": "string", "description": "Raw string content of the document"},
+                "mode": {"type": "string", "description": "Parsing mode ('auto', 'strict', 'tolerant')"}
             },
             "required": ["filename", "content"]
         },
@@ -209,7 +581,7 @@ TOOLS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "content": {"type": "string", "description": "Raw tabular CSV string content"}
+                "content": {"type": "string", "description": "Raw CSV string payload"}
             },
             "required": ["content"]
         },
@@ -222,7 +594,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "code": {"type": "string", "description": "Source code text to validate"},
-                "language": {"type": "string", "description": "Programming language (default: 'python')"}
+                "language": {"type": "string", "description": "Programming language ('python')"}
             },
             "required": ["code"]
         },
@@ -231,6 +603,12 @@ TOOLS = [
 ]
 
 TOOL_HANDLERS = {
+    "parse_binary_document": parse_binary_document,
+    "ingest_and_index_document": ingest_and_index_document,
+    "query_document_context": query_document_context,
+    "generate_rag_context": generate_rag_context,
+    "list_indexed_documents": list_indexed_documents,
+    "clear_indexed_documents": clear_indexed_documents,
     "parse_document_payload": parse_document_payload,
     "extract_json_schema": extract_json_schema,
     "analyze_csv_delimiter": analyze_csv_delimiter,

@@ -1,11 +1,11 @@
 {
   "id": "file_creator",
   "name": "File & Document Architect",
-  "role": "Synthesizes production files, scripts, documents, datasets, and downloadable artifacts",
+  "role": "Synthesizes production files, PDFs, PPTX decks, DOCX reports, Excel spreadsheets, datasets, and downloadable artifacts",
   "status": "active",
   "model": "qwen-3.8",
   "temperature": 0.2,
   "is_orchestrator": false,
   "icon": "FileCode",
-  "description": "Constructs standalone code scripts, CSV spreadsheets, Markdown specifications, JSON schemas, and analytical reports with one-click download support."
+  "description": "Constructs standalone PDFs, PowerPoint slide decks, Word documents, Excel workbooks, code scripts, CSV spreadsheets, and analytical reports with one-click download support."
 }

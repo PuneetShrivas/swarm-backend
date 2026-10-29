@@ -17,6 +17,7 @@ import {
   FileText,
   FileSpreadsheet,
   FileJson,
+  Presentation,
   Plus,
   RefreshCw,
   X,
@@ -34,6 +35,9 @@ export interface Artifact {
   source_type?: string;
   source_title?: string;
   downloadable?: boolean;
+  is_base64?: boolean;
+  mime_type?: string;
+  encoding?: string;
 }
 
 export default function ArtifactsStudioPage() {
@@ -122,16 +126,50 @@ export default function ArtifactsStudioPage() {
     };
   }, [fetchArtifacts]);
 
-  // Handle Download File
+  // Handle Download File with Binary Base64 decoding support
   const handleDownload = (art: Artifact, e?: React.MouseEvent) => {
     e?.stopPropagation();
     try {
-      const mime = art.type === "json" ? "application/json" : art.type === "csv" ? "text/csv" : "text/plain;charset=utf-8";
-      const blob = new Blob([art.content], { type: mime });
+      const fname = art.filename || art.name || "download.txt";
+      const ext = (fname.split(".").pop() || art.type || "txt").toLowerCase();
+      const isBinary =
+        Boolean(art.is_base64) ||
+        art.encoding === "base64" ||
+        ["pdf", "pptx", "docx", "xlsx", "zip"].includes(ext);
+
+      const mime =
+        art.mime_type ||
+        (ext === "pdf"
+          ? "application/pdf"
+          : ext === "pptx"
+          ? "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          : ext === "docx"
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : ext === "xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : ext === "json"
+          ? "application/json"
+          : ext === "csv"
+          ? "text/csv"
+          : "text/plain;charset=utf-8");
+
+      let blob: Blob;
+      if (isBinary) {
+        const cleanB64 = art.content.replace(/^data:[^;]+;base64,/, "").trim();
+        const byteChars = atob(cleanB64);
+        const byteNumbers = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        blob = new Blob([byteNumbers], { type: mime });
+      } else {
+        blob = new Blob([art.content], { type: mime });
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = art.filename || art.name || "download.txt";
+      a.download = fname;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -144,7 +182,15 @@ export default function ArtifactsStudioPage() {
   // Handle Copy Content
   const handleCopy = (art: Artifact, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    navigator.clipboard.writeText(art.content);
+    const isBinary =
+      Boolean(art.is_base64) ||
+      art.encoding === "base64" ||
+      ["pdf", "pptx", "docx", "xlsx"].includes((art.type || "").toLowerCase());
+    if (isBinary) {
+      navigator.clipboard.writeText(`[Binary Document: ${art.filename || art.name} (${art.size_bytes || 0} bytes)]`);
+    } else {
+      navigator.clipboard.writeText(art.content);
+    }
     setCopiedId(art.id);
     setTimeout(() => setCopiedId(null), 2000);
   };
@@ -211,11 +257,20 @@ export default function ArtifactsStudioPage() {
 
   const getFileIcon = (type: string) => {
     const t = type.toLowerCase();
-    if (t === "py" || t === "python" || t === "js" || t === "ts" || t === "sql") {
-      return <FileCode size={18} className="text-emerald-400" />;
+    if (t === "pdf") {
+      return <FileText size={18} className="text-red-400" />;
     }
-    if (t === "csv" || t === "tsv") {
-      return <FileSpreadsheet size={18} className="text-purple-400" />;
+    if (t === "pptx" || t === "ppt") {
+      return <Presentation size={18} className="text-orange-400" />;
+    }
+    if (t === "docx" || t === "doc") {
+      return <FileText size={18} className="text-blue-400" />;
+    }
+    if (t === "xlsx" || t === "xls" || t === "csv" || t === "tsv") {
+      return <FileSpreadsheet size={18} className="text-emerald-400" />;
+    }
+    if (t === "py" || t === "python" || t === "js" || t === "ts" || t === "sql") {
+      return <FileCode size={18} className="text-purple-400" />;
     }
     if (t === "json" || t === "yaml" || t === "yml") {
       return <FileJson size={18} className="text-amber-400" />;
@@ -296,7 +351,7 @@ export default function ArtifactsStudioPage() {
               </div>
 
               <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                {["all", "py", "csv", "json", "md", "sql", "txt"].map((t) => (
+                {["all", "pdf", "docx", "pptx", "xlsx", "csv", "json", "py", "md"].map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -388,9 +443,16 @@ export default function ArtifactsStudioPage() {
                         </div>
 
                         {/* Snippet Preview */}
-                        <p className="text-[11px] font-mono text-ink-subtle line-clamp-3 leading-relaxed bg-canvas/60 p-2 rounded border border-hairline/60">
-                          {art.content.slice(0, 160)}
-                        </p>
+                        {Boolean(art.is_base64) || ["pdf", "docx", "pptx", "xlsx"].includes((art.type || "").toLowerCase()) ? (
+                          <div className="text-[11px] font-mono text-ink-subtle bg-canvas/60 p-2.5 rounded border border-hairline/60 flex items-center gap-2">
+                            {getFileIcon(art.type || fname.split(".").pop() || "txt")}
+                            <span>Binary {art.type.toUpperCase()} Document ({sizeKb} KB)</span>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] font-mono text-ink-subtle line-clamp-3 leading-relaxed bg-canvas/60 p-2 rounded border border-hairline/60">
+                            {art.content.slice(0, 160)}
+                          </p>
+                        )}
                       </div>
 
                       {/* Card Actions Footer */}
@@ -491,11 +553,36 @@ export default function ArtifactsStudioPage() {
               </div>
             </div>
 
-            {/* Modal Body / Preformatted Code Viewer */}
+            {/* Modal Body / Preformatted Code Viewer or Binary Card */}
             <div className="p-4 flex-1 overflow-y-auto bg-canvas">
-              <pre className="font-mono text-xs text-ink whitespace-pre-wrap break-all leading-relaxed p-3 rounded-lg bg-surface-1 border border-hairline">
-                {previewArtifact.content}
-              </pre>
+              {Boolean(previewArtifact.is_base64) || ["pdf", "docx", "pptx", "xlsx"].includes((previewArtifact.type || "").toLowerCase()) ? (
+                <div className="p-8 text-center space-y-4 rounded-lg bg-surface-1 border border-hairline my-4 max-w-md mx-auto">
+                  <div className="w-14 h-14 mx-auto rounded-xl bg-surface-2 border border-hairline flex items-center justify-center">
+                    {getFileIcon(previewArtifact.type || previewArtifact.filename.split(".").pop() || "txt")}
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-semibold text-ink">{previewArtifact.filename || previewArtifact.name}</h4>
+                    <p className="text-xs text-ink-subtle">
+                      {previewArtifact.type.toUpperCase()} Document &middot; {((previewArtifact.size_bytes || previewArtifact.content.length) / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                  <p className="text-xs text-ink-tertiary leading-relaxed">
+                    This binary document has been synthesized by the Swarm Document Architect. Click Download to open natively in your application.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(previewArtifact)}
+                    className="px-4 py-2 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover rounded-md transition-all inline-flex items-center gap-2 shadow-xs cursor-pointer"
+                  >
+                    <Download size={13} />
+                    <span>Download {previewArtifact.filename || "File"}</span>
+                  </button>
+                </div>
+              ) : (
+                <pre className="font-mono text-xs text-ink whitespace-pre-wrap break-all leading-relaxed p-3 rounded-lg bg-surface-1 border border-hairline">
+                  {previewArtifact.content}
+                </pre>
+              )}
             </div>
           </div>
         </div>

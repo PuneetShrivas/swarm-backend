@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 2026-10-29
 
+### Added
+- **Advanced File Generation Tooling (PDF, PPTX, DOCX, XLSX)**:
+  - Installed `reportlab`, `pypdf`, `python-docx`, `python-pptx`, and `openpyxl`.
+  - Added binary file generation tools in `backend/app/agents/file_creator/tools.py`:
+    - `generate_pdf_document`: Generates multi-page styled PDFs with headers, typography, bullet points, and colored table styles using ReportLab.
+    - `generate_presentation_deck`: Generates 16:9 widescreen PowerPoint presentation decks (.pptx) with agenda bullets, two-column comparative layouts, and tables using `python-pptx`.
+    - `generate_word_document`: Generates formatted Microsoft Word documents (.docx) with styled headings, paragraphs, bullet lists, and tables using `python-docx`.
+    - `generate_spreadsheet_workbook`: Generates multi-sheet Excel workbooks (.xlsx) with styled header fills, auto-sized columns, cell borders, and formulas (`SUM`, `AVERAGE`) using `openpyxl`.
+    - Universal `generate_file_artifact` with Base64 encoding support and `is_base64: true`.
+    - `convert_file_format` for translating across Markdown, HTML, CSV, JSON, and plain text.
+  - Updated `route_agent` and `extract_file_artifact_from_turn` in `main.py` to route PDF/presentation/Word/Excel requests directly to `file_creator` and synthesize native Base64-encoded binary artifacts.
+- **File Ingestion & RAG Context Engine (`file_parser`)**:
+  - Implemented `RAGKnowledgeStore` (`backend/app/rag/store.py`) featuring heading-aware sliding-window chunking, BM25 term weighting, and vector similarity ranking.
+  - Added binary document parsing tools in `backend/app/agents/file_parser/tools.py`:
+    - `parse_binary_document`: Ingests and extracts clean text, slide/page counts, tables, and metadata from PDF, PPTX, DOCX, and XLSX files.
+    - `ingest_and_index_document`: Unified ingestion pipeline chunking text/binary documents and building search indexes.
+    - `query_document_context`: Direct tool for swarm agents to perform hybrid search and retrieve Top-K relevant passages with confidence scores.
+    - `generate_rag_context`: Formats retrieved document chunks into structured Markdown prompt blocks with source citations for passing rich context into other swarm agents.
+  - Added REST endpoints in `backend/app/main.py`: `POST /api/documents/ingest`, `POST /api/documents/rag/query`, `POST /api/documents/rag/context`, `GET /api/documents`, and `DELETE /api/documents/{document_id}`.
+- **Frontend Client Binary Artifact & RAG Integration**:
+  - `artifacts/page.tsx` & `MessageItem.tsx`: Added Base64-to-binary decoding (`atob` -> `Uint8Array` -> `Blob`) so downloaded `.pdf`, `.pptx`, `.docx`, and `.xlsx` files open natively without corruption.
+  - Added filter tabs on `/artifacts` for `pdf`, `pptx`, `docx`, `xlsx`, `csv`, `json`, `py`, `md`.
+  - Added visual format icons and binary overview preview cards in Artifacts Studio.
+- **Automated Tests**:
+  - Added Tests 58, 59, and 60 to `backend/test_endpoints.py` verifying all 4 generator engines, 4 binary parsers, and the RAG indexing and context query lifecycle. All 60 tests passing cleanly.
+
 ### Fixed
 - **Persistent Sidebar Chat Conversations on Non-Chat Pages**:
   - `AppUnifiedSidebar.tsx`: Added auto-fetching of `/api/sessions` when `initialSessions` is not passed as a prop (such as on `/workflows`, `/agents`, and `/artifacts`), enabling persistent conversation listing site-wide.

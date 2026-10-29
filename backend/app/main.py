@@ -371,13 +371,19 @@ def route_agent(target_id: Optional[str], last_user_content: str):
         "export dataset", "sample csv", "create csv", "make csv", "build csv", "produce csv",
         "csv file", "json file", "sample file", "generate a file", "create a file", "generate a csv",
         "create a csv", "sample data file", "generate dataset", "create spreadsheet", "generate spreadsheet",
-        "give me a csv", "give me a file", "output as csv", "provide a csv", "create a spreadsheet"
+        "give me a csv", "give me a file", "output as csv", "provide a csv", "create a spreadsheet",
+        "generate pdf", "create pdf", "make pdf", "export pdf", "pdf report", "pdf document", "download pdf",
+        "generate presentation", "create presentation", "make presentation", "powerpoint", "slide deck",
+        "presentation deck", "generate ppt", "create ppt", "generate pptx", "create pptx", "pitch deck",
+        "generate word", "create word document", "make docx", "generate docx", "create docx", "word doc",
+        "generate excel", "create excel", "make excel", "generate xlsx", "create xlsx", "excel sheet",
+        "excel spreadsheet", "financial model xlsx"
     ]
     is_file_creation = (
         any(k in content_lower for k in file_create_keywords)
         or (
             any(verb in content_lower for verb in ["create", "generate", "make", "export", "download", "produce", "write", "build", "provide", "give me"])
-            and any(noun in content_lower for noun in ["csv", "file", "json", "spreadsheet", "dataset", "markdown file", "txt file"])
+            and any(noun in content_lower for noun in ["csv", "file", "json", "spreadsheet", "dataset", "markdown file", "txt file", "pdf", "pptx", "presentation", "deck", "docx", "word document", "xlsx", "excel sheet"])
         )
     )
     if is_file_creation:
@@ -386,8 +392,12 @@ def route_agent(target_id: Optional[str], last_user_content: str):
             return creator
 
     file_parse_keywords = [
-        "parse file", "parse log", "parse json", "parse csv", "ingest file",
-        "validate schema", "extract schema", "parse document", "inspect file", "ingest"
+        "parse file", "parse log", "parse json", "parse csv", "ingest file", "ingest document",
+        "validate schema", "extract schema", "parse document", "inspect file", "ingest",
+        "parse pdf", "read pdf", "extract pdf", "parse ppt", "parse pptx", "read presentation",
+        "parse docx", "read word document", "parse excel", "read excel", "parse xlsx",
+        "rag", "rag search", "query document", "search in file", "search document", "document context",
+        "find in document", "ask document", "document qa", "context passing"
     ]
     if any(k in content_lower for k in file_parse_keywords):
         parser = agent_registry.get("file_parser")
@@ -818,18 +828,148 @@ def extract_file_artifact_from_turn(content: str, agent_id: str, prompt: str = "
         return None
 
     prompt_lower = prompt.lower()
+
+    # 1. Binary Document Generation detection (PDF, PPTX, DOCX, XLSX)
+    if "pdf" in prompt_lower:
+        try:
+            from app.agents.file_creator.tools import generate_pdf_document
+            clean_lines = [l.strip("# *") for l in content.splitlines() if l.strip()]
+            doc_title = clean_lines[0] if clean_lines else "Generated Document"
+            raw_secs = re.split(r"(?m)^(?=#{1,3}\s+)", content)
+            sections = []
+            for s in raw_secs:
+                s_lines = s.strip().splitlines()
+                if s_lines:
+                    h = s_lines[0].strip("# ").strip()
+                    b = "\n".join(s_lines[1:]).strip()
+                    sections.append({"heading": h, "content": b})
+            art = generate_pdf_document(
+                title=doc_title[:80],
+                subtitle="Swarm Autonomous Document",
+                sections=sections or [{"heading": "Executive Summary", "content": content[:400]}],
+                filename=f"document_{int(time.time())}.pdf"
+            )
+            return {
+                **art,
+                "id": f"art-{int(time.time()*1000)}",
+                "name": art["filename"],
+                "type": "pdf",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "origin_agent": agent_id,
+                "is_base64": True,
+            }
+        except Exception as e:
+            print(f"PDF auto-synthesis notice: {e}")
+
+    if any(k in prompt_lower for k in ["presentation", "powerpoint", "slide deck", "pptx", "pitch deck"]):
+        try:
+            from app.agents.file_creator.tools import generate_presentation_deck
+            clean_lines = [l.strip("# *") for l in content.splitlines() if l.strip()]
+            deck_title = clean_lines[0] if clean_lines else "Strategic Presentation"
+            raw_slides = re.split(r"(?m)^(?=#{1,2}\s+)", content)
+            slides = []
+            for s in raw_slides:
+                s_lines = s.strip().splitlines()
+                if s_lines:
+                    s_title = s_lines[0].strip("# ").strip()
+                    bullets = [l.strip("-* ") for l in s_lines[1:] if l.strip()]
+                    slides.append({"title": s_title, "bullet_points": bullets or ["Overview"]})
+            art = generate_presentation_deck(
+                title=deck_title[:80],
+                subtitle="Swarm Autonomous Slide Deck",
+                slides=slides or [{"title": "Agenda", "bullet_points": ["Key Highlights", "Execution Plan"]}],
+                filename=f"presentation_{int(time.time())}.pptx"
+            )
+            return {
+                **art,
+                "id": f"art-{int(time.time()*1000)}",
+                "name": art["filename"],
+                "type": "pptx",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "origin_agent": agent_id,
+                "is_base64": True,
+            }
+        except Exception as e:
+            print(f"PPTX auto-synthesis notice: {e}")
+
+    if any(k in prompt_lower for k in ["word document", "docx", "word doc"]):
+        try:
+            from app.agents.file_creator.tools import generate_word_document
+            clean_lines = [l.strip("# *") for l in content.splitlines() if l.strip()]
+            doc_title = clean_lines[0] if clean_lines else "Project Document"
+            raw_secs = re.split(r"(?m)^(?=#{1,3}\s+)", content)
+            sections = []
+            for s in raw_secs:
+                s_lines = s.strip().splitlines()
+                if s_lines:
+                    h = s_lines[0].strip("# ").strip()
+                    b = "\n".join(s_lines[1:]).strip()
+                    sections.append({"heading": h, "paragraphs": [b]})
+            art = generate_word_document(
+                title=doc_title[:80],
+                subtitle="Generated by Swarm Document Architect",
+                sections=sections or [{"heading": "Overview", "paragraphs": [content[:400]]}],
+                filename=f"document_{int(time.time())}.docx"
+            )
+            return {
+                **art,
+                "id": f"art-{int(time.time()*1000)}",
+                "name": art["filename"],
+                "type": "docx",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "origin_agent": agent_id,
+                "is_base64": True,
+            }
+        except Exception as e:
+            print(f"DOCX auto-synthesis notice: {e}")
+
+    if any(k in prompt_lower for k in ["excel", "xlsx", "workbook"]):
+        try:
+            from app.agents.file_creator.tools import generate_spreadsheet_workbook
+            table_lines = [l for l in content.splitlines() if "," in l or "\t" in l]
+            rows = []
+            headers = []
+            if table_lines:
+                headers = [h.strip() for h in table_lines[0].split(",")]
+                for tl in table_lines[1:]:
+                    rows.append([v.strip() for v in tl.split(",")])
+            if not headers:
+                headers = ["Metric", "Q1", "Q2", "Q3", "Q4", "Total"]
+                rows = [["Sales", 1000, 1200, 1400, 1600, "=SUM(B2:E2)"]]
+            art = generate_spreadsheet_workbook(
+                sheets=[{"sheet_name": "Data Sheet", "headers": headers, "rows": rows, "include_totals": True}],
+                filename=f"spreadsheet_{int(time.time())}.xlsx"
+            )
+            return {
+                **art,
+                "id": f"art-{int(time.time()*1000)}",
+                "name": art["filename"],
+                "type": "xlsx",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "origin_agent": agent_id,
+                "is_base64": True,
+            }
+        except Exception as e:
+            print(f"XLSX auto-synthesis notice: {e}")
+
     ext_map = {
         "python": "py", "py": "py",
         "javascript": "js", "js": "js", "typescript": "ts", "ts": "ts",
         "json": "json", "csv": "csv", "sql": "sql", "html": "html",
         "markdown": "md", "md": "md", "yaml": "yaml", "yml": "yml",
-        "bash": "sh", "sh": "sh", "shell": "sh", "text": "txt", "txt": "txt"
+        "bash": "sh", "sh": "sh", "shell": "sh", "text": "txt", "txt": "txt",
+        "pdf": "pdf", "pptx": "pptx", "ppt": "pptx", "docx": "docx", "doc": "docx",
+        "xlsx": "xlsx", "xls": "xlsx"
     }
     mime_map = {
         "py": "text/x-python", "js": "application/javascript", "ts": "application/typescript",
         "json": "application/json", "csv": "text/csv", "sql": "application/sql",
         "html": "text/html", "md": "text/markdown", "txt": "text/plain", "sh": "application/x-sh",
-        "yaml": "text/yaml", "yml": "text/yaml"
+        "yaml": "text/yaml", "yml": "text/yaml",
+        "pdf": "application/pdf",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }
 
     # Handle code fence with optional lang, spaces, and CRLF or LF newlines
@@ -2730,4 +2870,96 @@ def delete_artifact(artifact_id: str, current_user: Optional[AuthUser] = Depends
                 pass
 
     return {"status": "deleted", "id": artifact_id}
+
+
+# ---------------------------------------------------------
+# Document Ingestion & RAG Context Endpoints
+# ---------------------------------------------------------
+
+class DocumentIngestPayload(BaseModel):
+    filename: str
+    content: Optional[str] = ""
+    content_base64: Optional[str] = ""
+    file_type: Optional[str] = "auto"
+    chunk_size: Optional[int] = 150
+    chunk_overlap: Optional[int] = 30
+
+
+class RAGQueryPayload(BaseModel):
+    query: str
+    top_k: Optional[int] = 3
+    document_id: Optional[str] = None
+
+
+@app.post("/api/documents/ingest", response_model=Dict[str, Any])
+def ingest_document_api(
+    payload: DocumentIngestPayload,
+    current_user: Optional[AuthUser] = Depends(get_optional_user)
+):
+    """
+    Ingests and parses any document (text, code, CSV, JSON, Markdown, or binary Base64 PDF/PPTX/DOCX/XLSX),
+    chunks it into semantic passages, and indexes it into the Swarm RAG Knowledge Store.
+    """
+    from app.agents.file_parser.tools import ingest_and_index_document
+    res = ingest_and_index_document(
+        filename=payload.filename,
+        content=payload.content or "",
+        content_base64=payload.content_base64 or "",
+        file_type=payload.file_type or "auto",
+        chunk_size=payload.chunk_size or 150,
+        chunk_overlap=payload.chunk_overlap or 30
+    )
+    return res
+
+
+@app.post("/api/documents/rag/query", response_model=Dict[str, Any])
+def rag_query_api(
+    payload: RAGQueryPayload,
+    current_user: Optional[AuthUser] = Depends(get_optional_user)
+):
+    """
+    Retrieves Top-K relevant contextual chunks from ingested documents using hybrid BM25 lexical
+    scoring and vector similarity with confidence scores and citations.
+    """
+    from app.agents.file_parser.tools import query_document_context
+    return query_document_context(
+        query=payload.query,
+        top_k=payload.top_k or 3,
+        document_id=payload.document_id
+    )
+
+
+@app.post("/api/documents/rag/context", response_model=Dict[str, Any])
+def rag_context_api(
+    payload: RAGQueryPayload,
+    current_user: Optional[AuthUser] = Depends(get_optional_user)
+):
+    """
+    Constructs an enriched prompt context block with citations and confidence metrics
+    for direct injection into other swarm agents (orchestrator, researcher, coder, synthesizer).
+    """
+    from app.agents.file_parser.tools import generate_rag_context
+    return generate_rag_context(
+        query=payload.query,
+        top_k=payload.top_k or 3,
+        document_id=payload.document_id
+    )
+
+
+@app.get("/api/documents", response_model=List[Dict[str, Any]])
+def list_documents_api(current_user: Optional[AuthUser] = Depends(get_optional_user)):
+    """Lists all documents currently indexed in the RAG Knowledge Store."""
+    from app.rag.store import rag_store
+    return rag_store.list_documents()
+
+
+@app.delete("/api/documents/{document_id}", response_model=Dict[str, Any])
+def delete_document_api(document_id: str, current_user: Optional[AuthUser] = Depends(get_optional_user)):
+    """Deletes an indexed document and its chunks from the RAG Knowledge Store."""
+    from app.rag.store import rag_store
+    success = rag_store.delete_document(document_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document not found in RAG store.")
+    return {"status": "deleted", "document_id": document_id}
+
 

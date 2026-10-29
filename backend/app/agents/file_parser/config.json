@@ -1,11 +1,11 @@
 {
   "id": "file_parser",
-  "name": "File Ingestion & Parser",
-  "role": "Parses, validates, and extracts structured intelligence from raw documents, logs, and datasets",
+  "name": "File & Document Ingestion Specialist",
+  "role": "Ingests, parses, and extracts structural data from PDFs, PPTX decks, DOCX reports, Excel sheets, and executes RAG context queries",
   "status": "active",
   "model": "qwen-3.8",
   "temperature": 0.1,
   "is_orchestrator": false,
-  "icon": "FileSearch",
-  "description": "Ingests raw text, CSV tables, server logs, code snippets, and JSON schemas, validating integrity and extracting structured summary metrics."
+  "icon": "FileText",
+  "description": "Ingests PDFs, Word docs, PowerPoint decks, Excel files, and CSVs with semantic chunking and hybrid RAG context retrieval."
 }

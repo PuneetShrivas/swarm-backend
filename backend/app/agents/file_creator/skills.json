@@ -6,9 +6,33 @@
     "triggers": ["create file", "generate file", "write script", "make file", "save file", "export file", "write code file"]
   },
   {
+    "id": "pdf_document_synthesis",
+    "name": "PDF Document Synthesis",
+    "description": "Compiles styled multi-page PDF documents with headers, formatted tables, bullet points, and clean typography.",
+    "triggers": ["create pdf", "generate pdf", "make pdf", "export pdf", "pdf report", "download pdf"]
+  },
+  {
+    "id": "presentation_generation",
+    "name": "PowerPoint Deck Generation",
+    "description": "Creates widescreen PowerPoint presentation slide decks (.pptx) with agenda bullets, two-column layouts, and data tables.",
+    "triggers": ["create presentation", "generate presentation", "make ppt", "generate pptx", "powerpoint deck", "slide deck"]
+  },
+  {
+    "id": "word_document_generation",
+    "name": "Word Document Synthesis",
+    "description": "Constructs structured Microsoft Word documents (.docx) with formatted headings, paragraphs, bullet lists, and tables.",
+    "triggers": ["create word document", "generate docx", "make word file", "word doc", "project proposal docx"]
+  },
+  {
+    "id": "spreadsheet_modeling",
+    "name": "Excel Spreadsheet Modeling",
+    "description": "Constructs multi-sheet Excel workbooks (.xlsx) with styled header fills, auto-sized columns, and formulas.",
+    "triggers": ["create excel", "generate xlsx", "spreadsheet", "financial model", "excel workbook", "export xlsx"]
+  },
+  {
     "id": "artifact_packaging",
     "name": "Artifact Packaging",
-    "description": "Prepares and delivers downloadable artifacts with MIME headers, line counters, and browser blob compatibility.",
+    "description": "Prepares and delivers downloadable Base64 and plain text artifacts with MIME headers and browser compatibility.",
     "triggers": ["downloadable", "download file", "package artifact", "bundle files", "export artifact", "create zip"]
   },
   {
