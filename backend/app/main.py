@@ -1116,6 +1116,55 @@ def get_custom_agent(
     return agent
 
 
+@app.put("/api/custom-agents/{agent_id}", response_model=UserAgentProfile)
+def update_custom_agent(
+    agent_id: str,
+    payload: UserAgentProfile,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Updates an existing custom agent profile."""
+    # Prevent collision with prebuilt agents
+    prebuilt = agent_registry.get(agent_id.lower())
+    if prebuilt and not getattr(prebuilt, "is_custom", False):
+        raise HTTPException(status_code=400, detail=f"Cannot overwrite prebuilt swarm agent '{agent_id}'.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    agent_dict = payload.model_dump()
+    agent_dict["id"] = agent_id.lower()
+    agent_dict["user_id"] = current_user.id
+    agent_dict["updated_at"] = now_iso
+
+    saved_agent = None
+    if is_supabase_configured() and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("user_agents").update(agent_dict).eq("id", agent_id.lower()).eq("user_id", current_user.id).execute()
+                if res.data:
+                    saved_agent = res.data[0]
+            except Exception as e:
+                print(f"Supabase update_custom_agent error: {e}")
+
+    if not saved_agent:
+        saved_agent = memory_store.update_user_agent(agent_id.lower(), current_user.id, agent_dict)
+
+    if not saved_agent:
+        raise HTTPException(status_code=404, detail=f"Custom agent '{agent_id}' not found or unauthorized.")
+
+    # Re-register updated profile in registry
+    agent_registry.register_custom(AgentProfile(
+        id=agent_id.lower(),
+        name=payload.name,
+        role=payload.role,
+        description=payload.description,
+        model=payload.model,
+        temperature=payload.temperature,
+        is_orchestrator=False,
+        icon=payload.icon,
+    ))
+    return saved_agent
+
+
 @app.delete("/api/custom-agents/{agent_id}")
 def delete_custom_agent(
     agent_id: str,

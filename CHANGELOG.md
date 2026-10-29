@@ -7,6 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Dedicated Agents Studio & Roster Page (`/agents`)**:
+  - Full-stack agents studio elevating specialized agents as a foundational pillar alongside Chat and Workflows.
+  - Interactive grid displaying both Swarm Core built-in specialists and custom user agents with Linear styling.
+  - Category filtering (`All`, `Swarm Core`, `Custom Agents`), dynamic search, and capability counters (tools, skills, MCP).
+  - Quick action connectors: Test in Playground, start Chat with preselected agent, Inspect capabilities, Edit, and Delete.
+- **Agent Playground (`AgentPlaygroundModal`)**:
+  - Isolated testing environment enabling users to test any agent with custom prompts.
+  - Live execution telemetry tracking duration (ms) and token consumption.
+  - Structured output inspector displaying formatted Markdown responses with one-click copy, tool execution traces, and raw JSON.
+- **Custom Agent Editor (`AgentEditorModal`)**:
+  - Visual editor for creating and updating custom agents with name, slug, role, description, and system prompt guidelines.
+  - Model override dropdown (`gemini-2.5-flash`, `gemini-2.5-pro`, `sonar`, `sonar-pro`) and temperature slider (0.0 to 1.0).
+  - Icon picker for personalized agent visual identity.
+- **Generative AI Agent Architect (`AIAgentGeneratorModal`)**:
+  - Synthesize complete custom agents from natural language requirements using Gemini (`POST /api/ai/generate-agent`).
+  - Interactive review-before-save screen allowing users to refine the generated persona and instructions before committing to their library.
+- **Backend Custom Agent Update Endpoint**:
+  - Implemented `PUT /api/custom-agents/{agent_id}` supporting updates to custom agent profiles with synchronization to `agent_registry`.
+  - Added Test 33 to automated test suite verifying custom agent updates.
+
 - **Advanced Workflow Block Types (`condition`, `python_code`, `loop`, `artifact`)**:
   - **Condition Block**: Safe AST expression evaluation directing control flow to configurable `true_target_step_id` or `false_target_step_id`.
   - **Python Code Block**: Sandboxed in-process Python execution accepting `inputs`, `previous_outputs`, and `context`, with runtime timeouts and syntax validation.

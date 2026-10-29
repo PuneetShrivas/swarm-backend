@@ -614,8 +614,30 @@ def execute(input_data: dict, context: dict) -> dict:
     assert conv_data["metadata"]["model"] == "gemini-2.5-pro"
     print(f"PASS: Conversational routing routed to 'general_assistant' with custom model selection: {conv_data['metadata']['model']}")
 
+    # 33. Test Custom Agent Update (PUT /api/custom-agents/{id})
+    res_update = client.put(
+        "/api/custom-agents/agent-financial-auditor",
+        json={
+            "id": "agent-financial-auditor",
+            "name": "Senior Financial Auditor Agent",
+            "role": "Lead Audit & Risk Specialist",
+            "description": "Performs institutional compliance and risk audits.",
+            "system_prompt": "You are a Senior Risk Auditor. Provide strict quantitative rigor.",
+            "model": "sonar-pro",
+            "temperature": 0.1,
+            "icon": "ShieldCheck",
+        },
+        headers=auth_headers,
+    )
+    assert res_update.status_code == 200, f"Custom agent update failed: {res_update.text}"
+    updated_data = res_update.json()
+    assert updated_data["name"] == "Senior Financial Auditor Agent"
+    assert updated_data["model"] == "sonar-pro"
+    assert updated_data["temperature"] == 0.1
+    print(f"PASS: PUT /api/custom-agents/agent-financial-auditor updated model to {updated_data['model']} and name to '{updated_data['name']}'")
+
     print("\n========================================")
-    print("ALL 32 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 33 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":
