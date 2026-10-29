@@ -1269,7 +1269,7 @@ def chat(
                     )
                 )
 
-            model_name = chosen_model if not chosen_model.startswith("sonar") else normalize_model_name(os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"))
+            model_name = chosen_model if chosen_model.startswith("gemini-") else normalize_model_name(os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"))
             config = types.GenerateContentConfig(
                 system_instruction=agent_prompt,
                 temperature=agent_temp,
@@ -1866,9 +1866,9 @@ def test_custom_agent(
     if client and not is_sonar and os.environ.get("TESTING") != "true" and os.environ.get("MOCK_GEMINI") != "true":
         try:
             from google.genai import types
-            model_name = normalize_model_name(model_name)
+            gemini_model = model_name if model_name.startswith("gemini-") else normalize_model_name(os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"))
             response = client.models.generate_content(
-                model=model_name,
+                model=gemini_model,
                 contents=[types.Part.from_text(text=input_text)],
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,

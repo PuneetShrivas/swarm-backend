@@ -319,8 +319,9 @@ class WorkflowExecutionEngine:
                     from google import genai
                     from google.genai import types
                     client = genai.Client(api_key=api_key)
+                    gemini_model = model_name if model_name.startswith("gemini-") else "gemini-3.8-flash"
                     resp = client.models.generate_content(
-                        model=model_name,
+                        model=gemini_model,
                         contents=prompt,
                         config=types.GenerateContentConfig(
                             system_instruction=system_instructions,
