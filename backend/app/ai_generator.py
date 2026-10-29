@@ -92,6 +92,7 @@ def generate_workflow_spec(
         '      "name": "Human-readable step name",\n'
         '      "step_type": "agent",\n'
         '      "agent_id": "Must match one of the available agent IDs (if step_type is agent)",\n'
+        '      "model": "Use \'sonar\' for websearch, finding stock prices, live data, news, and market quotes; otherwise \'gemini-3.8-flash\'",\n'
         '      "instructions": "Detailed prompt template using {{goal}}, {{inputs.query}}, or {{steps.<prev_step_id>.output.text}}",\n'
         '      "tool_ids": [],\n'
         '      "knowledge_file_ids": [],\n'
@@ -102,6 +103,7 @@ def generate_workflow_spec(
         '    {"source": "step_1", "target": "step_2"}\n'
         "  ]\n"
         "}\n\n"
+        "CRITICAL MODEL DIRECTIVE: When creating workflow steps that involve web search, real-time data, stock prices, financial market quotes, ticker lookups, breaking news, or live information discovery, ALWAYS assign agent_id 'researcher' or specify model 'sonar' (Perplexity Sonar). Perplexity is the mandatory model for all live information and web search tasks.\n\n"
         f"Available Agents to assign:\n{agent_roster_summary}\n\n"
         f"Available Script Tools:\n{tools_summary}\n"
     )
@@ -140,6 +142,15 @@ def generate_workflow_spec(
                     if "depends_on" not in s:
                         s["depends_on"] = [data["steps"][idx-1]["id"]] if idx > 0 else []
 
+                    # Enforce Perplexity ('sonar') on websearch, stock prices, and live information tasks
+                    combined_step_text = f"{s.get('name', '')} {s.get('instructions', '')}".lower()
+                    if any(k in combined_step_text for k in ["stock", "price", "market", "ticker", "web search", "websearch", "search", "live info", "news", "quote", "crypto", "btc", "current"]):
+                        if s.get("step_type") == "agent":
+                            s["agent_id"] = "researcher"
+                        s["model"] = "sonar"
+                    elif s.get("agent_id") == "researcher":
+                        s["model"] = "sonar"
+
                 if "edges" not in data or not isinstance(data["edges"], list) or not data["edges"]:
                     edges = []
                     for s in data["steps"]:
@@ -153,6 +164,51 @@ def generate_workflow_spec(
     # ----------------- Deterministic Fallback Generator -----------------
     prompt_lower = prompt.lower()
     slug_id = uuid.uuid4().hex[:6]
+
+    if any(k in prompt_lower for k in ["stock", "price", "ticker", "market quote", "share price", "equity", "crypto", "btc", "websearch", "live info"]):
+        return {
+            "title": f"Live Market & Stock Intelligence Pipeline ({slug_id})",
+            "description": "Extracts real-time market data, quotes, and financial indicators using Perplexity Sonar live search.",
+            "goal": prompt or "Retrieve real-time market data, ticker prices, and synthesize financial trends.",
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Live Stock Price & Market Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": "Search live financial sources and market quotes for current stock prices, volume, and valuation metrics: {{inputs.query}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Quantitative Valuation Analysis",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": "Evaluate price-to-earnings, momentum indicators, and variance based on live market quotes: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Market Intelligence Briefing",
+                    "step_type": "artifact",
+                    "artifact_title": "Real-Time Market & Stock Report",
+                    "artifact_type": "report",
+                    "instructions": "Synthesize verified quotes and analysis into an executive market briefing: {{steps.step_2.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ],
+        }
 
     if any(k in prompt_lower for k in ["audit", "security", "vulnerability", "cve", "owasp", "pen test"]):
         return {
@@ -287,6 +343,7 @@ def generate_workflow_spec(
                 "name": "Investigative Research & Evidence Gathering",
                 "step_type": "agent",
                 "agent_id": "researcher",
+                "model": "sonar",
                 "instructions": "Conduct deep investigative discovery regarding: {{goal}} with input query: {{inputs.query}}",
                 "tool_ids": [],
                 "knowledge_file_ids": [],

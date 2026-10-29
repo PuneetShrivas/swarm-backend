@@ -194,7 +194,7 @@ export default function AgentsPage() {
   const customCount = agents.filter((a) => a.is_custom).length;
 
   return (
-    <div className="min-h-screen bg-canvas text-ink font-sans flex flex-col selection:bg-linear-primary/20">
+    <div className="flex flex-col h-screen bg-canvas text-ink font-sans overflow-hidden selection:bg-linear-primary/20">
       {/* 1. App Top Navigation Rail */}
       <AppNavigationRail
         currentTab="agents"

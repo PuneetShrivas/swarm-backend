@@ -189,7 +189,7 @@ export default function WorkflowsDashboardPage() {
   });
 
   return (
-    <div className="min-h-screen bg-canvas text-ink flex flex-col font-sans selection:bg-linear-primary/25 selection:text-ink">
+    <div className="flex flex-col h-screen bg-canvas text-ink font-sans overflow-hidden selection:bg-linear-primary/25 selection:text-ink">
       {/* 1. Unified 3-Pillar Top Navigation Rail */}
       <AppNavigationRail
         currentTab="workflows"

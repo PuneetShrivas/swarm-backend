@@ -19,6 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { WorkflowStep, ScriptTool, KnowledgeFile, WorkflowStepType } from "../types";
 import DataFlowEdge from "./DataFlowEdge";
+import { useAppTheme } from "@/components/ThemeProvider";
 import {
   Bot,
   Zap,
@@ -168,10 +169,16 @@ function PerimeterHandles() {
 
 // ----------------- Custom Node Components -----------------
 
-// 1. Goal Root Node (Linear Style with 4-way Snapping)
-function GoalNode({ data }: NodeProps) {
+// 1. Goal Root Node (Linear Style with 4-way Snapping & Soft Theme Glow)
+function GoalNode({ data, selected }: NodeProps) {
   return (
-    <div className="p-4 rounded-lg bg-surface-1 border border-hairline hover:border-hairline-strong transition-colors shadow-card min-w-[260px] max-w-[300px] select-none font-sans relative">
+    <div
+      className={`p-4 rounded-lg bg-surface-1 border transition-all min-w-[260px] max-w-[300px] select-none font-sans relative ${
+        selected
+          ? "border-linear-primary ring-1 ring-linear-primary/40 shadow-[0_0_20px_-3px_var(--glow-color)]"
+          : "border-hairline hover:border-linear-primary/40 hover:shadow-[0_0_15px_-5px_var(--glow-color)]"
+      }`}
+    >
       <PerimeterHandles />
 
       <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-hairline">
@@ -209,8 +216,8 @@ function GoalNode({ data }: NodeProps) {
   );
 }
 
-// 2. Expandable Multi-Type Step Node (Linear Style with 4-way Snapping)
-function StepNode({ data }: NodeProps) {
+// 2. Expandable Multi-Type Step Node (Linear Style with 4-way Snapping & Soft Theme Glow)
+function StepNode({ data, selected }: NodeProps) {
   const step = data?.step as WorkflowStep;
   const onUnitTest = data?.onUnitTest as ((step: WorkflowStep) => void) | undefined;
   const onDeleteStep = data?.onDeleteStep as ((stepId: string) => void) | undefined;
@@ -275,10 +282,12 @@ function StepNode({ data }: NodeProps) {
 
   return (
     <div
-      className={`rounded-lg bg-surface-1 border transition-all shadow-card select-none font-sans group relative ${
+      className={`rounded-lg bg-surface-1 border transition-all select-none font-sans group relative ${
         isExpanded
-          ? "w-[420px] border-linear-primary shadow-lg p-4"
-          : "min-w-[280px] max-w-[320px] border-hairline hover:border-hairline-strong p-4"
+          ? "w-[420px] border-linear-primary ring-1 ring-linear-primary/40 shadow-[0_0_24px_-4px_var(--glow-color)] p-4"
+          : selected
+          ? "min-w-[280px] max-w-[320px] border-linear-primary ring-1 ring-linear-primary/40 shadow-[0_0_20px_-3px_var(--glow-color)] p-4"
+          : "min-w-[280px] max-w-[320px] border-hairline hover:border-linear-primary/40 hover:shadow-[0_0_15px_-5px_var(--glow-color)] p-4"
       }`}
     >
       <PerimeterHandles />
@@ -798,6 +807,9 @@ export default function VisualGraphEditor({
 }: VisualGraphEditorProps) {
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const [showBlockPalette, setShowBlockPalette] = useState(false);
+  const { resolvedTheme } = useAppTheme();
+  const isDark = resolvedTheme === "dark";
+  const canvasDotColor = isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.15)";
 
   // Toggle node expansion
   const handleToggleExpand = useCallback((stepId: string) => {
@@ -1398,9 +1410,9 @@ export default function VisualGraphEditor({
         />
         <Background
           variant={BackgroundVariant.Dots}
-          gap={18}
-          size={1}
-          color="#23252a"
+          gap={20}
+          size={1.5}
+          color={canvasDotColor}
         />
       </ReactFlow>
     </div>

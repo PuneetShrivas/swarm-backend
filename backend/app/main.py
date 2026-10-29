@@ -376,7 +376,12 @@ def route_agent(target_id: Optional[str], last_user_content: str):
         if coder:
             return coder
 
-    research_keywords = ["research", "investigate", "history", "quantum", "paper", "scientific", "study", "fact check", "source", "citation"]
+    research_keywords = [
+        "research", "investigate", "history", "quantum", "paper", "scientific", "study", "fact check", "source", "citation",
+        "web search", "websearch", "search web", "search online", "google", "stock price", "stock prices",
+        "stocks", "ticker", "current price", "live price", "market quote", "share price", "equity price",
+        "latest news", "breaking news", "live data", "live info", "live information", "crypto price", "btc price"
+    ]
     if any(k in content_lower for k in research_keywords):
         researcher = agent_registry.get("researcher")
         if researcher:
@@ -918,6 +923,13 @@ def chat(
     # Determine model choice
     raw_model = request.model or getattr(selected_agent, "model", None) or agent_model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
     chosen_model = normalize_model_name(raw_model)
+
+    # Enforce: Researcher agent ALWAYS uses Perplexity Sonar ('sonar')
+    is_live_query = any(k in last_user_message.content.lower() for k in [
+        "stock price", "stock prices", "stocks", "ticker", "current price", "live price", "market quote", "web search", "websearch", "live info", "latest news"
+    ])
+    if agent_id == "researcher" or getattr(selected_agent, "name", "") == "Research Agent" or is_live_query:
+        chosen_model = "sonar"
 
     # 1. LIVE PERPLEXITY SONAR API GENERATION
     perplexity_key = os.environ.get("PERPLEXITY_API_KEY")

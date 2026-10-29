@@ -68,7 +68,7 @@ const AppThemeContext = createContext<AppThemeContextType | undefined>(undefined
 
 function PaletteManager({ children }: { children: React.ReactNode }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const [palette, setPaletteState] = useState<ThemePalette>("slate");
+  const [palette, setPaletteState] = useState<ThemePalette>("frost");
   const [backgroundPattern, setBackgroundPatternState] = useState<WorkspaceBackground>("plain");
   const [mounted, setMounted] = useState(false);
 
@@ -82,7 +82,8 @@ function PaletteManager({ children }: { children: React.ReactNode }) {
         setPaletteState(savedPalette);
         document.documentElement.setAttribute("data-palette", savedPalette);
       } else {
-        document.documentElement.setAttribute("data-palette", "slate");
+        setPaletteState("frost");
+        document.documentElement.setAttribute("data-palette", "frost");
       }
 
       const savedBg = localStorage.getItem("swarm-background-pattern") as WorkspaceBackground | null;
@@ -94,7 +95,8 @@ function PaletteManager({ children }: { children: React.ReactNode }) {
       }
     } catch {
       // LocalStorage unavailable
-      document.documentElement.setAttribute("data-palette", "slate");
+      setPaletteState("frost");
+      document.documentElement.setAttribute("data-palette", "frost");
       document.documentElement.setAttribute("data-background", "plain");
     }
     setMounted(true);

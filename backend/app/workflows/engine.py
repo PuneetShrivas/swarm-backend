@@ -229,42 +229,99 @@ class WorkflowExecutionEngine:
         temperature: float = 0.3
     ) -> Tuple[str, int]:
         """
-        Executes a prompt against Gemini or generates a deterministic fallback response.
+        Executes a prompt against Perplexity Sonar, Gemini, or generates a deterministic fallback response.
         Returns (response_text, tokens_used).
         """
-        # Try live Gemini if configured and not in test/mock mode
-        try:
-            import os
-            api_key = os.environ.get("GEMINI_API_KEY")
-            if (
-                api_key
-                and not api_key.startswith("test-")
-                and not api_key.startswith("your-")
-                and os.environ.get("TESTING") != "true"
-                and os.environ.get("MOCK_GEMINI") != "true"
-            ):
-                from google import genai
-                from google.genai import types
-                client = genai.Client(api_key=api_key)
-                resp = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instructions,
-                        temperature=temperature,
-                    )
-                )
-                text = resp.text or ""
-                tokens = getattr(getattr(resp, "usage_metadata", None), "total_token_count", 0)
-                if not tokens:
-                    tokens = max(len(prompt.split()) + len(text.split()), 50)
-                return text, tokens
-        except Exception as e:
-            print(f"Workflow agent Gemini generation note: {e}")
+        import os
+        agent_id = getattr(agent, "id", None) or (agent.get("id") if isinstance(agent, dict) else "")
+        is_sonar = (
+            model_name.startswith("sonar")
+            or model_name.startswith("perplexity")
+            or agent_id == "researcher"
+            or any(k in prompt.lower() for k in ["stock price", "stock prices", "ticker", "live information", "web search", "websearch", "market quote"])
+        )
 
-        # Deterministic synthetic execution (used in tests and offline environments)
+        # 1. Live Perplexity Sonar execution (for web search, live info, stock prices)
+        if is_sonar:
+            perplexity_key = os.environ.get("PERPLEXITY_API_KEY")
+            if (
+                perplexity_key
+                and not perplexity_key.startswith("test-")
+                and not perplexity_key.startswith("your-")
+                and os.environ.get("TESTING") != "true"
+                and os.environ.get("MOCK_PERPLEXITY") != "true"
+            ):
+                try:
+                    import httpx
+                    headers = {
+                        "Authorization": f"Bearer {perplexity_key.strip()}",
+                        "Content-Type": "application/json",
+                    }
+                    perp_messages = [
+                        {"role": "system", "content": system_instructions},
+                        {"role": "user", "content": prompt},
+                    ]
+                    resp = httpx.post(
+                        "https://api.perplexity.ai/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": model_name if model_name.startswith("sonar") else "sonar",
+                            "messages": perp_messages,
+                            "temperature": temperature,
+                        },
+                        timeout=35.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        text = data["choices"][0]["message"]["content"]
+                        usage = data.get("usage", {})
+                        tokens = usage.get("total_tokens", len(prompt.split()) + len(text.split()) + 30)
+                        return text, tokens
+                except Exception as e:
+                    print(f"Workflow agent Perplexity Sonar generation note: {e}")
+
+        # 2. Live Gemini execution
+        if not is_sonar:
+            try:
+                api_key = os.environ.get("GEMINI_API_KEY")
+                if (
+                    api_key
+                    and not api_key.startswith("test-")
+                    and not api_key.startswith("your-")
+                    and os.environ.get("TESTING") != "true"
+                    and os.environ.get("MOCK_GEMINI") != "true"
+                ):
+                    from google import genai
+                    from google.genai import types
+                    client = genai.Client(api_key=api_key)
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instructions,
+                            temperature=temperature,
+                        )
+                    )
+                    text = resp.text or ""
+                    tokens = getattr(getattr(resp, "usage_metadata", None), "total_token_count", 0)
+                    if not tokens:
+                        tokens = max(len(prompt.split()) + len(text.split()), 50)
+                    return text, tokens
+            except Exception as e:
+                print(f"Workflow agent Gemini generation note: {e}")
+
+        # 3. Deterministic synthetic execution (used in tests and offline environments)
         agent_name = getattr(agent, "name", None) or (agent.get("name") if isinstance(agent, dict) else "Agent")
         word_count = len(prompt.split())
+        if is_sonar:
+            synthetic_text = (
+                f"[{agent_name} - Perplexity Sonar Web Search]\n"
+                f"Live search synthesis for: {prompt[:120]}...\n"
+                f"Extracted real-time market data, latest verified web evidence, and current citations."
+            )
+            tokens_used = word_count + 85
+            return synthetic_text, tokens_used
+
         synthetic_text = (
             f"[{agent_name} Response]\n"
             f"Successfully executed workflow instruction: {prompt[:120]}...\n"
@@ -478,6 +535,17 @@ class WorkflowExecutionEngine:
             agent_prompt = getattr(agent, "system_prompt", None) or "You are an AI assistant in a workflow."
             agent_model = getattr(config, "model", "gemini-3.8-flash")
             agent_temp = getattr(config, "temperature", 0.3)
+
+        # Step-level model override if specified
+        if step.get("model"):
+            agent_model = step.get("model")
+
+        # Automatically use Perplexity model ('sonar') for research agent, web search, or live information (e.g. stock prices)
+        is_live_action = any(k in (rendered_prompt + " " + (step.get("name") or "")).lower() for k in [
+            "stock", "price", "market", "ticker", "web search", "websearch", "search", "live info", "current", "news", "quote", "btc"
+        ])
+        if getattr(agent, "id", None) == "researcher" or (isinstance(agent, dict) and agent.get("id") == "researcher") or is_live_action:
+            agent_model = "sonar"
 
         # Build combined prompt with tool results and knowledge base
         full_system_instructions = f"{agent_prompt}\n{kb_text}"

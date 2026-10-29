@@ -429,6 +429,21 @@
   box-shadow: 0 0 35px -5px var(--glow-color);
 }
 
+/* React Flow DAG Editor Customizations & Soft Theme Glow Overrides */
+.react-flow__node {
+  outline: none !important;
+  border-radius: 0.5rem;
+}
+.react-flow__node.selected,
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.react-flow__handle {
+  outline: none !important;
+}
+
 /* Typography Prose Theme Readability Overrides */
 :root,
 .light {

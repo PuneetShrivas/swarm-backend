@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Workflow Perplexity Sonar Integration & Real-Time Information Engine**:
+  - Implemented automatic Perplexity Sonar (`sonar`) step assignment in AI workflow DAG generation and deterministic templates (`Live Market & Stock Intelligence Pipeline`) for web search, stock prices, ticker quotes, news, and live market data.
+  - Added live Perplexity Sonar API execution inside the workflow execution engine (`_execute_agent_turn` in `engine.py`) with source extraction and citation telemetry.
+  - Enforced that the `researcher` agent always executes with `model="sonar"`, and queries for stock prices and live information automatically route to `researcher` via `route_agent`.
+- **Full-Height Studio Sidebars with Independent Body Scrolling**:
+  - Refactored `/agents`, `/workflows`, and `/artifacts` page layouts to `flex flex-col h-screen overflow-hidden` with `shrink-0 h-full` on `AppUnifiedSidebar.tsx`, locking the viewport cleanly while inner studio content panes scroll independently.
+  - Initialized accordion sections (`conversations`, `workflows`, `agents`) to collapsed (`false`) by default.
+- **Dark Glacier Frost Default Theme**:
+  - Configured application to default to Dark Mode with the Glacier Frost (`frost`) palette (arctic navy with cyan ice glow) out of the box with zero SSR hydration flicker.
+- **DAG Editor Visual Upgrades (Soft Theme Glow & High-Contrast Canvas Dots)**:
+  - Replaced harsh white card glow in dark mode with soft, theme-matching atmospheric glow (`var(--glow-color)`) and primary ring border on selection/hover.
+  - Upgraded DAG canvas dots background to high-contrast `rgba(255, 255, 255, 0.2)` (`gap={20}`, `size={1.5}`) in dark mode for clear visibility across all displays.
 - **Persistent Collapsible Studio Sidebar Across Chat, Workflows & Agents**:
   - Created `AppUnifiedSidebar.tsx` deployed across `/chat`, `/workflows`, `/agents`, and `/artifacts`.
   - Built-in collapse toggle between full `w-64` panel and slim `w-14` icon rail, persisted in `localStorage` under `swarm_sidebar_collapsed`.
@@ -158,6 +170,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-28
 
 ### Added
+- **Workflow Perplexity Sonar Integration & Real-Time Information Engine**:
+  - Implemented automatic Perplexity Sonar (`sonar`) step assignment in AI workflow DAG generation and deterministic templates (`Live Market & Stock Intelligence Pipeline`) for web search, stock prices, ticker quotes, news, and live market data.
+  - Added live Perplexity Sonar API execution inside the workflow execution engine (`_execute_agent_turn` in `engine.py`) with source extraction and citation telemetry.
+  - Enforced that the `researcher` agent always executes with `model="sonar"`, and queries for stock prices and live information automatically route to `researcher` via `route_agent`.
+- **Full-Height Studio Sidebars with Independent Body Scrolling**:
+  - Refactored `/agents`, `/workflows`, and `/artifacts` page layouts to `flex flex-col h-screen overflow-hidden` with `shrink-0 h-full` on `AppUnifiedSidebar.tsx`, locking the viewport cleanly while inner studio content panes scroll independently.
+  - Initialized accordion sections (`conversations`, `workflows`, `agents`) to collapsed (`false`) by default.
+- **Dark Glacier Frost Default Theme**:
+  - Configured application to default to Dark Mode with the Glacier Frost (`frost`) palette (arctic navy with cyan ice glow) out of the box with zero SSR hydration flicker.
+- **DAG Editor Visual Upgrades (Soft Theme Glow & High-Contrast Canvas Dots)**:
+  - Replaced harsh white card glow in dark mode with soft, theme-matching atmospheric glow (`var(--glow-color)`) and primary ring border on selection/hover.
+  - Upgraded DAG canvas dots background to high-contrast `rgba(255, 255, 255, 0.2)` (`gap={20}`, `size={1.5}`) in dark mode for clear visibility across all displays.
 - **Chat `/workflows` Slash Command & Command Palette**:
   - Interactive floating command menu in `ChatInput.tsx` triggered by typing `/`, with keyboard navigation (`ArrowUp`, `ArrowDown`, `Enter`, `Tab`, `Escape`).
   - Instant command execution: typing or selecting `/workflows` or `/workflow` immediately opens the `WorkflowPickerModal` to launch multi-agent pipelines directly from chat.

@@ -750,8 +750,52 @@ def execute(input_data: dict, context: dict) -> dict:
     assert res_del_art.status_code == 200
     print(f"PASS: /api/artifacts endpoints verified: created, listed ({len(all_arts)} items), and deleted artifact '{art_id}'")
 
+    # 41. Test Routing for Live Stock Prices & Web Search -> researcher with 'sonar'
+    res_stock = client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "What is the current stock price and ticker quote for AAPL?"}]},
+        headers=auth_headers
+    )
+    assert res_stock.status_code == 200, f"Stock price chat failed: {res_stock.text}"
+    stock_meta = res_stock.json().get("metadata", {})
+    assert stock_meta.get("agent_id") == "researcher", f"Expected routing to researcher, got {stock_meta.get('agent_id')}"
+    print(f"PASS: Live stock price query correctly routed to researcher with Perplexity Sonar")
+
+    # 42. Test Workflow Step Execution with Perplexity Sonar for Web Search & Live Info
+    stock_wf_payload = {
+        "title": "Real-Time Stock Market Intelligence DAG",
+        "description": "Scrapes and evaluates live equity prices using Perplexity Sonar",
+        "goal": "Retrieve live stock quotes and market telemetry",
+        "steps": [
+            {
+                "id": "step_live_stock",
+                "name": "Live Stock Price Discovery",
+                "step_type": "agent",
+                "agent_id": "researcher",
+                "model": "sonar",
+                "instructions": "Extract live market prices and volume for {{inputs.query}}",
+                "depends_on": []
+            }
+        ],
+        "edges": []
+    }
+    res_stock_wf = client.post("/api/workflows", json=stock_wf_payload, headers=auth_headers)
+    assert res_stock_wf.status_code == 200
+    s_wf_id = res_stock_wf.json()["id"]
+
+    res_step_test = client.post(
+        f"/api/workflows/{s_wf_id}/steps/step_live_stock/test",
+        json={"step_id": "step_live_stock", "mock_inputs": {"query": "NVDA stock price"}},
+        headers=auth_headers
+    )
+    assert res_step_test.status_code == 200, f"Workflow Perplexity step test failed: {res_step_test.text}"
+    step_out = res_step_test.json()
+    assert step_out["status"] == "completed"
+    assert "Perplexity Sonar Web Search" in step_out["output_data"]["text"], "Expected Perplexity Sonar execution in step output"
+    print(f"PASS: Workflow execution engine executed live information step using Perplexity Sonar")
+
     print("\n========================================")
-    print("ALL 40 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 42 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

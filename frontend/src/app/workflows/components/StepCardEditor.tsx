@@ -252,7 +252,7 @@ export default function StepCardEditor({
           return (
             <div
               key={step.id}
-              className="p-5 rounded-lg bg-surface-1 border border-hairline shadow-card space-y-4 transition hover:border-hairline-strong"
+              className="p-5 rounded-lg bg-surface-1 border border-hairline hover:border-linear-primary/40 hover:shadow-[0_0_15px_-5px_var(--glow-color)] space-y-4 transition-all"
             >
               {/* Step Card Header */}
               <div className="flex items-center justify-between gap-3 border-b border-hairline pb-3">

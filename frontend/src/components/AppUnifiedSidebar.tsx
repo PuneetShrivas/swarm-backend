@@ -96,10 +96,10 @@ export default function AppUnifiedSidebar({
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [mounted, setMounted] = useState<boolean>(false);
 
-  // Accordion section collapse state
+  // Accordion section collapse state (collapsed by default across sections)
   const [openSections, setOpenSections] = useState({
-    conversations: true,
-    workflows: true,
+    conversations: false,
+    workflows: false,
     agents: false,
   });
 
@@ -276,7 +276,7 @@ export default function AppUnifiedSidebar({
   // COLLAPSED ICON RAIL (w-14)
   if (isCollapsed) {
     return (
-      <aside className="w-14 bg-canvas border-r border-hairline flex flex-col items-center py-3 justify-between h-full z-20 hidden md:flex select-none font-sans transition-all duration-200">
+      <aside className="w-14 shrink-0 bg-canvas border-r border-hairline flex flex-col items-center py-3 justify-between h-full z-20 hidden md:flex select-none font-sans transition-all duration-200">
         <div className="flex flex-col items-center gap-3 w-full">
           {/* Expand Toggle */}
           <button
@@ -375,7 +375,7 @@ export default function AppUnifiedSidebar({
 
   // EXPANDED UNIFIED SIDEBAR (w-64)
   return (
-    <aside className="w-64 bg-canvas border-r border-hairline flex flex-col h-full z-20 hidden md:flex select-none font-sans transition-all duration-200">
+    <aside className="w-64 shrink-0 bg-canvas border-r border-hairline flex flex-col h-full z-20 hidden md:flex select-none font-sans transition-all duration-200">
       {/* Top Header Actions */}
       <div className="p-3 border-b border-hairline flex items-center justify-between gap-2">
         <button
