@@ -3,7 +3,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Callable
 
 from app.workflows.models import (
     WorkflowRun,
@@ -690,10 +690,13 @@ class WorkflowExecutionEngine:
         inputs: Dict[str, Any],
         user_id: str,
         trigger_type: str = "manual",
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        step_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        is_ephemeral: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes the entire workflow DAG end-to-end, recording runs and step runs.
+        Supports granular step callbacks and ephemeral execution without DB persistence.
         """
         start_time = time.time()
         workflow_id = workflow_data.get("id", str(uuid.uuid4()))
@@ -712,6 +715,7 @@ class WorkflowExecutionEngine:
             "total_tokens": 0,
             "duration_ms": 0.0,
             "error": None,
+            "is_ephemeral": is_ephemeral,
             "created_at": current_iso_time(),
             "completed_at": None,
         }
@@ -746,6 +750,22 @@ class WorkflowExecutionEngine:
             step_type = step.get("step_type", "agent")
             execution_count += 1
             idx = execution_count - 1
+
+            if step_callback:
+                try:
+                    step_callback({
+                        "event": "step_start",
+                        "step_id": step_id,
+                        "step_index": idx,
+                        "total_steps": len(ordered_steps),
+                        "step_name": step.get("name", step_id),
+                        "agent_id": step.get("agent_id", "orchestrator"),
+                        "step_type": step_type,
+                        "model": step.get("model") or getattr(agent_registry.get(step.get("agent_id")), "model", "qwen-3.8"),
+                        "timestamp": current_iso_time(),
+                    })
+                except Exception as cb_err:
+                    print(f"step_callback step_start error: {cb_err}")
 
             try:
                 res = self.execute_single_step(
@@ -785,6 +805,22 @@ class WorkflowExecutionEngine:
                 }
                 memory_store.add_step_run(step_run_record)
                 step_runs_accum.append(step_run_record)
+
+                if step_callback:
+                    try:
+                        step_callback({
+                            "event": "step_completed",
+                            "step_id": step_id,
+                            "step_index": idx,
+                            "agent_id": res["agent_id"],
+                            "duration_ms": res["duration_ms"],
+                            "tokens_used": res["tokens_used"],
+                            "tool_calls": res["tool_calls"],
+                            "output_preview": str(res["output_data"].get("text", ""))[:200],
+                            "timestamp": current_iso_time(),
+                        })
+                    except Exception as cb_err:
+                        print(f"step_callback step_completed error: {cb_err}")
 
                 # Handle Loop jumping
                 if step_type == "loop":
@@ -829,6 +865,20 @@ class WorkflowExecutionEngine:
                 }
                 memory_store.add_step_run(failed_step_run)
                 step_runs_accum.append(failed_step_run)
+
+                if step_callback:
+                    try:
+                        step_callback({
+                            "event": "step_failed",
+                            "step_id": step_id,
+                            "step_index": idx,
+                            "agent_id": step.get("agent_id", "unknown"),
+                            "error": str(e),
+                            "timestamp": current_iso_time(),
+                        })
+                    except Exception as cb_err:
+                        print(f"step_callback step_failed error: {cb_err}")
+
                 break
 
         total_duration_ms = round((time.time() - start_time) * 1000, 2)

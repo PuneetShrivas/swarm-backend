@@ -521,3 +521,331 @@ def generate_agent_spec(
             {"id": "structured_synthesis", "name": "Structured Synthesis"},
         ],
     }
+
+
+def synthesize_on_the_fly_workflow(
+    prompt: str,
+    target_agent_id: Optional[str] = None,
+    available_agents: Optional[List[Dict[str, Any]]] = None,
+    available_tools: Optional[List[Dict[str, Any]]] = None,
+    attached_artifacts: Optional[List[Dict[str, Any]]] = None,
+    client: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Synthesizes an on-the-fly workflow specification for user chat queries.
+    - If a specific agent is targeted or the query is simple, generates a 1-agent workflow.
+    - If the query is composite, decomposes it into a multi-agent DAG (e.g. Researcher -> Data Analyst -> Synthesizer).
+    - Preserves specialized model configs (e.g. Researcher uses Perplexity Sonar 'sonar').
+    - Returns an ephemeral workflow dictionary ready for in-memory execution by WorkflowExecutionEngine.
+    """
+    prompt_clean = prompt.strip()
+    prompt_lower = prompt_clean.lower()
+    slug_id = uuid.uuid4().hex[:6]
+    art_ids = [a.get("id") for a in (attached_artifacts or []) if a and a.get("id")]
+
+    # 1. Targeted Specific Agent Execution (1-Step Workflow)
+    if target_agent_id and target_agent_id != "orchestrator":
+        model_override = "sonar" if target_agent_id == "researcher" else None
+        agent_name = target_agent_id.replace("_", " ").title()
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"{agent_name} Execution Plan ({slug_id})",
+            "description": f"Direct single-agent workflow for {agent_name}.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": False,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": f"{agent_name} Task",
+                    "step_type": "agent",
+                    "agent_id": target_agent_id,
+                    "model": model_override,
+                    "instructions": prompt_clean,
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                }
+            ],
+            "edges": [],
+        }
+
+    # 2. Composite Multi-Agent Workflows Decomposition
+    # A) Live Market & Financial Intelligence
+    has_market_kw = any(k in prompt_lower for k in [
+        "stock", "ticker", "market quote", "share price", "equity", "crypto", "btc",
+        "financial metric", "p/e ratio", "valuation", "nasdaq", "dow", "s&p"
+    ])
+    has_analysis_kw = any(k in prompt_lower for k in [
+        "analysis", "analyze", "compare", "valuation", "ratio", "briefing", "summary",
+        "financial", "trend", "forecast", "insight"
+    ])
+    if has_market_kw and (has_analysis_kw or len(prompt_clean.split()) > 6):
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Live Market & Valuation Intelligence Pipeline ({slug_id})",
+            "description": "Multi-agent research and valuation analysis using Perplexity Sonar and Groq Qwen.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Live Market Data & Stock Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Search live financial sources and market quotes for current stock prices, volume, and valuation metrics: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Quantitative Valuation Analysis",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": "Evaluate price-to-earnings, momentum indicators, and financial variance based on live market quotes: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Market Intelligence Briefing",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": "Synthesize verified quotes and numerical valuation into an executive market briefing with clear takeaways: {{steps.step_2.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ],
+        }
+
+    # B) Research + Production Code + Quality Review
+    has_research_kw = any(k in prompt_lower for k in ["research", "investigate", "find out", "learn about", "look up", "documentation", "spec"])
+    has_code_kw = any(k in prompt_lower for k in ["code", "implement", "python", "script", "program", "build", "develop", "function", "api"])
+    if has_research_kw and has_code_kw:
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Technical Research, Engineering & Code Review Pipeline ({slug_id})",
+            "description": "Collaborative research, production implementation, and security/quality review.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Technical Specifications & Documentation Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Gather official documentation, API specifications, and architecture requirements for: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Production Software Implementation",
+                    "step_type": "agent",
+                    "agent_id": "coder",
+                    "instructions": "Implement robust, complete production code based on technical specifications: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Code Review & Security Verification",
+                    "step_type": "agent",
+                    "agent_id": "reviewer",
+                    "instructions": "Perform code review, security audit, and edge-case validation for the implementation: {{steps.step_2.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ],
+        }
+
+    # C) Security Vulnerability Audit & Hardened Refactor
+    has_sec_kw = any(k in prompt_lower for k in ["security", "vulnerability", "audit", "cve", "owasp", "pen test", "penetration", "exploit"])
+    if has_sec_kw:
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Security Audit & Remediation Pipeline ({slug_id})",
+            "description": "Comprehensive security audit and hardened implementation.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Vulnerability & Threat Assessment",
+                    "step_type": "agent",
+                    "agent_id": "reviewer",
+                    "instructions": f"Conduct thorough vulnerability analysis and security audit: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Hardened Remediation Implementation",
+                    "step_type": "agent",
+                    "agent_id": "coder",
+                    "instructions": "Implement secure code remediating all identified audit findings: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # D) Data Analysis & Document / Dataset Export
+    has_data_kw = any(k in prompt_lower for k in ["data", "dataset", "statistics", "numbers", "sales", "metrics", "calculate"])
+    has_file_kw = any(k in prompt_lower for k in ["csv", "excel", "xlsx", "pdf", "report", "spreadsheet", "file", "download"])
+    if has_data_kw and has_file_kw:
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Data Analysis & File Export Pipeline ({slug_id})",
+            "description": "Calculates statistics and exports formatted downloadable datasets or documents.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Statistical & Numerical Analysis",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": f"Analyze numerical dataset, calculate key metrics, and summarize patterns: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Formatted File & Report Generation",
+                    "step_type": "agent",
+                    "agent_id": "file_creator",
+                    "instructions": "Generate formatted downloadable file incorporating numerical analysis: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # E) In-Depth Research & Executive Synthesis
+    has_deep_kw = any(k in prompt_lower for k in [
+        "deep dive", "in-depth", "comprehensive", "comparative", "compare",
+        "executive summary", "detailed briefing", "investigate", "explain in detail"
+    ])
+    if has_deep_kw or len(prompt_clean.split()) > 14:
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Deep Investigation & Executive Synthesis Pipeline ({slug_id})",
+            "description": "Multi-agent deep research and executive briefing synthesis.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Domain Discovery & Evidence Gathering",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Gather evidence, background context, and current developments: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Executive Synthesis & Strategic Briefing",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": "Consolidate into an executive briefing with key findings and structured takeaways: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # 3. Single-Agent Workflow Heuristics (1-Step Workflow)
+    # File Creation intent
+    if any(k in prompt_lower for k in ["create file", "generate csv", "make csv", "generate pdf", "generate pptx", "excel"]):
+        chosen_agent = "file_creator"
+    # Coding intent
+    elif any(k in prompt_lower for k in ["code", "function", "python", "javascript", "sql", "bug", "refactor", "algorithm"]):
+        chosen_agent = "coder"
+    # Live Search / Research intent
+    elif any(k in prompt_lower for k in ["web search", "websearch", "latest", "news", "price", "who is", "when did"]):
+        chosen_agent = "researcher"
+    # Data / Math intent
+    elif any(k in prompt_lower for k in ["math", "calculate", "average", "median", "statistics"]):
+        chosen_agent = "data_analyst"
+    # Parsing intent
+    elif any(k in prompt_lower for k in ["parse", "inspect", "extract schema", "rag"]):
+        chosen_agent = "file_parser"
+    else:
+        chosen_agent = "general_assistant"
+
+    agent_name = chosen_agent.replace("_", " ").title()
+    return {
+        "id": f"ephemeral_wf_{slug_id}",
+        "title": f"{agent_name} Execution Plan ({slug_id})",
+        "description": f"Targeted single-agent workflow with {agent_name}.",
+        "goal": prompt_clean,
+        "is_ephemeral": True,
+        "is_multi_step": False,
+        "steps": [
+            {
+                "id": "step_1",
+                "name": f"{agent_name} Execution",
+                "step_type": "agent",
+                "agent_id": chosen_agent,
+                "model": "sonar" if chosen_agent == "researcher" else None,
+                "instructions": prompt_clean,
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+        ],
+        "edges": [],
+    }

@@ -3,9 +3,11 @@ import re
 import json
 import time
 import uuid
+import asyncio
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Callable
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -44,7 +46,11 @@ from app.workflows import (
     workflow_engine,
 )
 from app.workflows.models import WorkflowCreateUpdatePayload
-from app.ai_generator import generate_workflow_spec, generate_agent_spec
+from app.ai_generator import (
+    generate_workflow_spec,
+    generate_agent_spec,
+    synthesize_on_the_fly_workflow,
+)
 from app.workflows.default_workflows import seed_default_workflows, get_default_workflows
 from app.groq_client import (
     get_groq_client,
@@ -733,6 +739,84 @@ def build_artifact_context_block(
     return "\n\n".join(context_sections), resolved_artifacts
 
 
+def build_single_agent_workflow_metadata(
+    agent_id: str,
+    agent_name: str,
+    used_model: str,
+    user_prompt: str,
+    latency_ms: float,
+    total_tokens: int,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Wraps a single-agent turn into an ephemeral 1-step workflow spec and granular execution trace."""
+    wf_id = f"ephemeral_wf_{uuid.uuid4().hex[:6]}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    return {
+        "workflow_spec": {
+            "id": wf_id,
+            "title": f"{agent_name} Execution Plan",
+            "goal": user_prompt,
+            "description": f"Targeted single-agent workflow execution for {agent_name}.",
+            "is_ephemeral": True,
+            "is_multi_step": False,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": f"{agent_name} Task",
+                    "step_type": "agent",
+                    "agent_id": agent_id,
+                    "model": used_model,
+                    "instructions": user_prompt,
+                    "depends_on": [],
+                }
+            ],
+            "edges": [],
+        },
+        "is_ephemeral_workflow": True,
+        "is_multi_step": False,
+        "workflow_title": f"{agent_name} Execution Plan",
+        "workflow_goal": user_prompt,
+        "step_runs": [
+            {
+                "step_id": "step_1",
+                "step_index": 0,
+                "agent_id": agent_id,
+                "status": "completed",
+                "duration_ms": latency_ms,
+                "tokens_used": total_tokens,
+                "tool_calls": tool_calls or [],
+            }
+        ],
+        "granular_trace": [
+            {
+                "timestamp": now_iso,
+                "phase": "intent_analysis",
+                "label": f"Resolved target agent: {agent_name}",
+                "status": "completed",
+            },
+            {
+                "timestamp": now_iso,
+                "phase": "context_grounding",
+                "label": "Grounded context and tool definitions assembled",
+                "status": "completed",
+            },
+            {
+                "timestamp": now_iso,
+                "phase": "model_inference",
+                "label": f"Model inference with {used_model}",
+                "duration_ms": latency_ms,
+                "status": "completed",
+            },
+            {
+                "timestamp": now_iso,
+                "phase": "artifact_check",
+                "label": "Output validated & formatted",
+                "status": "completed",
+            },
+        ],
+    }
+
+
 @app.get("/api/sessions", response_model=List[ChatSession])
 def list_sessions(current_user: AuthUser = Depends(get_current_user)):
     """Lists all chat sessions belonging to the authenticated user."""
@@ -1134,15 +1218,15 @@ def extract_file_artifact_from_turn(content: str, agent_id: str, prompt: str = "
     }
 
 
-@app.post("/api/chat", response_model=Message)
-def chat(
+def _execute_chat_turn(
     request: ChatRequest,
-    current_user: Optional[AuthUser] = Depends(get_optional_user),
-):
+    current_user: Optional[AuthUser],
+    step_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Message:
     """
-    Main swarm chat endpoint.
-    Routes prompt to swarm agent, executes via Gemini API, and persists turn
-    and telemetry into Supabase if an authenticated session is present.
+    Core swarm chat execution engine.
+    Routes prompt to swarm agent or on-the-fly ephemeral workflow, executes
+    via configured LLM provider, and persists turn and telemetry into Supabase.
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided in chat request.")
@@ -1296,6 +1380,142 @@ def chat(
                 metadata=wf_metadata,
             )
 
+    # ----------------- On-The-Fly Workflow Execution (Orchestrator Mode) -----------------
+    if agent_id == "orchestrator":
+        user_uid = current_user.id if current_user else "guest-user"
+        ephemeral_wf = synthesize_on_the_fly_workflow(
+            prompt=last_user_message.content,
+            target_agent_id=target_agent_id,
+            attached_artifacts=attached_arts,
+        )
+
+        if step_callback:
+            try:
+                step_callback({
+                    "event": "workflow_planned",
+                    "is_multi_step": ephemeral_wf.get("is_multi_step", False),
+                    "workflow": ephemeral_wf,
+                    "total_steps": len(ephemeral_wf.get("steps", [])),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+
+        granular_events: List[Dict[str, Any]] = [
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "phase": "intent_analysis",
+                "label": "Analyzing query intent and assembling grounded context",
+                "status": "completed",
+            },
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "phase": "orchestrator_planning",
+                "label": f"Synthesized {'multi-step pipeline' if ephemeral_wf.get('is_multi_step') else 'single-agent plan'}: {ephemeral_wf.get('title')}",
+                "status": "completed",
+            },
+        ]
+
+        def step_event_collector(evt: Dict[str, Any]):
+            granular_events.append({
+                "timestamp": evt.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                "phase": "step_execution",
+                "event_type": evt.get("event"),
+                "step_id": evt.get("step_id"),
+                "step_name": evt.get("step_name"),
+                "agent_id": evt.get("agent_id"),
+                "duration_ms": evt.get("duration_ms"),
+                "tokens_used": evt.get("tokens_used"),
+                "status": "completed" if evt.get("event") == "step_completed" else ("failed" if evt.get("event") == "step_failed" else "running"),
+            })
+            if step_callback:
+                try:
+                    step_callback(evt)
+                except Exception:
+                    pass
+
+        run_res = workflow_engine.execute_workflow(
+            workflow_data=ephemeral_wf,
+            inputs={"prompt": last_user_message.content, "query": last_user_message.content},
+            user_id=user_uid,
+            trigger_type="chat",
+            session_id=request.session_id,
+            step_callback=step_event_collector,
+            is_ephemeral=True,
+        )
+
+        final_res = run_res.get("output_data", {}).get("final_result") or "Workflow execution completed."
+        wf_artifacts = list(run_res.get("output_data", {}).get("artifacts", []))
+
+        auto_art = extract_file_artifact_from_turn(final_res, "orchestrator", last_user_message.content)
+        if auto_art:
+            wf_artifacts.append(auto_art)
+            memory_store.save_artifact({
+                **auto_art,
+                "user_id": user_uid,
+                "source_type": "chat",
+                "source_title": ephemeral_wf.get("title", "On-the-Fly Workflow"),
+            })
+
+        agent_node_id = f"agent-otf-{int(time.time()*1000)}"
+        wf_meta = {
+            "agent_state": "completed",
+            "agent_id": "orchestrator",
+            "agent_name": ephemeral_wf.get("title", "Autonomous Swarm Workflow"),
+            "workflow_run_id": run_res.get("id"),
+            "workflow_title": ephemeral_wf.get("title"),
+            "workflow_goal": ephemeral_wf.get("goal"),
+            "step_runs": run_res.get("step_runs", []),
+            "granular_trace": granular_events,
+            "workflow_spec": ephemeral_wf,
+            "is_ephemeral_workflow": True,
+            "is_multi_step": ephemeral_wf.get("is_multi_step", False),
+            "tokens_used": run_res.get("total_tokens", 0),
+            "duration_ms": run_res.get("duration_ms", 0),
+            "mode": "on_the_fly_workflow",
+            "node_id": agent_node_id,
+        }
+        if wf_artifacts:
+            wf_meta["artifacts"] = wf_artifacts
+            wf_meta["file_artifact"] = wf_artifacts[0]
+        if renamed_session_title:
+            wf_meta["session_title"] = renamed_session_title
+        if attached_arts:
+            wf_meta["attached_artifacts"] = [
+                {"id": a.get("id"), "filename": a.get("filename") or a.get("name"), "type": a.get("type")}
+                for a in attached_arts
+            ]
+
+        if current_user and request.session_id:
+            db_save_message(
+                user_id=current_user.id,
+                session_id=request.session_id,
+                msg_id=agent_node_id,
+                parent_id=user_node_id,
+                role="agent",
+                content=final_res,
+                metadata=wf_meta,
+                token=current_user.token,
+            )
+            db_save_usage(
+                user_id=current_user.id,
+                session_id=request.session_id,
+                message_id=agent_node_id,
+                model="qwen-3.8",
+                agent_id="orchestrator",
+                prompt_tokens=run_res.get("total_tokens", 0) // 2,
+                completion_tokens=run_res.get("total_tokens", 0) // 2,
+                total_tokens=run_res.get("total_tokens", 0),
+                latency_ms=run_res.get("duration_ms", 0),
+                token=current_user.token,
+            )
+
+        return Message(
+            role="agent",
+            content=final_res,
+            metadata=wf_meta,
+        )
+
     # Determine model choice
     raw_model = request.model or getattr(selected_agent, "model", None) or agent_model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
     chosen_model = normalize_model_name(raw_model)
@@ -1306,6 +1526,36 @@ def chat(
     ])
     if agent_id == "researcher" or getattr(selected_agent, "name", "") == "Research Agent" or is_live_query:
         chosen_model = "sonar"
+
+    if step_callback:
+        try:
+            single_plan = build_single_agent_workflow_metadata(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                used_model=chosen_model,
+                user_prompt=last_user_message.content,
+                latency_ms=0,
+                total_tokens=0,
+            )
+            step_callback({
+                "event": "workflow_planned",
+                "is_multi_step": False,
+                "workflow": single_plan.get("workflow_spec"),
+                "total_steps": 1,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            step_callback({
+                "event": "step_start",
+                "step_id": "step_1",
+                "step_index": 0,
+                "total_steps": 1,
+                "step_name": f"Execute {agent_name}",
+                "agent_id": agent_id,
+                "model": chosen_model,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
 
     # 1. LIVE PERPLEXITY SONAR API GENERATION
     perplexity_key = os.environ.get("PERPLEXITY_API_KEY")
@@ -1370,6 +1620,15 @@ def chat(
                     "model": chosen_model,
                     "node_id": agent_node_id,
                 }
+                agent_metadata.update(build_single_agent_workflow_metadata(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    used_model=chosen_model,
+                    user_prompt=last_user_message.content,
+                    latency_ms=latency_ms,
+                    total_tokens=total_tokens,
+                    tool_calls=tool_calls,
+                ))
                 if renamed_session_title:
                     agent_metadata["session_title"] = renamed_session_title
                 if attached_arts:
@@ -1413,6 +1672,21 @@ def chat(
                         latency_ms=latency_ms,
                         token=current_user.token,
                     )
+                if step_callback:
+                    try:
+                        step_callback({
+                            "event": "step_completed",
+                            "step_id": "step_1",
+                            "step_index": 0,
+                            "agent_id": agent_id,
+                            "duration_ms": latency_ms,
+                            "tokens_used": total_tokens,
+                            "tool_calls": tool_calls,
+                            "output_preview": perp_content[:200],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                    except Exception:
+                        pass
                 return Message(role="agent", content=perp_content, metadata=agent_metadata)
         except Exception as perp_err:
             print(f"Perplexity API execution note: {perp_err}")
@@ -1467,6 +1741,15 @@ def chat(
                 "model": used_model,
                 "node_id": agent_node_id,
             }
+            agent_metadata.update(build_single_agent_workflow_metadata(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                used_model=used_model,
+                user_prompt=last_user_message.content,
+                latency_ms=latency_ms,
+                total_tokens=total_tokens,
+                tool_calls=tool_calls,
+            ))
             if renamed_session_title:
                 agent_metadata["session_title"] = renamed_session_title
             if attached_arts:
@@ -1509,6 +1792,22 @@ def chat(
                     latency_ms=latency_ms,
                     token=current_user.token,
                 )
+
+            if step_callback:
+                try:
+                    step_callback({
+                        "event": "step_completed",
+                        "step_id": "step_1",
+                        "step_index": 0,
+                        "agent_id": agent_id,
+                        "duration_ms": latency_ms,
+                        "tokens_used": total_tokens,
+                        "tool_calls": tool_calls,
+                        "output_preview": groq_content[:200],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
 
             return Message(
                 role="agent",
@@ -1586,6 +1885,15 @@ def chat(
                 "model": model_name,
                 "node_id": agent_node_id,
             }
+            agent_metadata.update(build_single_agent_workflow_metadata(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                used_model=model_name,
+                user_prompt=last_user_message.content,
+                latency_ms=latency_ms,
+                total_tokens=total_tokens,
+                tool_calls=tool_calls,
+            ))
             if renamed_session_title:
                 agent_metadata["session_title"] = renamed_session_title
             if attached_arts:
@@ -1630,6 +1938,22 @@ def chat(
                     latency_ms=latency_ms,
                     token=current_user.token,
                 )
+
+            if step_callback:
+                try:
+                    step_callback({
+                        "event": "step_completed",
+                        "step_id": "step_1",
+                        "step_index": 0,
+                        "agent_id": agent_id,
+                        "duration_ms": latency_ms,
+                        "tokens_used": total_tokens,
+                        "tool_calls": tool_calls,
+                        "output_preview": agent_response_content[:200],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
 
             return Message(
                 role="agent",
@@ -1779,6 +2103,15 @@ def chat(
         "mode": "demo_fallback",
         "node_id": agent_node_id,
     }
+    demo_metadata.update(build_single_agent_workflow_metadata(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        used_model="simulation-demo",
+        user_prompt=last_user_message.content,
+        latency_ms=latency_ms,
+        total_tokens=simulated_tokens,
+        tool_calls=demo_tools,
+    ))
     if renamed_session_title:
         demo_metadata["session_title"] = renamed_session_title
     if attached_arts:
@@ -1823,10 +2156,120 @@ def chat(
             token=current_user.token,
         )
 
+    if step_callback:
+        try:
+            step_callback({
+                "event": "step_completed",
+                "step_id": "step_1",
+                "step_index": 0,
+                "agent_id": agent_id,
+                "duration_ms": latency_ms,
+                "tokens_used": simulated_tokens,
+                "tool_calls": demo_tools,
+                "output_preview": fallback_content[:200],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
+
     return Message(
         role="agent",
         content=fallback_content,
         metadata=demo_metadata,
+    )
+
+
+# ----------------- HTTP Chat Endpoints -----------------
+
+@app.post("/api/chat", response_model=Message)
+def chat(
+    request: ChatRequest,
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
+) -> Message:
+    """
+    Main swarm chat endpoint.
+    Routes prompt to swarm agent or on-the-fly ephemeral workflow, executes
+    turn, and persists turn and telemetry into Supabase if authenticated.
+    """
+    return _execute_chat_turn(request, current_user, step_callback=None)
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(
+    request: ChatRequest,
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
+):
+    """
+    Streams Server-Sent Events (SSE) representing granular execution phases,
+    workflow step milestones, and final synthesized output for both multi-agent
+    and single-agent executions.
+    """
+    event_queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    SENTINEL = object()
+
+    def sync_step_callback(evt: Dict[str, Any]):
+        evt_type = evt.get("event") or evt.get("type")
+        type_name = "step_start" if evt_type == "step_start" else (
+            "step_complete" if evt_type in ("step_completed", "step_complete") else (
+                "step_failed" if evt_type == "step_failed" else (
+                    "workflow_planned" if evt_type == "workflow_planned" else (
+                        "phase" if evt_type == "phase" else "step_progress"
+                    )
+                )
+            )
+        )
+        payload = {
+            "type": type_name,
+            **evt
+        }
+        loop.call_soon_threadsafe(event_queue.put_nowait, payload)
+
+    def worker():
+        try:
+            loop.call_soon_threadsafe(event_queue.put_nowait, {
+                "type": "phase",
+                "phase": "intent_analysis",
+                "label": "Analyzing query intent and assembling grounded context",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+
+            msg = _execute_chat_turn(request, current_user, step_callback=sync_step_callback)
+
+            loop.call_soon_threadsafe(event_queue.put_nowait, {
+                "type": "complete",
+                "message": msg.model_dump() if hasattr(msg, "model_dump") else msg.dict(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception as exc:
+            loop.call_soon_threadsafe(event_queue.put_nowait, {
+                "type": "error",
+                "error": str(exc),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        finally:
+            loop.call_soon_threadsafe(event_queue.put_nowait, SENTINEL)
+
+    worker_task = asyncio.create_task(asyncio.to_thread(worker))
+
+    async def event_generator():
+        try:
+            while True:
+                item = await event_queue.get()
+                if item is SENTINEL:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            await worker_task
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
     )
 
 

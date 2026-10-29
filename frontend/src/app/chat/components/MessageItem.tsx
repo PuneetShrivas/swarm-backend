@@ -29,6 +29,8 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { ChatNode } from "../types";
+import { GranularStepTrace, WorkflowSpec } from "./GranularStepTrace";
+import { SaveWorkflowModal } from "./SaveWorkflowModal";
 
 interface MessageItemProps {
   node: ChatNode;
@@ -54,6 +56,13 @@ export default function MessageItem({
   const [copied, setCopied] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showAllCitations, setShowAllCitations] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [workflowToSave, setWorkflowToSave] = useState<WorkflowSpec | null>(null);
+
+  const handleOpenSaveModal = (spec: WorkflowSpec) => {
+    setWorkflowToSave(spec);
+    setIsSaveModalOpen(true);
+  };
 
   // Extract citations from node metadata or from perplexity / search tool calls
   const rawCitations: string[] = (() => {
@@ -250,7 +259,7 @@ export default function MessageItem({
           }`}
         >
           {/* Autonomous Workflow Progress Banner */}
-          {node.metadata?.mode === "workflow_execution" && (
+          {node.metadata?.mode === "workflow_execution" && !node.metadata?.granular_trace && !node.metadata?.is_ephemeral_workflow && (
             <div className="mb-3 p-3 rounded-md bg-canvas border border-hairline space-y-2">
               <div className="flex items-center justify-between text-xs font-medium">
                 <span className="flex items-center gap-1.5 text-linear-primary">
@@ -584,6 +593,14 @@ export default function MessageItem({
                 </div>
               )}
 
+              {/* Granular Step Execution Trace & Ephemeral Workflow Banner */}
+              {!isUser && (
+                <GranularStepTrace
+                  metadata={node.metadata}
+                  onOpenSaveModal={handleOpenSaveModal}
+                />
+              )}
+
               {/* Downloadable File Artifact Banner */}
               {resolvedArtifact && (
                 <div className="mt-3 p-3 rounded-lg bg-surface-2/90 border border-hairline-strong shadow-xs select-none">
@@ -759,6 +776,13 @@ export default function MessageItem({
           </div>
         )}
       </div>
+
+      {/* Save Workflow Modal */}
+      <SaveWorkflowModal
+        isOpen={isSaveModalOpen}
+        onClose={() => setIsSaveModalOpen(false)}
+        workflowSpec={workflowToSave}
+      />
     </motion.div>
   );
 }

@@ -1,4 +1,5 @@
 import sys
+import json
 from fastapi.testclient import TestClient
 from app.main import app, agents_db
 
@@ -1392,8 +1393,140 @@ def execute(input_data: dict, context: dict) -> dict:
     res_del_art = client.delete("/api/artifacts/art-user-audit-doc", headers=auth_headers)
     assert res_del_art.status_code == 200
 
+    # ---------------------------------------------------------
+    # Test 65: Orchestrator On-The-Fly Multi-Agent Workflow Synthesis & Execution
+    # ---------------------------------------------------------
+    from app.supabase import memory_store
+    otf_composite_payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Find the current market price of Apple stock and synthesize an executive valuation analysis with key financial ratios."
+            }
+        ],
+        "model": "qwen-3.8",
+    }
+    res_otf = client.post("/api/chat", json=otf_composite_payload, headers=auth_headers)
+    assert res_otf.status_code == 200
+    otf_data = res_otf.json()
+    assert otf_data["role"] == "agent"
+    otf_meta = otf_data.get("metadata", {})
+    assert otf_meta.get("mode") == "on_the_fly_workflow"
+    assert otf_meta.get("is_ephemeral_workflow") is True
+    assert otf_meta.get("is_multi_step") is True
+    assert "workflow_spec" in otf_meta
+    assert len(otf_meta["workflow_spec"]["steps"]) >= 2
+    assert len(otf_meta.get("step_runs", [])) >= 2
+    assert len(otf_meta.get("granular_trace", [])) >= 2
+    # Verify ephemeral workflow was NOT added as a saved workflow in memory_store.workflows
+    assert otf_meta["workflow_spec"]["id"] not in memory_store.workflows
+    print("PASS: On-the-fly multi-agent workflow synthesis and ephemeral execution verified")
+
+    # ---------------------------------------------------------
+    # Test 66: Orchestrator On-The-Fly Single-Agent Workflow Execution
+    # ---------------------------------------------------------
+    otf_single_payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Write a python function to binary search a sorted array recursively."
+            }
+        ],
+        "model": "qwen-3.8",
+    }
+    res_single = client.post("/api/chat", json=otf_single_payload, headers=auth_headers)
+    assert res_single.status_code == 200
+    single_data = res_single.json()
+    assert single_data["role"] == "agent"
+    single_meta = single_data.get("metadata", {})
+    assert single_meta.get("is_ephemeral_workflow") is True
+    assert single_meta.get("is_multi_step") is False
+    assert len(single_meta.get("step_runs", [])) == 1
+    assert any(t.get("phase") == "intent_analysis" for t in single_meta.get("granular_trace", []))
+    assert any(t.get("phase") == "model_inference" for t in single_meta.get("granular_trace", []))
+    print("PASS: On-the-fly single-agent workflow execution and granular trace verified")
+
+    # ---------------------------------------------------------
+    # Test 67: Granular Server-Sent Events (SSE) Progress Streaming
+    # ---------------------------------------------------------
+    stream_payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": "Find the current market price of Tesla stock and prepare an investor valuation briefing."
+            }
+        ],
+        "model": "qwen-3.8",
+    }
+    res_stream = client.post("/api/chat/stream", json=stream_payload, headers=auth_headers)
+    assert res_stream.status_code == 200, f"Chat stream failed: {res_stream.text}"
+    assert "text/event-stream" in res_stream.headers.get("content-type", "")
+
+    # Parse SSE chunks
+    sse_events = []
+    for line in res_stream.text.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            data_part = line[5:].strip()
+            try:
+                sse_events.append(json.loads(data_part))
+            except Exception:
+                pass
+
+    event_types = [evt.get("type") for evt in sse_events]
+    assert "phase" in event_types, f"Phase event missing in SSE: {event_types}"
+    assert "workflow_planned" in event_types, f"workflow_planned missing in SSE: {event_types}"
+    assert "step_start" in event_types, f"step_start missing in SSE: {event_types}"
+    assert "step_complete" in event_types, f"step_complete missing in SSE: {event_types}"
+    assert "complete" in event_types, f"complete event missing in SSE: {event_types}"
+
+    # Verify complete event payload structure
+    complete_evt = next((e for e in sse_events if e.get("type") == "complete"), None)
+    assert complete_evt is not None
+    assert "message" in complete_evt
+    assert complete_evt["message"]["role"] == "agent"
+    assert "metadata" in complete_evt["message"]
+    assert complete_evt["message"]["metadata"].get("is_ephemeral_workflow") is True
+    print(f"PASS: POST /api/chat/stream granular progress streaming verified ({len(sse_events)} event chunks emitted)")
+
+    # ---------------------------------------------------------
+    # Test 68: Save Ephemeral On-The-Fly Workflow to Permanent Library
+    # ---------------------------------------------------------
+    save_otf_payload = {
+        "title": "Saved Market Research & Valuation Pipeline",
+        "description": otf_meta["workflow_spec"].get("description", "Synthesized by Swarm Orchestrator."),
+        "goal": otf_meta["workflow_spec"].get("goal", "Analyze market price and executive valuation."),
+        "steps": otf_meta["workflow_spec"].get("steps", []),
+        "edges": otf_meta["workflow_spec"].get("edges", []),
+        "is_published": True,
+    }
+    res_save_wf = client.post("/api/workflows", json=save_otf_payload, headers=auth_headers)
+    assert res_save_wf.status_code == 200, f"Saving ephemeral workflow failed: {res_save_wf.text}"
+    saved_wf_data = res_save_wf.json()
+    assert saved_wf_data["title"] == "Saved Market Research & Valuation Pipeline"
+    saved_wf_id = saved_wf_data["id"]
+    assert saved_wf_id in memory_store.workflows
+
+    # Verify retrieved by GET /api/workflows/{id}
+    res_get_saved = client.get(f"/api/workflows/{saved_wf_id}", headers=auth_headers)
+    assert res_get_saved.status_code == 200
+    assert res_get_saved.json()["id"] == saved_wf_id
+    assert len(res_get_saved.json()["steps"]) >= 2
+
+    # Verify the saved workflow executes end-to-end via /api/workflows/{id}/run
+    res_run_saved = client.post(
+        f"/api/workflows/{saved_wf_id}/run",
+        json={"inputs": {"query": "Apple stock valuation"}},
+        headers=auth_headers,
+    )
+    assert res_run_saved.status_code == 200
+    run_output = res_run_saved.json()
+    assert run_output["status"] == "completed"
+    assert len(run_output["step_runs"]) >= 2
+    print(f"PASS: Ephemeral on-the-fly workflow saved to permanent library and executed ({saved_wf_id})")
+
     print("\n========================================")
-    print("ALL 64 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 68 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

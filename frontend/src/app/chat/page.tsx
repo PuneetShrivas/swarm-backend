@@ -31,6 +31,11 @@ import UsageModal from "./components/UsageModal";
 import AgentDetailsModal from "./components/AgentDetailsModal";
 import WorkflowPickerModal from "./components/WorkflowPickerModal";
 import ArtifactSelectorModal, { ArtifactItem } from "./components/ArtifactSelectorModal";
+import {
+  LiveExecutionConsole,
+  LiveWorkflowPlan,
+  LiveStepEvent,
+} from "./components/LiveExecutionConsole";
 
 function ChatContent() {
   const router = useRouter();
@@ -67,6 +72,13 @@ function ChatContent() {
   // Attached Context Artifacts State
   const [attachedArtifacts, setAttachedArtifacts] = useState<AttachedArtifact[]>([]);
   const [isArtifactSelectorOpen, setIsArtifactSelectorOpen] = useState(false);
+
+  // Live Streaming Telemetry State
+  const [livePhaseLabel, setLivePhaseLabel] = useState<string>("");
+  const [liveWorkflowPlan, setLiveWorkflowPlan] = useState<LiveWorkflowPlan | null>(null);
+  const [activeStep, setActiveStep] = useState<LiveStepEvent | null>(null);
+  const [completedSteps, setCompletedSteps] = useState<LiveStepEvent[]>([]);
+  const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -313,7 +325,7 @@ function ChatContent() {
     fetchAgents();
   }, []);
 
-  // Send request to FastAPI /api/chat with session linking
+  // Send request to FastAPI /api/chat/stream with graceful fallback to /api/chat
   const requestSwarmResponse = async (
     chatHistory: { role: string; content: string; metadata?: Record<string, unknown> }[],
     userMessageNodeId: string,
@@ -324,6 +336,11 @@ function ChatContent() {
     artsToSend?: AttachedArtifact[]
   ) => {
     setIsLoading(true);
+    setStreamStartTime(Date.now());
+    setLivePhaseLabel("Analyzing query intent and assembling grounded context");
+    setLiveWorkflowPlan(null);
+    setActiveStep(null);
+    setCompletedSteps([]);
     abortControllerRef.current = new AbortController();
 
     try {
@@ -343,36 +360,134 @@ function ChatContent() {
 
       const activeArts = artsToSend || attachedArtifacts;
 
-      const res = await fetch(`${apiUrl}/api/chat`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          messages: chatHistory.map((m) => ({
-            role: m.role,
-            content: m.content,
-            metadata: m.metadata || {},
-          })),
-          session_id: targetSessionId || activeSessionId || null,
-          user_message_id: userMessageNodeId,
-          parent_message_id: cleanUserParentId,
-          workflow_id: workflowId || null,
-          workflow_inputs: workflowInputs || {},
-          model: selectedModel || undefined,
-          artifact_ids: activeArts.map((a) => a.id),
-          attached_artifacts: activeArts,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
+      const requestPayload = {
+        messages: chatHistory.map((m) => ({
+          role: m.role,
+          content: m.content,
+          metadata: m.metadata || {},
+        })),
+        session_id: targetSessionId || activeSessionId || null,
+        user_message_id: userMessageNodeId,
+        parent_message_id: cleanUserParentId,
+        workflow_id: workflowId || null,
+        workflow_inputs: workflowInputs || {},
+        model: selectedModel || undefined,
+        artifact_ids: activeArts.map((a) => a.id),
+        attached_artifacts: activeArts,
+      };
 
-      if (!res.ok) {
-        throw new Error(`API responded with status ${res.status}`);
+      let finalData: { content?: string; metadata?: Record<string, unknown> } | null = null;
+
+      // 1. Attempt Server-Sent Events (SSE) streaming for real-time granular progress
+      try {
+        const streamRes = await fetch(`${apiUrl}/api/chat/stream`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestPayload),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (streamRes.ok && streamRes.body) {
+          const reader = streamRes.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split("\n\n");
+            buffer = chunks.pop() || "";
+
+            for (const chunk of chunks) {
+              const trimmed = chunk.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              try {
+                const data = JSON.parse(trimmed.slice(5).trim());
+                if (data.type === "phase") {
+                  setLivePhaseLabel(data.label || data.phase);
+                } else if (data.type === "workflow_planned") {
+                  setLiveWorkflowPlan({
+                    id: data.workflow?.id,
+                    title: data.workflow?.title || "Autonomous Swarm Workflow",
+                    goal: data.workflow?.goal,
+                    is_multi_step: data.is_multi_step,
+                    total_steps: data.total_steps || data.workflow?.steps?.length || 1,
+                    steps: data.workflow?.steps,
+                  });
+                  setLivePhaseLabel(
+                    data.is_multi_step
+                      ? `Executing ${data.total_steps || 3}-step multi-agent pipeline`
+                      : `Executing single-agent task`
+                  );
+                } else if (data.type === "step_start") {
+                  setActiveStep({
+                    step_id: data.step_id,
+                    step_name: data.step_name,
+                    step_index: data.step_index,
+                    total_steps: data.total_steps,
+                    agent_id: data.agent_id,
+                    model: data.model,
+                    status: "running",
+                  });
+                  setLivePhaseLabel(`Running step: ${data.step_name || data.step_id}`);
+                } else if (data.type === "step_complete") {
+                  setCompletedSteps((prev) => [
+                    ...prev,
+                    {
+                      step_id: data.step_id,
+                      step_name: data.step_name || data.step_id,
+                      step_index: data.step_index,
+                      agent_id: data.agent_id,
+                      duration_ms: data.duration_ms,
+                      tokens_used: data.tokens_used,
+                      output_preview: data.output_preview,
+                      tool_calls: data.tool_calls,
+                      status: "completed",
+                    },
+                  ]);
+                  setActiveStep(null);
+                } else if (data.type === "complete") {
+                  finalData = data.message;
+                }
+              } catch (parseErr) {
+                console.warn("SSE JSON chunk parsing note:", parseErr);
+              }
+            }
+          }
+        }
+      } catch (streamErr) {
+        if ((streamErr as { name?: string })?.name === "AbortError") {
+          throw streamErr;
+        }
+        console.warn("SSE stream unavailable, falling back to standard /api/chat:", streamErr);
       }
 
-      const data = await res.json();
+      // If SSE did not yield finalData, fallback to standard /api/chat
+      if (!finalData) {
+        const fallbackRes = await fetch(`${apiUrl}/api/chat`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestPayload),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (!fallbackRes.ok) {
+          throw new Error(`API responded with status ${fallbackRes.status}`);
+        }
+        finalData = await fallbackRes.json();
+      }
+
+      if (!finalData) {
+        throw new Error("No response received from agent swarm.");
+      }
+
+      const data = finalData;
 
       // If backend updated or derived session title, update sessions list
       if (data.metadata?.session_title && targetSessionId) {
-        const renamedTitle = data.metadata.session_title;
+        const renamedTitle = String(data.metadata.session_title);
         setSessions((prev) =>
           prev.map((s) => (s.id === targetSessionId ? { ...s, title: renamedTitle } : s))
         );
@@ -869,22 +984,26 @@ function ChatContent() {
                 </div>
               )}
 
-              {/* In-flight Processing Bubble */}
+              {/* In-flight Granular Execution Console */}
               {isLoading && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 5 }}
-                  className="flex gap-3 md:gap-4 flex-row"
+                  className="flex gap-3 md:gap-4 flex-row w-full max-w-3xl"
                 >
-                  <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-surface-1 border border-hairline text-linear-primary overflow-hidden">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-surface-1 border border-hairline text-linear-primary overflow-hidden mt-0.5">
                     <BrandLogo size={20} />
                   </div>
-                  <div className="px-4 py-3 rounded-lg bg-surface-1 border border-hairline text-ink rounded-tl-xs flex items-center gap-2.5">
-                    <Loader2 size={14} className="animate-spin text-linear-primary" />
-                    <span className="text-xs font-medium text-ink-subtle font-mono">
-                      Swarm agent reasoning...
-                    </span>
+                  <div className="flex-1 min-w-0">
+                    <LiveExecutionConsole
+                      phaseLabel={livePhaseLabel}
+                      workflowPlan={liveWorkflowPlan}
+                      activeStep={activeStep}
+                      completedSteps={completedSteps}
+                      startTime={streamStartTime || undefined}
+                      onStop={handleStop}
+                    />
                   </div>
                 </motion.div>
               )}

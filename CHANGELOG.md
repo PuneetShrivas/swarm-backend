@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **On-The-Fly Orchestrator Workflows & Granular Step Execution**:
+  - **Dynamic Ephemeral Workflow Synthesis (`synthesize_on_the_fly_workflow`)**: Swarm Orchestrator decomposes user queries on the fly into multi-agent DAGs (e.g. Research $\to$ Analysis $\to$ Briefing, Code $\to$ Review, Security Audit $\to$ Refactor) or single-agent 1-step workflows. Workflows run ephemerally by default without inserting unrequested records into the database `workflows` table.
+  - **Granular Progress Streaming (`POST /api/chat/stream`)**: FastAPI SSE endpoint streaming progressive lifecycle milestones: query intent analysis, workflow DAG planning, step start, step completion, and final response payload over `text/event-stream`.
+  - **Frontend Live Execution Console (`LiveExecutionConsole.tsx`)**: In-flight interactive console replacing static spinners in `/chat`. Displays glowing beacon, multi-agent vs. single-agent mode badges, live elapsed timer, progress bar, active pulsing step card with agent role and model tags, and completed step milestone log.
+  - **Completed Granular Step Trace (`GranularStepTrace.tsx`)**: Expandable accordion beneath assistant messages detailing step sequence, agent badges, tool call inspection, execution latency, token counts, and output previews.
+  - **"Save as Workflow" Modal (`SaveWorkflowModal.tsx`)**: Allows users to review, edit, and persist synthesized ephemeral DAGs directly to their permanent workflow library (`POST /api/workflows`).
+  - **Automated Tests**: Added Tests 65-68 to `backend/test_endpoints.py` verifying multi-agent synthesis, single-agent metadata, SSE streaming chunk delivery, and ephemeral-to-permanent workflow saving. All 68 tests passing cleanly.
+
 - **User Artifact Upload & Multi-Agent Context Grounding**:
   - **Artifacts Studio Upload (`/artifacts`)**: Added "Upload Artifact" button and modal supporting direct upload of text (`.txt`, `.md`, `.json`, `.csv`, `.py`) and binary documents (`.pdf`, `.docx`, `.pptx`, `.xlsx`). Automatically parses and indexes documents into the hybrid vector/BM25 `RAGKnowledgeStore`.
   - **"Invoke in Chat" Grounding**: Added 1-click invocation buttons on artifact cards and preview modal navigating to `/chat?artifact_id=<id>` with automatic context chip attachment.
