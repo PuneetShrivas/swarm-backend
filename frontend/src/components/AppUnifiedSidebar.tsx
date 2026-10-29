@@ -161,6 +161,24 @@ export default function AppUnifiedSidebar({
           headers["Authorization"] = `Bearer ${session.access_token}`;
         }
 
+        // 0. Fetch Chat Sessions (when not supplied as a prop by parent chat page)
+        if (!initialSessions || initialSessions.length === 0) {
+          const sessRes = await fetch(`${apiUrl}/api/sessions`, { headers }).catch(() => null);
+          if (sessRes && sessRes.ok) {
+            const sessData = await sessRes.json();
+            if (Array.isArray(sessData)) {
+              setSessions(
+                sessData.map((s: Record<string, unknown>) => ({
+                  id: String(s.id),
+                  title: String(s.title || "Untitled Conversation"),
+                  created_at: String(s.created_at || ""),
+                  updated_at: String(s.updated_at || s.created_at || ""),
+                }))
+              );
+            }
+          }
+        }
+
         // 1. Fetch Workflows
         const wfRes = await fetch(`${apiUrl}/api/workflows`, { headers }).catch(() => null);
         if (wfRes && wfRes.ok) {
@@ -228,7 +246,17 @@ export default function AppUnifiedSidebar({
     };
 
     fetchData();
-  }, []);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      fetchData();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [initialSessions]);
 
   const toggleSection = (section: "conversations" | "workflows" | "agents") => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));

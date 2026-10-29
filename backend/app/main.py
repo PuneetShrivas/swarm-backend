@@ -2584,14 +2584,105 @@ def list_all_workflow_runs(
 
 @app.get("/api/artifacts", response_model=List[Dict[str, Any]])
 def list_artifacts(current_user: Optional[AuthUser] = Depends(get_optional_user)):
-    """Returns all generated artifacts belonging to the authenticated or guest user."""
+    """
+    Returns all generated artifacts belonging to the authenticated or guest user.
+    Extracts persistent artifacts from Supabase user_artifacts and chat_messages metadata,
+    merged with active in-memory artifacts.
+    """
     user_id = current_user.id if current_user else "guest-user"
-    return memory_store.get_artifacts(user_id)
+    artifacts_map: Dict[str, Dict[str, Any]] = {}
+
+    # 1. Load artifacts from in-memory store
+    for art in memory_store.get_artifacts(user_id):
+        if art.get("id"):
+            artifacts_map[art["id"]] = art
+
+    # 1b. Check in-memory chat messages for file artifacts
+    for sess_id, msgs in getattr(memory_store, "messages", {}).items():
+        for msg in msgs:
+            if msg.get("user_id") == user_id or user_id == "guest-user":
+                meta = msg.get("metadata") or {}
+                file_art = meta.get("file_artifact")
+                if isinstance(file_art, dict) and file_art.get("id"):
+                    art_id = file_art["id"]
+                    if art_id not in artifacts_map:
+                        artifacts_map[art_id] = {
+                            **file_art,
+                            "user_id": user_id,
+                            "source_type": "chat",
+                            "source_title": meta.get("agent_name", "Chat Agent"),
+                            "created_at": file_art.get("created_at") or msg.get("created_at"),
+                        }
+                arts_list = meta.get("artifacts")
+                if isinstance(arts_list, list):
+                    for sub_art in arts_list:
+                        if isinstance(sub_art, dict) and sub_art.get("id"):
+                            sub_id = sub_art["id"]
+                            if sub_id not in artifacts_map:
+                                artifacts_map[sub_id] = {
+                                    **sub_art,
+                                    "user_id": user_id,
+                                    "source_type": "chat",
+                                    "source_title": meta.get("agent_name", "Chat Agent"),
+                                    "created_at": sub_art.get("created_at") or msg.get("created_at"),
+                                }
+
+    # 2. Extract artifacts from Supabase if active and authenticated
+    if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            # 2a. Query user_artifacts table if present
+            try:
+                res = client.table("user_artifacts").select("*").eq("user_id", current_user.id).order("created_at", desc=True).execute()
+                if res.data:
+                    for a in res.data:
+                        if a.get("id"):
+                            artifacts_map[a["id"]] = a
+            except Exception:
+                pass
+
+            # 2b. Extract file artifacts from user's chat_messages metadata
+            try:
+                msg_res = client.table("chat_messages").select("id, role, content, metadata, created_at").eq("user_id", current_user.id).order("created_at", desc=True).limit(100).execute()
+                if msg_res.data:
+                    for msg in msg_res.data:
+                        meta = msg.get("metadata") or {}
+                        # Extract singular file_artifact
+                        file_art = meta.get("file_artifact")
+                        if isinstance(file_art, dict) and file_art.get("id"):
+                            art_id = file_art["id"]
+                            if art_id not in artifacts_map:
+                                artifacts_map[art_id] = {
+                                    **file_art,
+                                    "user_id": current_user.id,
+                                    "source_type": "chat",
+                                    "source_title": meta.get("agent_name", "Chat Agent"),
+                                    "created_at": file_art.get("created_at") or msg.get("created_at"),
+                                }
+                        # Extract artifacts list
+                        arts_list = meta.get("artifacts")
+                        if isinstance(arts_list, list):
+                            for sub_art in arts_list:
+                                if isinstance(sub_art, dict) and sub_art.get("id"):
+                                    sub_id = sub_art["id"]
+                                    if sub_id not in artifacts_map:
+                                        artifacts_map[sub_id] = {
+                                            **sub_art,
+                                            "user_id": current_user.id,
+                                            "source_type": "chat",
+                                            "source_title": meta.get("agent_name", "Chat Agent"),
+                                            "created_at": sub_art.get("created_at") or msg.get("created_at"),
+                                        }
+            except Exception as e:
+                print(f"Supabase chat_messages artifact extraction note: {e}")
+
+    # Return sorted by created_at descending
+    return sorted(artifacts_map.values(), key=lambda a: a.get("created_at", ""), reverse=True)
 
 
 @app.post("/api/artifacts", response_model=Dict[str, Any])
 def create_artifact(payload: Dict[str, Any], current_user: Optional[AuthUser] = Depends(get_optional_user)):
-    """Saves a newly generated artifact."""
+    """Saves a newly generated artifact to memory and Supabase persistence."""
     user_id = current_user.id if current_user else "guest-user"
     now_iso = datetime.now(timezone.utc).isoformat()
     art_id = payload.get("id") or f"art-{str(uuid.uuid4())[:8]}"
@@ -2606,19 +2697,37 @@ def create_artifact(payload: Dict[str, Any], current_user: Optional[AuthUser] = 
         "size_bytes": payload.get("size_bytes") or len(content.encode("utf-8")),
         "created_at": payload.get("created_at") or now_iso,
         "origin_agent": payload.get("origin_agent", "file_creator"),
-        "source_type": payload.get("source_type", "manual"),
+        "source_type": payload.get("source_type", "chat"),
         "source_title": payload.get("source_title", "File Studio"),
         "downloadable": True,
     }
-    return memory_store.save_artifact(artifact)
+    saved = memory_store.save_artifact(artifact)
+
+    if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("user_artifacts").upsert(artifact).execute()
+            except Exception:
+                pass
+
+    return saved
 
 
 @app.delete("/api/artifacts/{artifact_id}")
 def delete_artifact(artifact_id: str, current_user: Optional[AuthUser] = Depends(get_optional_user)):
-    """Deletes an artifact by ID."""
+    """Deletes an artifact by ID from memory and Supabase."""
     user_id = current_user.id if current_user else "guest-user"
     success = memory_store.delete_artifact(artifact_id, user_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Artifact not found.")
+
+    if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                client.table("user_artifacts").delete().eq("id", artifact_id).eq("user_id", current_user.id).execute()
+                success = True
+            except Exception:
+                pass
+
     return {"status": "deleted", "id": artifact_id}
 

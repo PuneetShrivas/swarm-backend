@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { Bot, Loader2, Workflow, Sparkles } from "lucide-react";
@@ -31,8 +31,10 @@ import UsageModal from "./components/UsageModal";
 import AgentDetailsModal from "./components/AgentDetailsModal";
 import WorkflowPickerModal from "./components/WorkflowPickerModal";
 
-export default function Chat() {
+function ChatContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlSessionId = searchParams?.get("session");
   const [conversation, setConversation] = useState<ConversationState>(() =>
     createInitialState()
   );
@@ -99,6 +101,14 @@ export default function Chat() {
     },
     []
   );
+
+  // Auto-select session when navigated via URL search param ?session=<id>
+  useEffect(() => {
+    if (urlSessionId && session?.access_token && urlSessionId !== activeSessionId) {
+      setActiveSessionId(urlSessionId);
+      loadSessionMessages(urlSessionId, session.access_token);
+    }
+  }, [urlSessionId, session?.access_token, activeSessionId, loadSessionMessages]);
 
   // Fetch user usage summary
   const fetchUsage = useCallback(async (token: string) => {
@@ -257,6 +267,49 @@ export default function Chat() {
         );
       }
 
+      // Sync generated file artifacts to localStorage and backend /api/artifacts
+      const artifactsToSync: Record<string, unknown>[] = [];
+      if (data.metadata?.file_artifact && typeof data.metadata.file_artifact === "object") {
+        artifactsToSync.push(data.metadata.file_artifact as Record<string, unknown>);
+      }
+      if (Array.isArray(data.metadata?.artifacts)) {
+        for (const art of data.metadata.artifacts) {
+          if (art && typeof art === "object" && !artifactsToSync.some((a) => a.id === art.id)) {
+            artifactsToSync.push(art as Record<string, unknown>);
+          }
+        }
+      }
+
+      if (artifactsToSync.length > 0) {
+        try {
+          const rawLocal = localStorage.getItem("swarm_local_artifacts");
+          const existingLocal: Record<string, unknown>[] = rawLocal ? JSON.parse(rawLocal) : [];
+          const syncedIds = new Set(artifactsToSync.map((a) => String(a.id)));
+          const updated = [
+            ...artifactsToSync,
+            ...existingLocal.filter((a: Record<string, unknown>) => !syncedIds.has(String(a.id))),
+          ];
+          localStorage.setItem(
+            "swarm_local_artifacts",
+            JSON.stringify(updated.slice(0, 50))
+          );
+
+          // Dispatch to backend /api/artifacts so it persists across DB and memory
+          for (const art of artifactsToSync) {
+            fetch(`${apiUrl}/api/artifacts`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                ...art,
+                session_id: targetSessionId || activeSessionId,
+              }),
+            }).catch(() => null);
+          }
+        } catch (e) {
+          console.warn("Artifact caching notice:", e);
+        }
+      }
+
       setConversation((latestState) => {
         const { newState } = addMessageNode(
           latestState,
@@ -298,6 +351,9 @@ export default function Chat() {
   const handleSelectSession = (sessionId: string) => {
     if (sessionId === activeSessionId) return;
     setActiveSessionId(sessionId);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `/chat?session=${sessionId}`);
+    }
     if (session?.access_token) {
       loadSessionMessages(sessionId, session.access_token);
     }
@@ -306,6 +362,9 @@ export default function Chat() {
   // Create new session (Lazy: resets state to clean new chat view without inserting a blank row in sidebar)
   const handleCreateSession = () => {
     setActiveSessionId(null);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", "/chat");
+    }
     setConversation(createInitialState());
   };
 
@@ -751,5 +810,19 @@ export default function Chat() {
         onRunWorkflow={handleRunWorkflow}
       />
     </div>
+  );
+}
+
+export default function Chat() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen w-screen items-center justify-center bg-canvas">
+          <Loader2 className="h-8 w-8 animate-spin text-linear-primary" />
+        </div>
+      }
+    >
+      <ChatContent />
+    </Suspense>
   );
 }

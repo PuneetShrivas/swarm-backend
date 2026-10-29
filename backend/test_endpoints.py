@@ -1110,8 +1110,36 @@ def execute(input_data: dict, context: dict) -> dict:
     assert step_research["agent_id"] == "researcher"
     print(f"PASS: Site-wide models verified: Groq Qwen 3.8 default across agents, Perplexity Sonar on researcher and default workflow step")
 
+    # 57. Test Artifacts Persistence, Extraction & Studio Listing
+    test_art_payload = {
+        "id": "art-test-studio-01",
+        "name": "system_metrics.json",
+        "filename": "system_metrics.json",
+        "type": "json",
+        "content": '{"uptime_pct": 99.98, "rps": 4200}',
+        "origin_agent": "file_creator",
+    }
+    res_create_art = client.post("/api/artifacts", json=test_art_payload, headers=auth_headers)
+    assert res_create_art.status_code == 200, f"Artifact create failed: {res_create_art.text}"
+    created_art = res_create_art.json()
+    assert created_art["id"] == "art-test-studio-01"
+    assert created_art["downloadable"] is True
+
+    res_get_arts = client.get("/api/artifacts", headers=auth_headers)
+    assert res_get_arts.status_code == 200
+    arts_list = res_get_arts.json()
+    art_ids = [a["id"] for a in arts_list]
+    assert "art-test-studio-01" in art_ids, f"Created artifact not found in listing: {art_ids}"
+
+    # Verify deletion
+    res_del_art = client.delete("/api/artifacts/art-test-studio-01", headers=auth_headers)
+    assert res_del_art.status_code == 200
+    res_get_after = client.get("/api/artifacts", headers=auth_headers)
+    assert "art-test-studio-01" not in [a["id"] for a in res_get_after.json()]
+    print("PASS: /api/artifacts POST, GET, and DELETE lifecycle verified for Artifacts Studio")
+
     print("\n========================================")
-    print("ALL 56 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 57 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

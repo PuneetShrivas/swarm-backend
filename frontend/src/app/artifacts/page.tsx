@@ -48,7 +48,7 @@ export default function ArtifactsStudioPage() {
   const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Fetch artifacts from FastAPI backend
+  // Fetch artifacts from FastAPI backend merged with client localStorage cache
   const fetchArtifacts = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -59,17 +59,48 @@ export default function ArtifactsStudioPage() {
         setUserEmail(session.user.email);
       }
 
+      // 1. Read from localStorage for instant offline/guest reflection
+      let localList: Artifact[] = [];
+      try {
+        const raw = localStorage.getItem("swarm_local_artifacts");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            localList = parsed;
+          }
+        }
+      } catch {
+        // Ignore local parse errors
+      }
+
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const headers: Record<string, string> = {};
       if (session?.access_token) {
         headers["Authorization"] = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch(`${apiUrl}/api/artifacts`, { headers });
-      if (res.ok) {
-        const data = await res.json();
-        setArtifacts(data);
+      const res = await fetch(`${apiUrl}/api/artifacts`, { headers }).catch(() => null);
+      let backendList: Artifact[] = [];
+      if (res && res.ok) {
+        backendList = await res.json();
       }
+
+      // Merge backend and local list, deduplicating by unique id
+      const combinedMap = new Map<string, Artifact>();
+      for (const art of localList) {
+        if (art && art.id) combinedMap.set(art.id, art);
+      }
+      for (const art of backendList) {
+        if (art && art.id) combinedMap.set(art.id, art);
+      }
+
+      const merged = Array.from(combinedMap.values()).sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
+      });
+
+      setArtifacts(merged);
     } catch (err) {
       console.warn("Failed to fetch artifacts:", err);
     } finally {
@@ -79,6 +110,16 @@ export default function ArtifactsStudioPage() {
 
   useEffect(() => {
     fetchArtifacts();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      fetchArtifacts();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [fetchArtifacts]);
 
   // Handle Download File
@@ -113,6 +154,27 @@ export default function ArtifactsStudioPage() {
     e?.stopPropagation();
     if (!window.confirm("Delete this artifact permanently?")) return;
     try {
+      // 1. Remove from local storage
+      try {
+        const raw = localStorage.getItem("swarm_local_artifacts");
+        if (raw) {
+          const list: Artifact[] = JSON.parse(raw);
+          localStorage.setItem(
+            "swarm_local_artifacts",
+            JSON.stringify(list.filter((a) => a.id !== artId))
+          );
+        }
+      } catch {
+        // Ignore storage error
+      }
+
+      // 2. Remove from state
+      setArtifacts((prev) => prev.filter((a) => a.id !== artId));
+      if (previewArtifact?.id === artId) {
+        setPreviewArtifact(null);
+      }
+
+      // 3. Remove from backend
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -121,16 +183,10 @@ export default function ArtifactsStudioPage() {
       if (session?.access_token) {
         headers["Authorization"] = `Bearer ${session.access_token}`;
       }
-      const res = await fetch(`${apiUrl}/api/artifacts/${artId}`, {
+      await fetch(`${apiUrl}/api/artifacts/${artId}`, {
         method: "DELETE",
         headers,
-      });
-      if (res.ok) {
-        setArtifacts((prev) => prev.filter((a) => a.id !== artId));
-        if (previewArtifact?.id === artId) {
-          setPreviewArtifact(null);
-        }
-      }
+      }).catch(() => null);
     } catch (err) {
       console.error("Failed to delete artifact:", err);
     }

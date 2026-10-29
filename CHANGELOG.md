@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Fixed
+- **Persistent Sidebar Chat Conversations on Non-Chat Pages**:
+  - `AppUnifiedSidebar.tsx`: Added auto-fetching of `/api/sessions` when `initialSessions` is not passed as a prop (such as on `/workflows`, `/agents`, and `/artifacts`), enabling persistent conversation listing site-wide.
+  - Added `supabase.auth.onAuthStateChange` subscription so conversations populate automatically upon auth session establishment without requiring page refreshes.
+  - Deep-linked conversation items from non-chat pages: Clicking a conversation in the persistent sidebar routes to `/chat?session=<id>`.
+  - `chat/page.tsx`: Integrated `useSearchParams` wrapped inside `<Suspense>` to listen to `session` query parameter on mount/navigation and invoke `loadSessionMessages` to restore the conversation tree.
+  - Maintained browser history URL cleanly via `window.history.replaceState` when switching or resetting sessions.
+- **Artifact Visibility in Artifacts Studio**:
+  - `main.py`: Updated `list_artifacts` to aggregate artifacts across 4 sources: in-memory store, in-memory chat message turns, Supabase `user_artifacts` table, and Supabase `chat_messages` metadata (`file_artifact` and `artifacts`), solving artifact loss caused by serverless function resets.
+  - `chat/page.tsx`: Added dual artifact synchronization on chat turn completion, caching newly created files into `localStorage` ("swarm_local_artifacts") and dispatching to `POST /api/artifacts`.
+  - `artifacts/page.tsx`: Updated `fetchArtifacts` to merge and deduplicate artifacts from both backend `/api/artifacts` and local storage, ensuring generated files (CSVs, Python scripts, JSON datasets) are immediately visible to users. Added permanent deletion handling across both local cache and backend database.
+  - `test_endpoints.py`: Added Test 57 verifying `POST`, `GET`, and `DELETE` lifecycle for `/api/artifacts`.
+
+### Fixed
 - **File Generator Agent Routing & Artifact Emission**:
   - Reordered routing heuristics in `route_agent` (`backend/app/main.py`) so file creation intents (`generate a sample csv file`, `create csv`, `download file`, composite creation verbs + file/csv/json nouns) evaluate before `data_keywords`, preventing `data_analyst` from intercepting CSV creation queries.
   - Upgraded code fence extraction regex in `extract_file_artifact_from_turn` to support CRLF (`\r\n`), trailing whitespace after language fence identifiers, and tabular plain text CSV fallbacks.
