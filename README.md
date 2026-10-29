@@ -89,7 +89,7 @@ swarm-backend/
    ```env
    # Add your Google Gemini API key (from https://aistudio.google.com/)
    GEMINI_API_KEY="your-gemini-api-key"
-   GEMINI_MODEL="gemini-2.5-flash"
+   GEMINI_MODEL="gemini-3.8-flash"
    ```
 
 5. Run endpoint integration tests:

@@ -17,7 +17,7 @@ class UserAgentProfile(BaseModel):
     role: str = Field("Specialist", description="Role specialization")
     description: str = Field("", description="Detailed agent summary")
     system_prompt: str = Field(..., description="System instructions and persona guidelines")
-    model: str = Field("gemini-2.5-flash", description="Underlying model identifier")
+    model: str = Field("gemini-3.8-flash", description="Underlying model identifier")
     temperature: float = Field(0.3, ge=0.0, le=2.0, description="Sampling temperature")
     icon: str = Field("Bot", description="Lucide icon identifier")
     tools: List[Dict[str, Any]] = Field(default_factory=list, description="Associated tool definitions")

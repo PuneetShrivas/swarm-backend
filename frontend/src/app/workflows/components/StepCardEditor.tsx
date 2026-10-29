@@ -120,7 +120,7 @@ export default function StepCardEditor({
           name: `Step ${nextIdx}: Specialist Action`,
           step_type: "agent",
           agent_id: agents[0]?.id || "orchestrator",
-          model: "gemini-2.5-flash",
+          model: "gemini-3.8-flash",
           instructions: previousStepId
             ? `Synthesize input from predecessor: {{steps.${previousStepId}.output.text}}`
             : "Analyze inputs: {{inputs.query}} and execute action based on goal: {{goal}}",
@@ -413,12 +413,12 @@ export default function StepCardEditor({
                       </label>
                       <select
                         disabled={readOnly}
-                        value={step.model || "gemini-2.5-flash"}
+                        value={step.model || "gemini-3.8-flash"}
                         onChange={(e) => handleUpdateStep(idx, { model: e.target.value })}
                         className="w-full text-xs bg-canvas border border-hairline rounded-md px-2.5 py-1.5 text-ink focus:outline-none focus:border-linear-focus"
                       >
-                        <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast Execution)</option>
-                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Complex Reasoning)</option>
+                        <option value="gemini-3.8-flash">Gemini 3.8 Flash (Fast Execution)</option>
+                        <option value="gemini-4-argon">Gemini 4 Argon (Deep Complex Reasoning)</option>
                         <option value="sonar">Perplexity Sonar (Real Live Web Search)</option>
                         <option value="sonar-pro">Perplexity Sonar Pro (Advanced Synthesis)</option>
                       </select>

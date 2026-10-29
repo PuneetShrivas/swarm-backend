@@ -98,7 +98,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Active Supabase chat session ID")
     parent_message_id: Optional[str] = Field(None, description="Parent message ID for conversation branching")
     user_message_id: Optional[str] = Field(None, description="Client-assigned user message ID")
-    model: Optional[str] = Field(None, description="Optional model selection override (e.g. gemini-2.5-pro, sonar)")
+    model: Optional[str] = Field(None, description="Optional model selection override (e.g. gemini-3.8-flash, gemini-4-argon, sonar)")
     workflow_id: Optional[str] = Field(None, description="Optional workflow ID to execute in this turn")
     workflow_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input arguments for workflow execution")
 
@@ -106,7 +106,7 @@ class AgentTestRequest(BaseModel):
     agent_id: Optional[str] = None
     system_prompt: str
     input_prompt: str
-    model: Optional[str] = "gemini-2.5-flash"
+    model: Optional[str] = "gemini-3.8-flash"
     temperature: Optional[float] = 0.3
     tool_ids: Optional[List[str]] = Field(default_factory=list)
     mock_context: Optional[Dict[str, Any]] = Field(default_factory=dict)
@@ -296,6 +296,25 @@ def get_gemini_client():
     except Exception as e:
         print(f"Warning: Failed to initialize Gemini client: {e}")
         return None, None
+
+def normalize_model_name(model_name: Optional[str]) -> str:
+    """
+    Normalizes and maps legacy/deprecated models to latest active models.
+    Maps gemini-2.5-flash / gemini-2.0-flash / gemini-1.5-flash -> gemini-3.8-flash
+    Maps gemini-2.5-pro / gemini-2.0-pro / gemini-1.5-pro -> gemini-4-argon
+    """
+    if not model_name or not str(model_name).strip():
+        return os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+    m = str(model_name).strip()
+    if m in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"):
+        return "gemini-3.8-flash"
+    if m in ("gemini-2.5-pro", "gemini-2.0-pro", "gemini-1.5-pro", "gemini-pro"):
+        return "gemini-4-argon"
+    if m.startswith("gemini-2.5-flash"):
+        return "gemini-3.8-flash"
+    if m.startswith("gemini-2.5-pro"):
+        return "gemini-4-argon"
+    return m
 
 def route_agent(target_id: Optional[str], last_user_content: str):
     """
@@ -619,7 +638,7 @@ def chat(
     agent_tools = getattr(selected_agent, "tools", [])
     agent_skills = getattr(selected_agent, "skills", [])
     agent_mcp = getattr(selected_agent, "mcp_servers", [])
-    agent_model = getattr(config_obj, "model", None) or getattr(selected_agent, "model", "gemini-2.5-flash")
+    agent_model = normalize_model_name(getattr(config_obj, "model", None) or getattr(selected_agent, "model", "gemini-3.8-flash"))
     agent_temp = getattr(config_obj, "temperature", None) or getattr(selected_agent, "temperature", 0.3)
 
     # Track user message persistence if session is active
@@ -713,7 +732,8 @@ def chat(
             )
 
     # Determine model choice
-    chosen_model = request.model or getattr(selected_agent, "model", None) or agent_model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    raw_model = request.model or getattr(selected_agent, "model", None) or agent_model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+    chosen_model = normalize_model_name(raw_model)
 
     # 1. LIVE PERPLEXITY SONAR API GENERATION
     perplexity_key = os.environ.get("PERPLEXITY_API_KEY")
@@ -759,7 +779,11 @@ def chat(
                     {
                         "tool": "perplexity_live_search",
                         "args": {"model": chosen_model, "query": last_user_message.content[:80]},
-                        "result": {"citations": citations, "count": len(citations)}
+                        "result": {
+                            "status": "completed",
+                            "sources_found": len(citations),
+                            "provider": "perplexity_sonar"
+                        }
                     }
                 ]
                 agent_node_id = f"agent-{int(time.time()*1000)}"
@@ -816,7 +840,7 @@ def chat(
                     )
                 )
 
-            model_name = chosen_model if not chosen_model.startswith("sonar") else os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            model_name = chosen_model if not chosen_model.startswith("sonar") else normalize_model_name(os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"))
             config = types.GenerateContentConfig(
                 system_instruction=agent_prompt,
                 temperature=agent_temp,
@@ -1215,7 +1239,7 @@ def test_custom_agent(
     if client:
         try:
             from google.genai import types
-            model_name = payload.model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            model_name = normalize_model_name(payload.model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"))
             response = client.models.generate_content(
                 model=model_name,
                 contents=[types.Part.from_text(text=payload.input_prompt)],

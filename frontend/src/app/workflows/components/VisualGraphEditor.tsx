@@ -612,12 +612,12 @@ function StepNode({ data }: NodeProps) {
                     <Cpu size={10} className="text-linear-primary" /> Model Selection
                   </label>
                   <select
-                    value={step.model || "gemini-2.5-flash"}
+                    value={step.model || "gemini-3.8-flash"}
                     onChange={(e) => onUpdateStep?.({ ...step, model: e.target.value })}
                     className="w-full text-xs bg-canvas border border-hairline rounded-md px-2 py-1 text-ink focus:outline-none"
                   >
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast)</option>
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Fast)</option>
+                    <option value="gemini-4-argon">Gemini 4 Argon (Deep Reasoning)</option>
                     <option value="sonar">Perplexity Sonar (Live Web Search)</option>
                     <option value="sonar-pro">Perplexity Sonar Pro (Advanced Synthesis)</option>
                   </select>
@@ -1205,7 +1205,7 @@ export default function VisualGraphEditor({
           name: `Step ${nextIdx}: Specialist Action`,
           step_type: "agent",
           agent_id: agents.length > 1 ? agents[1].id : "researcher",
-          model: "gemini-2.5-flash",
+          model: "gemini-3.8-flash",
           instructions:
             previousStepId === "goal_root"
               ? "Process input objective: {{inputs.query}}"

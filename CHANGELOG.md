@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Dedicated Sources & Citations Component**:
+  - Surfaces Perplexity Sonar search citations directly in a dedicated, interactive "Sources & Citations" section under agent messages.
+  - Features numeric citation badges (`[1]`, `[2]`), parsed hostname domains, preview paths, external link icons, and secure tab openers (`rel="noopener noreferrer"`).
+  - Expandable "+X more" view for responses with more than 4 citations.
+  - Cleaned up tool execution JSON traces by removing raw URL dump blocks.
+
+### Changed
+- **Gemini 3.8 Flash & Latest Models Upgrade**:
+  - Replaced deprecated `gemini-2.5-flash` with `gemini-3.8-flash` across all backend configs, generators, schemas, and tests, resolving 404 NOT_FOUND errors.
+  - Replaced `gemini-2.5-pro` with `gemini-4-argon` for advanced deep reasoning workflows.
+  - Implemented `normalize_model_name()` in FastAPI chat & test endpoints to automatically map incoming legacy requests or stored sessions from deprecated 2.5 models to active models.
+  - Updated frontend model dropdowns in `ChatHeader`, `AgentEditorModal`, `AIAgentGeneratorModal`, `StepCardEditor`, and `VisualGraphEditor`.
+- **Dark Theme Prose Readability Optimization**:
+  - Configured `@tailwindcss/typography` theme bindings so `--tw-prose-bold`, `--tw-prose-headings`, and prose tokens map to high-contrast colors (`#f7f8f8` / `hsl(var(--foreground))`), eliminating dark unreadable text across dark themes and custom palettes.
+  - Augmented `ReactMarkdown` with high-contrast custom renderers for bold (`<strong>`, `<b>`), headers (`<h1>`-`<h3>`), blockquotes, and links.
+- **Chat Input Scrollbar Removal**:
+  - Added cross-browser `.no-scrollbar` styling and Tailwind classes (`[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`) to the chat screen `<textarea>`, eliminating unwanted vertical scrollbars on Windows.
 - **Dedicated Agents Studio & Roster Page (`/agents`)**:
   - Full-stack agents studio elevating specialized agents as a foundational pillar alongside Chat and Workflows.
   - Interactive grid displaying both Swarm Core built-in specialists and custom user agents with Linear styling.

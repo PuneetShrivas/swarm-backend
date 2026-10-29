@@ -233,7 +233,11 @@ export default function ChatInput({
           <textarea
             ref={textareaRef}
             rows={1}
-            className="w-full pl-4 pr-14 py-3.5 bg-muted/40 border border-border/80 focus:border-primary/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm sm:text-[15px] text-foreground placeholder:text-muted-foreground resize-none shadow-subtle leading-relaxed"
+            className="w-full pl-4 pr-14 py-3.5 bg-muted/40 border border-border/80 focus:border-primary/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm sm:text-[15px] text-foreground placeholder:text-muted-foreground resize-none shadow-subtle leading-relaxed overflow-y-auto no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            style={{
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+            }}
             placeholder={placeholder}
             value={input}
             onChange={handleInputChange}

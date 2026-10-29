@@ -67,7 +67,7 @@ def run_tests():
         "name": "QA Specialist",
         "role": "Performs integration and automated regression testing",
         "status": "active",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.8-flash",
         "temperature": 0.1,
         "is_orchestrator": False,
         "system_prompt": "You are a test engineer validating swarm APIs.",
@@ -253,7 +253,7 @@ def run_tests():
         "role": "Financial Forensic Analyst",
         "description": "Reviews financial records and balance sheets for anomalies.",
         "system_prompt": "You are a specialized financial forensic analyst.",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.8-flash",
         "temperature": 0.2,
         "icon": "ShieldCheck",
         "tools": [{"name": "balance_sheet_evaluator"}],
@@ -452,7 +452,7 @@ def execute(input_data: dict, context: dict) -> dict:
     test_agent_payload = {
         "system_prompt": "You are a financial risk analyst specializing in fraud detection.",
         "input_prompt": "Analyze transaction pattern for potential structuring violation.",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.8-flash",
         "temperature": 0.2,
         "tool_ids": [tool_id]
     }
@@ -599,20 +599,34 @@ def execute(input_data: dict, context: dict) -> dict:
     assert "https://fastapi.tiangolo.com" in cited
     print(f"PASS: Real web search query executed successfully with {search_res['results_count']} live sources and URL citations")
 
-    # 32. Test Base Conversational Agent & Model Selection Override
+    # 32. Test Base Conversational Agent & Latest Model Selection (Gemini 3.8 Flash & Normalization)
     res_conv = client.post(
         "/api/chat",
         json={
             "messages": [{"role": "user", "content": "Hello! How are you doing today?"}],
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.8-flash",
         },
         headers=auth_headers,
     )
     assert res_conv.status_code == 200, f"Conversational chat turn failed: {res_conv.text}"
     conv_data = res_conv.json()
     assert conv_data["metadata"]["agent_id"] == "general_assistant"
-    assert conv_data["metadata"]["model"] == "gemini-2.5-pro"
+    assert conv_data["metadata"]["model"] == "gemini-3.8-flash"
     print(f"PASS: Conversational routing routed to 'general_assistant' with custom model selection: {conv_data['metadata']['model']}")
+
+    # 32b. Test Legacy Deprecated Model Auto-Normalization (gemini-2.5-flash -> gemini-3.8-flash)
+    res_legacy = client.post(
+        "/api/chat",
+        json={
+            "messages": [{"role": "user", "content": "Tell me a joke."}],
+            "model": "gemini-2.5-flash",
+        },
+        headers=auth_headers,
+    )
+    assert res_legacy.status_code == 200, f"Legacy model chat failed: {res_legacy.text}"
+    legacy_data = res_legacy.json()
+    assert legacy_data["metadata"]["model"] == "gemini-3.8-flash"
+    print(f"PASS: Legacy model 'gemini-2.5-flash' normalized gracefully to '{legacy_data['metadata']['model']}'")
 
     # 33. Test Custom Agent Update (PUT /api/custom-agents/{id})
     res_update = client.put(

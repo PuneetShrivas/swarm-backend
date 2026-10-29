@@ -7,6 +7,7 @@ export interface ToolCall {
 export interface MessageMetadata {
   agent_state?: string;
   tool_calls?: ToolCall[];
+  citations?: string[];
   agent_id?: string;
   agent_name?: string;
   target_agent_id?: string;

@@ -103,7 +103,7 @@ def generate_workflow_spec(
         try:
             from google.genai import types
             response = client.models.generate_content(
-                model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
                 contents=[types.Part.from_text(text=f"User workflow requirements: {prompt}")],
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -274,7 +274,7 @@ def generate_agent_spec(
         '  "role": "Concise 3-5 word role description",\n'
         '  "description": "2-3 sentence overview of this agent\'s specialization and scope",\n'
         '  "system_prompt": "Comprehensive markdown system prompt defining persona, core tasks, operational guidelines, constraints, and structured output expectations",\n'
-        '  "model": "gemini-2.5-flash",\n'
+        '  "model": "gemini-3.8-flash",\n'
         '  "temperature": 0.2,\n'
         '  "icon": "Lucide icon name (e.g. Database, ShieldCheck, Search, Code2, Bot, Sparkles, Terminal)",\n'
         '  "skills": [{"id": "skill_1", "name": "Core Domain Expertise"}]\n'
@@ -286,7 +286,7 @@ def generate_agent_spec(
         try:
             from google.genai import types
             response = client.models.generate_content(
-                model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
                 contents=[types.Part.from_text(text=f"User desired agent: {prompt}")],
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -325,7 +325,7 @@ def generate_agent_spec(
                 f"3. Produce optimized SQL statements with before-and-after complexity estimates.\n"
                 f"4. Format all SQL code with proper indentation and capitalized keywords."
             ),
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.8-flash",
             "temperature": 0.2,
             "icon": "Database",
             "skills": [
@@ -349,7 +349,7 @@ def generate_agent_spec(
                 f"3. Formulate zero-trust architectural remediations.\n"
                 f"4. Ensure sensitive data is encrypted at rest and in transit."
             ),
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.8-flash",
             "temperature": 0.1,
             "icon": "ShieldCheck",
             "skills": [
@@ -375,7 +375,7 @@ def generate_agent_spec(
             f"2. Cite evidence, reference specific methodologies, and explain assumptions clearly.\n"
             f"3. Use structured Markdown with bold headers and concise bullet points."
         ),
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.8-flash",
         "temperature": 0.3,
         "icon": "Bot",
         "skills": [

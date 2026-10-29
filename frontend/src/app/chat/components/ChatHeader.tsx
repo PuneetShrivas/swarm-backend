@@ -131,8 +131,8 @@ export default function ChatHeader({
               title="Select LLM model for agent execution"
             >
               <option value="" className="bg-surface-1 text-ink">Default Model</option>
-              <option value="gemini-2.5-flash" className="bg-surface-1 text-ink">Gemini 2.5 Flash</option>
-              <option value="gemini-2.5-pro" className="bg-surface-1 text-ink">Gemini 2.5 Pro</option>
+              <option value="gemini-3.8-flash" className="bg-surface-1 text-ink">Gemini 3.8 Flash</option>
+              <option value="gemini-4-argon" className="bg-surface-1 text-ink">Gemini 4 Argon</option>
               <option value="sonar" className="bg-surface-1 text-ink">Perplexity Sonar</option>
               <option value="sonar-pro" className="bg-surface-1 text-ink">Perplexity Sonar Pro</option>
             </select>

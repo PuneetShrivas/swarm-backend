@@ -87,11 +87,12 @@ export default function AgentCard({
   };
 
   const getModelLabel = () => {
-    const m = agent.model || "gemini-2.5-flash";
-    if (m === "gemini-2.5-pro") return "Gemini 2.5 Pro";
+    const m = agent.model || "gemini-3.8-flash";
+    if (m === "gemini-3.8-flash" || m === "gemini-2.5-flash") return "Gemini 3.8 Flash";
+    if (m === "gemini-4-argon" || m === "gemini-2.5-pro") return "Gemini 4 Argon";
     if (m === "sonar") return "Sonar (Live Web)";
     if (m === "sonar-pro") return "Sonar Pro";
-    return "Gemini 2.5 Flash";
+    return m;
   };
 
   return (

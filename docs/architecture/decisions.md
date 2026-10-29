@@ -105,3 +105,34 @@ Previously, agents were hardcoded Python dictionaries within `backend/app/main.p
 ### Consequences
 - **Positive**: Complete encapsulation; prompts can be version-controlled in plain Markdown; clear separation of tools and skills; native MCP readiness; zero breaking changes to existing endpoints.
 - **Negative / Considerations**: Introduces file I/O on startup (cached in memory); requires synchronizing frontend types in a planned follow-up phase.
+
+---
+
+## ADR 006: Gemini 3.8 Model Migration, Perplexity Citations Architecture & Dark Theme Typography
+
+### Status
+Accepted (2026-10-29T08:15:00+05:30)
+
+### Context
+1. Google Gemini retired `gemini-2.5-flash` for new users, resulting in 404 NOT_FOUND errors during live API execution.
+2. In dark mode, `@tailwindcss/typography` defaulted `--tw-prose-bold` and `--tw-prose-headings` to near-black (`#111827`), rendering bold text and headers unreadable on dark backgrounds.
+3. Live Perplexity Sonar search citations were previously dumped into a raw JSON string array inside the tool executions accordion, making it hard to read and click sources.
+4. Chat input box displayed an unwanted vertical scrollbar on Windows browsers.
+
+### Decisions
+1. **Model Upgrades & Backward-Compatible Normalization**:
+   - Upgraded all backend agents, generators, schemas, and frontend selectors from `gemini-2.5-flash` to `gemini-3.8-flash`, and from `gemini-2.5-pro` to `gemini-4-argon`.
+   - Introduced `normalize_model_name()` in FastAPI to transparently map legacy client requests or stored sessions from deprecated 2.5 models to active models.
+2. **First-Class Citations Interface**:
+   - Surfaced search citations directly through `agent_metadata["citations"]` in the backend.
+   - Cleaned up `perplexity_live_search` tool execution output so raw URL string arrays do not clutter the tool debugging view.
+   - Built a dedicated, accessible "Sources & Citations" section in the frontend displaying source index markers (`[1]`, `[2]`), clean domain hostnames, paths, external link icons, and secure tab openers.
+3. **High-Contrast Dark Theme Typography**:
+   - Extended Tailwind Typography theme configuration to bind `--tw-prose-bold` and prose colors to `hsl(var(--foreground))` and `#f7f8f8`.
+   - Injected global CSS and ReactMarkdown component overrides guaranteeing crisp white bold styling across all theme palettes.
+4. **Scrollbar-Free Auto-Expanding Textarea**:
+   - Implemented `.no-scrollbar` utility classes and arbitrary Tailwind selectors (`[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`) on the chat input box.
+
+### Consequences
+- **Positive**: Eradicates Gemini 404 API errors; ensures zero breakage for existing conversations via auto-normalization; delivers high-contrast readability across all themes; transforms raw Perplexity citation dumps into an interactive sources UI; removes unsightly scrollbars.
+- **Negative / Considerations**: Deprecated models will be automatically upgraded to 3.8 Flash, which exhibits superior speed and capabilities.

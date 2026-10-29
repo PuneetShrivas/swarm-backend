@@ -20,6 +20,8 @@ import {
   Layers,
   Sparkles,
   Zap,
+  BookOpen,
+  ExternalLink,
 } from "lucide-react";
 import { ChatNode } from "../types";
 
@@ -46,6 +48,45 @@ export default function MessageItem({
   const [editContent, setEditContent] = useState(node.content);
   const [copied, setCopied] = useState(false);
   const [showTools, setShowTools] = useState(false);
+  const [showAllCitations, setShowAllCitations] = useState(false);
+
+  // Extract citations from node metadata or from perplexity / search tool calls
+  const rawCitations: string[] = (() => {
+    if (Array.isArray(node.metadata?.citations) && node.metadata.citations.length > 0) {
+      return node.metadata.citations.map((c) => String(c));
+    }
+    if (node.metadata?.tool_calls) {
+      for (const tc of node.metadata.tool_calls) {
+        const res = tc.result as Record<string, unknown> | undefined;
+        if (res && Array.isArray(res.citations) && res.citations.length > 0) {
+          return res.citations.map((c) => String(c));
+        }
+        if (res && Array.isArray(res.sources) && res.sources.length > 0) {
+          return res.sources.map((s) => String(s));
+        }
+      }
+    }
+    return [];
+  })();
+
+  const citations = rawCitations.filter((c) => typeof c === "string" && c.trim().length > 0);
+
+  const formatCitationUrl = (urlStr: string) => {
+    try {
+      if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
+        const parsed = new URL(urlStr);
+        const host = parsed.hostname.replace(/^www\./, "");
+        const path =
+          parsed.pathname.length > 1
+            ? parsed.pathname.slice(0, 24) + (parsed.pathname.length > 24 ? "…" : "")
+            : "";
+        return { host, path, isUrl: true, fullUrl: urlStr };
+      }
+    } catch {
+      // fallback
+    }
+    return { host: urlStr.slice(0, 32), path: "", isUrl: false, fullUrl: urlStr };
+  };
 
   const isUser = node.role === "user";
   const hasMultipleVersions = siblingInfo.total > 1;
@@ -217,7 +258,7 @@ export default function MessageItem({
             </div>
           ) : (
             <>
-              <div className="prose prose-sm max-w-none break-words text-ink">
+              <div className="prose prose-sm dark:prose-invert max-w-none break-words text-ink">
                 <ReactMarkdown
                   components={{
                     pre({ children }) {
@@ -245,11 +286,120 @@ export default function MessageItem({
                         </code>
                       );
                     },
+                    strong({ children }) {
+                      return (
+                        <strong className="font-semibold text-ink">
+                          {children}
+                        </strong>
+                      );
+                    },
+                    b({ children }) {
+                      return (
+                        <b className="font-semibold text-ink">
+                          {children}
+                        </b>
+                      );
+                    },
+                    h1({ children }) {
+                      return (
+                        <h1 className="text-base font-bold text-ink mb-2 mt-3">
+                          {children}
+                        </h1>
+                      );
+                    },
+                    h2({ children }) {
+                      return (
+                        <h2 className="text-sm font-semibold text-ink mb-1.5 mt-2.5">
+                          {children}
+                        </h2>
+                      );
+                    },
+                    h3({ children }) {
+                      return (
+                        <h3 className="text-xs font-semibold text-ink mb-1 mt-2">
+                          {children}
+                        </h3>
+                      );
+                    },
+                    a({ href, children }) {
+                      return (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-linear-primary hover:text-linear-hover underline underline-offset-2 transition-colors font-medium"
+                        >
+                          {children}
+                        </a>
+                      );
+                    },
                   }}
                 >
                   {node.content}
                 </ReactMarkdown>
               </div>
+
+              {/* Dedicated Sources & Citations Section (e.g. Perplexity Sonar) */}
+              {citations.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-hairline select-none">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-ink">
+                      <BookOpen size={12} className="text-linear-primary" />
+                      <span>Sources & Citations</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-2 text-ink-subtle border border-hairline font-mono">
+                        {citations.length}
+                      </span>
+                    </div>
+                    {citations.length > 4 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllCitations(!showAllCitations)}
+                        className="text-[10px] font-mono text-linear-primary hover:text-linear-hover transition-colors"
+                      >
+                        {showAllCitations ? "Show less" : `+${citations.length - 4} more`}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {(showAllCitations ? citations : citations.slice(0, 4)).map((cite, idx) => {
+                      const { host, path, isUrl, fullUrl } = formatCitationUrl(cite);
+                      return (
+                        <a
+                          key={idx}
+                          href={isUrl ? fullUrl : undefined}
+                          target={isUrl ? "_blank" : undefined}
+                          rel={isUrl ? "noopener noreferrer" : undefined}
+                          title={fullUrl}
+                          className="group/cite flex items-center justify-between gap-2 p-2 rounded-md bg-surface-1 hover:bg-surface-2 border border-hairline hover:border-hairline-strong transition-all text-xs overflow-hidden"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-4 h-4 rounded bg-surface-2 group-hover/cite:bg-linear-primary/20 text-[10px] font-mono font-medium text-ink-muted group-hover/cite:text-linear-primary flex items-center justify-center shrink-0 border border-hairline">
+                              {idx + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium text-ink group-hover/cite:text-linear-primary truncate transition-colors">
+                                {host}
+                              </p>
+                              {path && (
+                                <p className="text-[9px] font-mono text-ink-tertiary truncate">
+                                  {path}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          {isUrl && (
+                            <ExternalLink
+                              size={11}
+                              className="text-ink-tertiary group-hover/cite:text-linear-primary shrink-0 opacity-70 group-hover/cite:opacity-100 transition-opacity"
+                            />
+                          )}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Tool Calls Accordion */}
               {hasToolCalls && (
@@ -281,34 +431,47 @@ export default function MessageItem({
                         exit={{ opacity: 0, height: 0 }}
                         className="mt-2 space-y-2 overflow-hidden text-xs"
                       >
-                        {node.metadata?.tool_calls?.map((tc, idx) => (
-                          <div
-                            key={idx}
-                            className="p-3 rounded-md bg-canvas text-ink-muted font-mono text-[11px] overflow-x-auto border border-hairline"
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div className="text-ink font-medium flex items-center gap-1.5">
-                                <Zap size={11} className="text-linear-primary" />
-                                <span>{tc.tool}</span>
+                        {node.metadata?.tool_calls?.map((tc, idx) => {
+                          const cleanResult = (() => {
+                            if (tc.result && typeof tc.result === "object") {
+                              const r = { ...(tc.result as Record<string, unknown>) };
+                              if ("citations" in r && citations.length > 0) {
+                                delete r.citations;
+                                r.citations_displayed = "Viewed in Sources & Citations section above";
+                              }
+                              return r;
+                            }
+                            return tc.result;
+                          })();
+                          return (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-md bg-canvas text-ink-muted font-mono text-[11px] overflow-x-auto border border-hairline"
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="text-ink font-medium flex items-center gap-1.5">
+                                  <Zap size={11} className="text-linear-primary" />
+                                  <span>{tc.tool}</span>
+                                </div>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded-xs bg-surface-2 text-ink-subtle border border-hairline">
+                                  Swarm Tool
+                                </span>
                               </div>
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-xs bg-surface-2 text-ink-subtle border border-hairline">
-                                Swarm Tool
-                              </span>
+                              {tc.args && (
+                                <div className="text-ink-subtle mt-1">
+                                  <span className="text-ink-tertiary">args: </span>
+                                  {JSON.stringify(tc.args)}
+                                </div>
+                              )}
+                              {cleanResult !== undefined && (
+                                <div className="text-semantic-success mt-1.5 pt-1.5 border-t border-hairline">
+                                  <span className="text-ink-tertiary">result: </span>
+                                  {JSON.stringify(cleanResult)}
+                                </div>
+                              )}
                             </div>
-                            {tc.args && (
-                              <div className="text-ink-subtle mt-1">
-                                <span className="text-ink-tertiary">args: </span>
-                                {JSON.stringify(tc.args)}
-                              </div>
-                            )}
-                            {tc.result !== undefined && (
-                              <div className="text-semantic-success mt-1.5 pt-1.5 border-t border-hairline">
-                                <span className="text-ink-tertiary">result: </span>
-                                {JSON.stringify(tc.result)}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </motion.div>
                     )}
                   </AnimatePresence>

@@ -34,7 +34,7 @@ class AgentConfig(BaseModel):
     name: str = Field(..., description="Display name for the agent")
     role: str = Field(..., description="Primary specialty and responsibility")
     status: str = Field(default="active", description="Operational state ('active', 'busy', 'idle')")
-    model: str = Field(default="gemini-2.5-flash", description="Underlying Gemini model")
+    model: str = Field(default="gemini-3.8-flash", description="Underlying Gemini model")
     temperature: float = Field(default=0.3, description="Sampling temperature")
     is_orchestrator: bool = Field(default=False, description="Whether this agent acts as the swarm orchestrator")
     icon: Optional[str] = Field(None, description="Lucide icon identifier for UI rendering")
@@ -47,7 +47,7 @@ class AgentProfile(BaseModel):
     role: str
     status: str = "active"
     system_prompt: Optional[str] = None
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3.8-flash"
     temperature: float = 0.3
     is_orchestrator: bool = False
     icon: Optional[str] = None
