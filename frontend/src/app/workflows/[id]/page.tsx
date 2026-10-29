@@ -448,7 +448,6 @@ export default function WorkflowStudioPage() {
                   setUnitTestStep(st);
                   setIsUnitTestModalOpen(true);
                 }}
-                onRunSystemTest={() => setIsSystemTestModalOpen(true)}
               />
             ) : (
               <VisualGraphEditor

@@ -167,11 +167,11 @@ export default function WorkflowSystemTestModal({
   };
 
   const handleCopyOutput = () => {
-    if (!runResult?.final_output) return;
+    if (!runResult?.output_data) return;
     const text =
-      typeof runResult.final_output.text === "string"
-        ? runResult.final_output.text
-        : JSON.stringify(runResult.final_output, null, 2);
+      typeof runResult.output_data.final_result === "string"
+        ? runResult.output_data.final_result
+        : JSON.stringify(runResult.output_data, null, 2);
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -378,7 +378,7 @@ export default function WorkflowSystemTestModal({
                     <Clock size={11} /> {runResult.duration_ms}ms
                   </span>
                   <span className="flex items-center gap-1">
-                    <Zap size={11} className="text-linear-primary" /> {runResult.tokens_used} tokens
+                    <Zap size={11} className="text-linear-primary" /> {runResult.total_tokens} tokens
                   </span>
                 </div>
               </div>
@@ -454,9 +454,9 @@ export default function WorkflowSystemTestModal({
               {activeResultTab === "final" && (
                 <div className="space-y-2">
                   <pre className="font-mono text-[11px] text-ink leading-relaxed bg-canvas p-3 rounded-md border border-hairline whitespace-pre-wrap max-h-60 overflow-y-auto">
-                    {typeof runResult.final_output?.text === "string"
-                      ? runResult.final_output.text
-                      : JSON.stringify(runResult.final_output, null, 2)}
+                    {typeof runResult.output_data?.final_result === "string"
+                      ? runResult.output_data.final_result
+                      : JSON.stringify(runResult.output_data, null, 2)}
                   </pre>
                 </div>
               )}
@@ -507,10 +507,15 @@ export default function WorkflowSystemTestModal({
                                 key={tIdx}
                                 className="p-1.5 rounded-xs bg-surface-1 border border-hairline text-[10px]"
                               >
-                                <span className="font-semibold text-ink">{tc.tool}</span>
-                                {tc.args && (
-                                  <div className="text-ink-subtle truncate">
-                                    args: {JSON.stringify(tc.args)}
+                                <div className="flex items-center justify-between">
+                                  <span className="font-semibold text-ink">{tc.tool_name || tc.tool_id || "Tool"}</span>
+                                  {Boolean(tc.status) && (
+                                    <span className="text-[9px] text-ink-subtle font-mono">{tc.status}</span>
+                                  )}
+                                </div>
+                                {tc.duration_ms !== undefined && (
+                                  <div className="text-ink-subtle text-[9px]">
+                                    {tc.duration_ms}ms
                                   </div>
                                 )}
                               </div>

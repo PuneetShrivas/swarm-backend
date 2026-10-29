@@ -539,16 +539,16 @@ export default function StepUnitTestModal({
                     result.tool_calls.map((tc, idx) => (
                       <div key={idx} className="p-2.5 rounded-md bg-canvas border border-hairline font-mono text-[11px]">
                         <div className="flex items-center justify-between text-ink font-semibold">
-                          <span>{tc.tool}</span>
+                          <span>{String(tc.tool || tc.tool_name || "Tool")}</span>
                           <span className="text-[10px] text-ink-subtle">Tool Call #{idx + 1}</span>
                         </div>
-                        {tc.args && (
+                        {Boolean(tc.args) && (
                           <div className="text-ink-subtle mt-1 text-[10px]">
                             <span className="text-ink-tertiary">args: </span>
                             {JSON.stringify(tc.args)}
                           </div>
                         )}
-                        {tc.result !== undefined && (
+                        {Boolean(tc.result !== undefined) && (
                           <div className="text-semantic-success mt-1 pt-1 border-t border-hairline text-[10px]">
                             <span className="text-ink-tertiary">result: </span>
                             {JSON.stringify(tc.result)}

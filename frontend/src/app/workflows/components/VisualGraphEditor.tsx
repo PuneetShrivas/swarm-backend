@@ -331,6 +331,7 @@ export default function VisualGraphEditor({
   onChangeEdges,
   agents,
   onUnitTestStep,
+  onRunSystemTest,
   readOnly = false,
 }: VisualGraphEditorProps) {
   // Memoize custom node and edge types
