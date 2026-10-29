@@ -1295,8 +1295,105 @@ def execute(input_data: dict, context: dict) -> dict:
     assert res_del_doc.json()["status"] == "deleted"
     print("PASS: RAG Ingest, BM25/Vector retrieval, prompt context generation, and index lifecycle verified")
 
+    # ---------------------------------------------------------
+    # Test 61: User Artifact Upload & Automatic RAG Indexing
+    # ---------------------------------------------------------
+    upload_art_payload = {
+        "id": "art-user-audit-doc",
+        "name": "Audit_Policy_2026.txt",
+        "filename": "Audit_Policy_2026.txt",
+        "type": "txt",
+        "content": "Swarm Platform Security Policy: All financial operations require dual-key multi-sig authorization and cryptographic hash verification.",
+        "size_bytes": 115,
+        "source_type": "upload",
+        "source_title": "Compliance Manual",
+    }
+    res_up = client.post("/api/artifacts", json=upload_art_payload, headers=auth_headers)
+    assert res_up.status_code == 200
+    up_data = res_up.json()
+    assert up_data["id"] == "art-user-audit-doc"
+    assert up_data["downloadable"] is True
+
+    # Verify automatically indexed into RAG store
+    from app.rag.store import rag_store
+    rag_matches = rag_store.query_context("cryptographic hash verification dual-key")
+    assert len(rag_matches) > 0
+    assert "Audit_Policy_2026.txt" in [m["filename"] for m in rag_matches]
+    print("PASS: User artifact upload and automatic RAG indexing verified")
+
+    # ---------------------------------------------------------
+    # Test 62: Chat Turn with Attached Artifacts & Grounded Context
+    # ---------------------------------------------------------
+    chat_with_art_payload = {
+        "messages": [
+            {"role": "user", "content": "What are the security authorization rules for financial operations?"}
+        ],
+        "artifact_ids": ["art-user-audit-doc"],
+        "model": "qwen-3.8",
+    }
+    res_chat_art = client.post("/api/chat", json=chat_with_art_payload, headers=auth_headers)
+    assert res_chat_art.status_code == 200
+    chat_art_data = res_chat_art.json()
+    assert chat_art_data["role"] == "agent"
+    meta = chat_art_data.get("metadata", {})
+    assert "attached_artifacts" in meta
+    assert any(a["id"] == "art-user-audit-doc" for a in meta["attached_artifacts"])
+    print("PASS: Chat turn with attached artifacts and grounded context injection verified")
+
+    # ---------------------------------------------------------
+    # Test 63: Custom Agent with Attached Knowledge Artifacts
+    # ---------------------------------------------------------
+    custom_agent_with_art = {
+        "id": "agent-compliance-officer",
+        "name": "Chief Compliance Officer",
+        "role": "Regulatory Specialist",
+        "description": "Enforces company compliance rules based on uploaded manuals",
+        "system_prompt": "You are the Chief Compliance Officer. Answer strictly based on company audit policies.",
+        "model": "qwen-3.8",
+        "temperature": 0.2,
+        "icon": "ShieldCheck",
+        "attached_artifact_ids": ["art-user-audit-doc"],
+    }
+    res_ca_art = client.post("/api/custom-agents", json=custom_agent_with_art, headers=auth_headers)
+    assert res_ca_art.status_code == 200
+    ca_saved = res_ca_art.json()
+    assert "art-user-audit-doc" in ca_saved.get("attached_artifact_ids", [])
+
+    # Test custom agent playground with attached artifact grounding
+    res_ca_test = client.post(
+        "/api/custom-agents/test",
+        json={
+            "agent_id": "agent-compliance-officer",
+            "prompt": "Verify policy regarding financial transactions.",
+            "attached_artifact_ids": ["art-user-audit-doc"],
+        },
+        headers=auth_headers
+    )
+    assert res_ca_test.status_code == 200
+    print("PASS: Custom agent creation with attached knowledge artifacts and playground test verified")
+
+    # ---------------------------------------------------------
+    # Test 64: Workflow Step Execution with Attached Knowledge Artifacts
+    # ---------------------------------------------------------
+    res_step_art_test = client.post(
+        f"/api/workflows/{wf_id}/steps/step_research/test",
+        json={
+            "step_id": "step_research",
+            "mock_inputs": {"topic": "AI Market Trends 2026"},
+            "mock_previous_outputs": {},
+        },
+        headers=auth_headers,
+    )
+    assert res_step_art_test.status_code == 200
+    assert res_step_art_test.json()["status"] == "completed"
+    print("PASS: Workflow step execution with attached knowledge and artifacts verified")
+
+    # Clean up test artifact
+    res_del_art = client.delete("/api/artifacts/art-user-audit-doc", headers=auth_headers)
+    assert res_del_art.status_code == 200
+
     print("\n========================================")
-    print("ALL 60 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 64 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

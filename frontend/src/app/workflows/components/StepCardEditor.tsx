@@ -23,7 +23,11 @@ import {
   RotateCcw,
   FileOutput,
   Cpu,
+  Upload,
+  Paperclip,
 } from "lucide-react";
+import { getAuthHeaders } from "@/lib/supabase";
+import ArtifactSelectorModal, { ArtifactItem } from "@/app/chat/components/ArtifactSelectorModal";
 
 interface StepCardEditorProps {
   steps: WorkflowStep[];
@@ -45,6 +49,90 @@ export default function StepCardEditor({
   readOnly = false,
 }: StepCardEditorProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showArtifactModal, setShowArtifactModal] = useState(false);
+  const [activeStepIdxForArtifacts, setActiveStepIdxForArtifacts] = useState<number | null>(null);
+
+  const handleSelectArtifactsForStep = (selected: ArtifactItem[]) => {
+    if (activeStepIdxForArtifacts === null) return;
+    const currentStep = steps[activeStepIdxForArtifacts];
+    const existing = new Set(currentStep.attached_artifact_ids || []);
+    selected.forEach((art) => existing.add(art.id));
+    handleUpdateStep(activeStepIdxForArtifacts, {
+      attached_artifact_ids: Array.from(existing),
+    });
+    setShowArtifactModal(false);
+    setActiveStepIdxForArtifacts(null);
+  };
+
+  const handleQuickUploadForStep = async (stepIdx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const isBinary = ["pdf", "docx", "pptx", "xlsx", "zip", "png", "jpg", "jpeg"].includes(ext);
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const content = (ev.target?.result as string) || "";
+      const artId = `art_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const newArt = {
+        id: artId,
+        name: file.name,
+        filename: file.name,
+        type: ext || "txt",
+        content: content,
+        size_bytes: file.size,
+        created_at: new Date().toISOString(),
+        source_type: "upload",
+        origin_agent: "user_upload",
+        is_base64: isBinary,
+      };
+
+      try {
+        const stored = localStorage.getItem("swarm_artifacts_v1");
+        const list = stored ? JSON.parse(stored) : [];
+        list.unshift(newArt);
+        localStorage.setItem("swarm_artifacts_v1", JSON.stringify(list));
+      } catch (err) {
+        console.warn("Local storage write error:", err);
+      }
+
+      try {
+        const authHeaders = await getAuthHeaders();
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        await fetch(`${apiUrl}/api/artifacts`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({
+            id: artId,
+            name: file.name,
+            filename: file.name,
+            type: ext || "txt",
+            content: content,
+            size_bytes: file.size,
+            origin_agent: "user_upload",
+            source_type: "upload",
+            is_base64: isBinary,
+          }),
+        });
+      } catch (err) {
+        console.warn("Backend artifact sync error:", err);
+      }
+
+      const currentAttached = steps[stepIdx].attached_artifact_ids || [];
+      handleUpdateStep(stepIdx, {
+        attached_artifact_ids: [...currentAttached, artId],
+      });
+    };
+
+    if (isBinary) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  };
 
   const handleAddBlock = (blockType: WorkflowStepType) => {
     if (readOnly) return;
@@ -511,13 +599,39 @@ export default function StepCardEditor({
                     </div>
 
                     <div>
-                      <span className="font-medium text-ink-subtle flex items-center gap-1 mb-1.5 text-[10px]">
-                        <FileText size={11} className="text-linear-primary" /> Attached Knowledge Files
-                      </span>
-                      {knowledgeFiles.length === 0 ? (
-                        <span className="text-[10px] text-ink-tertiary italic">No files in workflow knowledge base.</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
+                      <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                        <span className="font-medium text-ink-subtle flex items-center gap-1 text-[10px]">
+                          <FileText size={11} className="text-linear-primary" /> Attached Knowledge & Artifacts
+                        </span>
+                        {!readOnly && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveStepIdxForArtifacts(idx);
+                                setShowArtifactModal(true);
+                              }}
+                              className="text-[9px] px-1.5 py-0.5 rounded border border-hairline bg-surface-2 hover:bg-surface-3 text-ink flex items-center gap-1 transition"
+                              title="Attach Studio Artifact"
+                            >
+                              <Paperclip size={10} className="text-linear-primary" /> + Studio Artifact
+                            </button>
+                            <label className="text-[9px] px-1.5 py-0.5 rounded border border-hairline bg-surface-2 hover:bg-surface-3 text-ink flex items-center gap-1 cursor-pointer transition">
+                              <Upload size={10} className="text-linear-primary" /> + Upload File
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.csv,.json,.py,.yaml,.yml"
+                                onChange={(e) => handleQuickUploadForStep(idx, e)}
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Knowledge Files from Workflow KB */}
+                      {knowledgeFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1.5">
                           {knowledgeFiles.map((file) => {
                             const isAttached = step.knowledge_file_ids.includes(file.id);
                             return (
@@ -542,6 +656,37 @@ export default function StepCardEditor({
                             );
                           })}
                         </div>
+                      )}
+
+                      {/* Attached Studio Artifacts */}
+                      {Boolean(step.attached_artifact_ids && step.attached_artifact_ids.length > 0) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {step.attached_artifact_ids!.map((artId) => (
+                            <span
+                              key={artId}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xs border border-violet-500/40 bg-violet-500/10 text-violet-300 text-[10px] font-mono"
+                            >
+                              <span>📦 {artId.length > 20 ? artId.slice(0, 18) + "..." : artId}</span>
+                              {!readOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newArtIds = (step.attached_artifact_ids || []).filter((id) => id !== artId);
+                                    handleUpdateStep(idx, { attached_artifact_ids: newArtIds });
+                                  }}
+                                  className="hover:text-red-400 ml-0.5 font-bold"
+                                  title="Detach artifact"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {knowledgeFiles.length === 0 && (!step.attached_artifact_ids || step.attached_artifact_ids.length === 0) && (
+                        <span className="text-[10px] text-ink-tertiary italic">No files or artifacts attached to this step.</span>
                       )}
                     </div>
                   </div>
@@ -826,6 +971,17 @@ export default function StepCardEditor({
           )}
         </div>
       )}
+
+      {/* Artifact Selector Modal */}
+      <ArtifactSelectorModal
+        isOpen={showArtifactModal}
+        onClose={() => {
+          setShowArtifactModal(false);
+          setActiveStepIdxForArtifacts(null);
+        }}
+        onSelectArtifacts={handleSelectArtifactsForStep}
+        alreadyAttachedIds={activeStepIdxForArtifacts !== null ? steps[activeStepIdxForArtifacts]?.attached_artifact_ids : []}
+      />
     </div>
   );
 }

@@ -197,7 +197,8 @@ def ingest_and_index_document(
     content_base64: str = "",
     file_type: str = "auto",
     chunk_size: int = 150,
-    chunk_overlap: int = 30
+    chunk_overlap: int = 30,
+    document_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Ingests any document (plain text, code, CSV, JSON, Markdown, or binary Base64 PDF/PPTX/DOCX/XLSX),
@@ -227,7 +228,8 @@ def ingest_and_index_document(
         content=text_to_index,
         metadata={"file_type": file_type, "source": "file_parser"},
         chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
+        chunk_overlap=chunk_overlap,
+        document_id=document_id
     )
     return result
 

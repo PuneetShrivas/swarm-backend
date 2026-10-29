@@ -21,6 +21,9 @@ import {
   Plus,
   RefreshCw,
   X,
+  Upload,
+  MessageSquare,
+  FileUp,
 } from "lucide-react";
 
 export interface Artifact {
@@ -51,6 +54,12 @@ export default function ArtifactsStudioPage() {
   // Preview modal state
   const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Upload modal state
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Fetch artifacts from FastAPI backend merged with client localStorage cache
   const fetchArtifacts = useCallback(async () => {
@@ -238,6 +247,97 @@ export default function ArtifactsStudioPage() {
     }
   };
 
+  // Handle Invoke in Chat
+  const handleInvokeInChat = (art: Artifact, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      localStorage.setItem("swarm_invoked_artifact", JSON.stringify(art));
+    } catch {
+      // Ignore storage error
+    }
+    router.push(`/chat?artifact_id=${encodeURIComponent(art.id)}`);
+  };
+
+  // Handle Upload Artifact Submission
+  const handleUploadArtifact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const ext = (uploadFile.name.split(".").pop() || "txt").toLowerCase();
+      const isBinary = ["pdf", "docx", "pptx", "xlsx", "zip"].includes(ext);
+
+      let content = "";
+      if (isBinary) {
+        const b64DataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string) || "");
+          reader.onerror = reject;
+          reader.readAsDataURL(uploadFile);
+        });
+        content = b64DataUrl.split(",")[1] || "";
+      } else {
+        content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string) || "");
+          reader.onerror = reject;
+          reader.readAsText(uploadFile);
+        });
+      }
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
+      const payload: Artifact = {
+        id: `art-up-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        name: uploadFile.name,
+        filename: uploadFile.name,
+        type: ext,
+        content,
+        size_bytes: uploadFile.size,
+        created_at: new Date().toISOString(),
+        origin_agent: "user_upload",
+        source_type: "upload",
+        source_title: "User Upload",
+        downloadable: true,
+        is_base64: isBinary,
+        encoding: isBinary ? "base64" : "utf-8",
+      };
+
+      const res = await fetch(`${apiUrl}/api/artifacts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const saved: Artifact = res.ok ? await res.json() : payload;
+
+      try {
+        const raw = localStorage.getItem("swarm_local_artifacts");
+        const list = raw ? JSON.parse(raw) : [];
+        localStorage.setItem("swarm_local_artifacts", JSON.stringify([saved, ...list].slice(0, 50)));
+      } catch {
+        // Ignore storage error
+      }
+
+      setArtifacts((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)]);
+      setIsUploadModalOpen(false);
+      setUploadFile(null);
+    } catch (err: unknown) {
+      setUploadError((err as Error).message || "Failed to upload artifact.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // Filtered artifacts
   const filteredArtifacts = useMemo(() => {
     return artifacts.filter((art) => {
@@ -314,6 +414,15 @@ export default function ArtifactsStudioPage() {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="px-3.5 py-1.5 text-xs font-medium text-ink bg-surface-2 hover:bg-surface-3 border border-hairline rounded-md transition-colors flex items-center gap-1.5 shadow-xs"
+                  title="Upload PDF, DOCX, PPTX, XLSX, CSV, JSON, Markdown, or Code artifacts"
+                >
+                  <Upload size={13} className="text-linear-primary" />
+                  <span>Upload Artifact</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => router.push("/chat")}
@@ -460,14 +569,25 @@ export default function ArtifactsStudioPage() {
                         className="pt-2 border-t border-hairline flex items-center justify-between"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => handleDownload(art, e)}
-                          className="px-2.5 py-1 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover rounded inline-flex items-center gap-1.5 transition-transform hover:scale-[1.02] shadow-xs"
-                        >
-                          <Download size={11} />
-                          <span>Download</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleDownload(art, e)}
+                            className="px-2.5 py-1 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover rounded inline-flex items-center gap-1.5 transition-transform hover:scale-[1.02] shadow-xs"
+                          >
+                            <Download size={11} />
+                            <span>Download</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleInvokeInChat(art, e)}
+                            className="px-2 py-1 text-xs font-medium text-ink bg-surface-2 hover:bg-surface-3 rounded inline-flex items-center gap-1 transition-colors border border-hairline"
+                            title="Invoke in Chat for grounded answers"
+                          >
+                            <MessageSquare size={11} className="text-linear-primary" />
+                            <span>Chat</span>
+                          </button>
+                        </div>
 
                         <div className="flex items-center gap-1">
                           <button
@@ -522,6 +642,15 @@ export default function ArtifactsStudioPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleInvokeInChat(previewArtifact)}
+                  className="px-3 py-1.5 text-xs font-medium text-ink bg-surface-2 hover:bg-surface-3 border border-hairline rounded-md transition-all inline-flex items-center gap-1.5 shadow-xs"
+                  title="Invoke in Chat with grounded context"
+                >
+                  <MessageSquare size={12} className="text-linear-primary" />
+                  <span>Invoke in Chat</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => handleDownload(previewArtifact)}
@@ -584,6 +713,143 @@ export default function ArtifactsStudioPage() {
                 </pre>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Artifact Modal */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in font-sans">
+          <div className="bg-surface-1 border border-hairline rounded-xl w-full max-w-lg shadow-card overflow-hidden">
+            <div className="p-4 border-b border-hairline flex items-center justify-between bg-surface-2/40">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-md bg-surface-2 border border-hairline flex items-center justify-center text-linear-primary">
+                  <Upload size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Upload Artifact</h3>
+                  <p className="text-[11px] text-ink-subtle">
+                    Upload documents to index into RAG and use across Swarm agents & workflows
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsUploadModalOpen(false);
+                  setUploadFile(null);
+                  setUploadError(null);
+                }}
+                className="p-1.5 rounded-md text-ink-subtle hover:text-ink hover:bg-surface-2 border border-hairline transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUploadArtifact} className="p-5 space-y-4">
+              {uploadError && (
+                <div className="p-3 text-xs rounded-md bg-red-500/10 border border-red-500/30 text-red-400">
+                  {uploadError}
+                </div>
+              )}
+
+              {/* Drag and Drop Zone */}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    setUploadFile(e.dataTransfer.files[0]);
+                  }
+                }}
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${
+                  uploadFile
+                    ? "border-linear-primary bg-linear-primary/5"
+                    : "border-hairline hover:border-hairline-strong bg-canvas/40"
+                }`}
+              >
+                {uploadFile ? (
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 mx-auto rounded-lg bg-surface-2 border border-hairline flex items-center justify-center">
+                      {getFileIcon(uploadFile.name.split(".").pop() || "txt")}
+                    </div>
+                    <p className="text-xs font-semibold text-ink truncate max-w-xs mx-auto">
+                      {uploadFile.name}
+                    </p>
+                    <p className="text-[10px] text-ink-subtle font-mono">
+                      {(uploadFile.size / 1024).toFixed(1)} KB &middot; {uploadFile.name.split(".").pop()?.toUpperCase() || "FILE"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setUploadFile(null)}
+                      className="text-[11px] text-red-400 hover:underline pt-1"
+                    >
+                      Remove file
+                    </button>
+                  </div>
+                ) : (
+                  <label className="cursor-pointer block space-y-2">
+                    <FileUp size={28} className="mx-auto text-ink-tertiary" />
+                    <div>
+                      <span className="text-xs font-medium text-linear-primary hover:underline">
+                        Choose a file
+                      </span>
+                      <span className="text-xs text-ink-subtle"> or drag and drop</span>
+                    </div>
+                    <p className="text-[10px] text-ink-tertiary">
+                      PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx), CSV, JSON, Markdown, Python, TXT (up to 20MB)
+                    </p>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.json,.py,.md,.txt,.html"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setUploadFile(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* Information pill */}
+              <div className="text-[11px] text-ink-tertiary bg-surface-2/40 p-2.5 rounded-lg border border-hairline leading-relaxed">
+                <span className="font-semibold text-ink">Automatic RAG Integration:</span> This document will be parsed, segmented with sliding-window chunking, and indexed into the hybrid BM25 knowledge engine for instant context retrieval by Swarm agents.
+              </div>
+
+              {/* Actions Footer */}
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-hairline">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUploadModalOpen(false);
+                    setUploadFile(null);
+                    setUploadError(null);
+                  }}
+                  className="px-3 py-1.5 text-xs text-ink-subtle hover:text-ink hover:bg-surface-2 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!uploadFile || isUploading}
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xs inline-flex items-center gap-1.5"
+                >
+                  {isUploading ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Indexing & Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={12} />
+                      <span>Upload & Index</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

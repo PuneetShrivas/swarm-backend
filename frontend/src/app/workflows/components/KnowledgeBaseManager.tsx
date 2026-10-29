@@ -12,7 +12,10 @@ import {
   X,
   FileCheck,
   FolderOpen,
+  FolderArchive,
+  Loader2,
 } from "lucide-react";
+import ArtifactSelectorModal, { ArtifactItem } from "@/app/chat/components/ArtifactSelectorModal";
 
 interface KnowledgeBaseManagerProps {
   workflowId: string;
@@ -29,6 +32,7 @@ export default function KnowledgeBaseManager({
 }: KnowledgeBaseManagerProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [previewFile, setPreviewFile] = useState<KnowledgeFile | null>(null);
+  const [showArtifactPicker, setShowArtifactPicker] = useState(false);
 
   // Manual paste / text file upload state
   const [showPasteModal, setShowPasteModal] = useState(false);
@@ -42,9 +46,12 @@ export default function KnowledgeBaseManager({
     setIsUploading(true);
     setErrorMsg(null);
 
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const isBinary = ["pdf", "docx", "pptx", "xlsx", "zip", "png", "jpg", "jpeg"].includes(ext);
+
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const text = (event.target?.result as string) || "";
+      const content = (event.target?.result as string) || "";
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
       try {
@@ -57,8 +64,8 @@ export default function KnowledgeBaseManager({
           },
           body: JSON.stringify({
             file_name: file.name,
-            content_text: text,
-            file_type: file.type || "text/plain",
+            content_text: content,
+            file_type: file.type || (isBinary ? `application/${ext}` : "text/plain"),
           }),
         });
 
@@ -74,7 +81,44 @@ export default function KnowledgeBaseManager({
         setIsUploading(false);
       }
     };
-    reader.readAsText(file);
+
+    if (isBinary) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  };
+
+  const handleImportArtifacts = async (selectedArtifacts: ArtifactItem[]) => {
+    if (readOnly || selectedArtifacts.length === 0) return;
+    setIsUploading(true);
+    setErrorMsg(null);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+    try {
+      const authHeaders = await getAuthHeaders();
+      for (const art of selectedArtifacts) {
+        const fname = art.filename || `${art.name || "artifact"}.${art.type || "txt"}`;
+        await fetch(`${apiUrl}/api/workflows/${workflowId}/knowledge/upload`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({
+            file_name: fname,
+            content_text: art.content || "",
+            file_type: art.type || "text/plain",
+          }),
+        });
+      }
+      onRefreshFiles();
+    } catch (err: unknown) {
+      setErrorMsg((err as Error).message || "Failed to import artifacts into knowledge base.");
+    } finally {
+      setIsUploading(false);
+      setShowArtifactPicker(false);
+    }
   };
 
   const handleCreateTextFile = async () => {
@@ -143,7 +187,14 @@ export default function KnowledgeBaseManager({
         </div>
 
         {!readOnly && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
+            <button
+              onClick={() => setShowArtifactPicker(true)}
+              className="px-3 py-1.5 text-xs font-medium border border-border bg-card hover:bg-muted text-foreground rounded-xl transition flex items-center gap-1.5 shadow-subtle"
+              title="Import artifacts created in Artifacts Studio"
+            >
+              <FolderArchive size={13} className="text-primary" /> Import from Studio
+            </button>
             <button
               onClick={() => setShowPasteModal(true)}
               className="px-3 py-1.5 text-xs font-medium border border-border bg-card hover:bg-muted text-foreground rounded-xl transition flex items-center gap-1.5"
@@ -151,11 +202,16 @@ export default function KnowledgeBaseManager({
               <Plus size={13} /> Add Text Doc
             </button>
             <label className="px-3.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition flex items-center gap-1.5 cursor-pointer shadow-subtle">
-              <Upload size={13} /> Upload File (.txt, .md, .csv)
+              {isUploading ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Upload size={13} />
+              )}
+              <span>Upload Document (.pdf, .docx, .pptx, .xlsx, .txt, .md)</span>
               <input
                 type="file"
                 className="hidden"
-                accept=".txt,.md,.markdown,.csv,.json,.py,.yaml,.yml"
+                accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.csv,.json,.py,.yaml,.yml"
                 onChange={handleFileUpload}
                 disabled={isUploading}
               />
@@ -305,6 +361,13 @@ export default function KnowledgeBaseManager({
           </div>
         </div>
       )}
+
+      {/* Artifact Studio Picker Modal */}
+      <ArtifactSelectorModal
+        isOpen={showArtifactPicker}
+        onClose={() => setShowArtifactPicker(false)}
+        onSelectArtifacts={handleImportArtifacts}
+      />
     </div>
   );
 }

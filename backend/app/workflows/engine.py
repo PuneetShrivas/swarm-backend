@@ -547,7 +547,15 @@ class WorkflowExecutionEngine:
 
         # 3. Knowledge context injection
         attached_k_ids = set(step.get("knowledge_file_ids") or [])
+        attached_art_ids = set(step.get("attached_artifact_ids") or [])
         relevant_files = [f for f in knowledge_files if not attached_k_ids or f.get("id") in attached_k_ids]
+        if attached_art_ids:
+            for art in memory_store.get_artifacts(user_id):
+                if art.get("id") in attached_art_ids:
+                    relevant_files.append({
+                        "file_name": art.get("filename") or art.get("name"),
+                        "content_text": art.get("content", ""),
+                    })
         kb_text = format_knowledge_context(relevant_files)
 
         # 4. Resolve agent

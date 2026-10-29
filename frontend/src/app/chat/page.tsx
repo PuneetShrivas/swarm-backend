@@ -24,12 +24,13 @@ import {
   reconstructTreeFromMessages,
 } from "./types";
 import MessageItem from "./components/MessageItem";
-import ChatInput from "./components/ChatInput";
+import ChatInput, { AttachedArtifact } from "./components/ChatInput";
 import ChatHeader from "./components/ChatHeader";
 import AppUnifiedSidebar from "@/components/AppUnifiedSidebar";
 import UsageModal from "./components/UsageModal";
 import AgentDetailsModal from "./components/AgentDetailsModal";
 import WorkflowPickerModal from "./components/WorkflowPickerModal";
+import ArtifactSelectorModal, { ArtifactItem } from "./components/ArtifactSelectorModal";
 
 function ChatContent() {
   const router = useRouter();
@@ -62,6 +63,10 @@ function ChatContent() {
 
   // Workflow Launcher State
   const [isWorkflowPickerOpen, setIsWorkflowPickerOpen] = useState(false);
+
+  // Attached Context Artifacts State
+  const [attachedArtifacts, setAttachedArtifacts] = useState<AttachedArtifact[]>([]);
+  const [isArtifactSelectorOpen, setIsArtifactSelectorOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -109,6 +114,107 @@ function ChatContent() {
       loadSessionMessages(urlSessionId, session.access_token);
     }
   }, [urlSessionId, session?.access_token, activeSessionId, loadSessionMessages]);
+
+  // Auto-attach invoked artifact from Artifacts Studio ?artifact_id=<id>
+  const urlArtifactId = searchParams?.get("artifact_id");
+  useEffect(() => {
+    if (urlArtifactId) {
+      try {
+        const raw = localStorage.getItem("swarm_invoked_artifact");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && (parsed.id === urlArtifactId || !urlArtifactId)) {
+            setAttachedArtifacts((prev) => {
+              if (prev.some((a) => a.id === parsed.id)) return prev;
+              return [...prev, parsed];
+            });
+            localStorage.removeItem("swarm_invoked_artifact");
+          }
+        }
+      } catch {
+        // Ignore parsing error
+      }
+    }
+  }, [urlArtifactId]);
+
+  // Handle uploading context files directly from chat input screen
+  const handleUploadChatFile = async (file: File) => {
+    try {
+      const ext = (file.name.split(".").pop() || "txt").toLowerCase();
+      const isBinary = ["pdf", "docx", "pptx", "xlsx", "zip"].includes(ext);
+
+      let content = "";
+      if (isBinary) {
+        const b64DataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string) || "");
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        content = b64DataUrl.split(",")[1] || "";
+      } else {
+        content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string) || "");
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+      }
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
+      const payload = {
+        id: `art-chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        name: file.name,
+        filename: file.name,
+        type: ext,
+        content,
+        size_bytes: file.size,
+        created_at: new Date().toISOString(),
+        origin_agent: "chat_upload",
+        source_type: "chat_upload",
+        source_title: "Chat Context Upload",
+        downloadable: true,
+        is_base64: isBinary,
+        encoding: isBinary ? "base64" : "utf-8",
+      };
+
+      const res = await fetch(`${apiUrl}/api/artifacts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const saved: AttachedArtifact = res.ok ? await res.json() : payload;
+
+      try {
+        const rawLocal = localStorage.getItem("swarm_local_artifacts");
+        const list = rawLocal ? JSON.parse(rawLocal) : [];
+        localStorage.setItem("swarm_local_artifacts", JSON.stringify([saved, ...list].slice(0, 50)));
+      } catch {
+        // Ignore cache error
+      }
+
+      setAttachedArtifacts((prev) => {
+        if (prev.some((a) => a.id === saved.id)) return prev;
+        return [...prev, saved];
+      });
+    } catch (err) {
+      console.error("Failed to upload context file in chat:", err);
+    }
+  };
+
+  const handleRemoveArtifact = (id: string) => {
+    setAttachedArtifacts((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleSelectArtifacts = (selected: ArtifactItem[]) => {
+    setAttachedArtifacts(selected);
+  };
 
   // Fetch user usage summary
   const fetchUsage = useCallback(async (token: string) => {
@@ -214,7 +320,8 @@ function ChatContent() {
     targetSessionId?: string | null,
     userParentNodeId?: string | null,
     workflowId?: string,
-    workflowInputs?: Record<string, unknown>
+    workflowInputs?: Record<string, unknown>,
+    artsToSend?: AttachedArtifact[]
   ) => {
     setIsLoading(true);
     abortControllerRef.current = new AbortController();
@@ -234,6 +341,8 @@ function ChatContent() {
           ? userParentNodeId
           : null;
 
+      const activeArts = artsToSend || attachedArtifacts;
+
       const res = await fetch(`${apiUrl}/api/chat`, {
         method: "POST",
         headers,
@@ -249,6 +358,8 @@ function ChatContent() {
           workflow_id: workflowId || null,
           workflow_inputs: workflowInputs || {},
           model: selectedModel || undefined,
+          artifact_ids: activeArts.map((a) => a.id),
+          attached_artifacts: activeArts,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -458,17 +569,22 @@ function ChatContent() {
     }
 
     const userParent = conversation.currentLeafId;
+    const currentArtifacts = [...attachedArtifacts];
     const { newState, newNodeId } = addMessageNode(
       conversation,
       "user",
       content,
       conversation.currentLeafId,
-      selectedAgentId ? { target_agent_id: selectedAgentId } : undefined
+      {
+        ...(selectedAgentId ? { target_agent_id: selectedAgentId } : {}),
+        ...(currentArtifacts.length > 0 ? { attached_artifacts: currentArtifacts } : {}),
+      }
     );
 
     setConversation(newState);
+    setAttachedArtifacts([]);
     const updatedPath = getActivePath(newState.nodes, newNodeId);
-    requestSwarmResponse(updatedPath, newNodeId, targetSessionId, userParent);
+    requestSwarmResponse(updatedPath, newNodeId, targetSessionId, userParent, undefined, undefined, currentArtifacts);
   };
 
   // Handle invoking an autonomous workflow inside chat
@@ -778,11 +894,15 @@ function ChatContent() {
 
           {/* Bottom Input Area */}
           <ChatInput
-            onSend={handleSend}
+            onSend={(content) => handleSend(content)}
             isLoading={isLoading}
             onStop={handleStop}
             onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}
             onClearChat={handleClearChat}
+            onOpenArtifactSelector={() => setIsArtifactSelectorOpen(true)}
+            attachedArtifacts={attachedArtifacts}
+            onRemoveArtifact={handleRemoveArtifact}
+            onUploadFile={handleUploadChatFile}
           />
         </div>
       </div>
@@ -808,6 +928,14 @@ function ChatContent() {
         isOpen={isWorkflowPickerOpen}
         onClose={() => setIsWorkflowPickerOpen(false)}
         onRunWorkflow={handleRunWorkflow}
+      />
+
+      {/* Artifact Selector Modal */}
+      <ArtifactSelectorModal
+        isOpen={isArtifactSelectorOpen}
+        onClose={() => setIsArtifactSelectorOpen(false)}
+        onSelectArtifacts={handleSelectArtifacts}
+        alreadyAttachedIds={attachedArtifacts.map((a) => a.id)}
       />
     </div>
   );

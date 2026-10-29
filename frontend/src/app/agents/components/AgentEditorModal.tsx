@@ -16,7 +16,12 @@ import {
   Cpu,
   Layers,
   Save,
+  Upload,
+  Paperclip,
+  FolderArchive,
+  Loader2,
 } from "lucide-react";
+import ArtifactSelectorModal, { ArtifactItem } from "@/app/chat/components/ArtifactSelectorModal";
 
 interface AgentEditorModalProps {
   agent: AgentCardData | null; // null = create new agent
@@ -54,8 +59,44 @@ export default function AgentEditorModal({
   const [model, setModel] = useState("qwen-3.8");
   const [temperature, setTemperature] = useState(0.3);
   const [icon, setIcon] = useState("Bot");
+  const [attachedArtifactIds, setAttachedArtifactIds] = useState<string[]>([]);
+  const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactItem[]>([]);
+  const [showArtifactPicker, setShowArtifactPicker] = useState(false);
+  const [isUploadingArtifact, setIsUploadingArtifact] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Fetch user artifacts on modal open
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchArtifacts = async () => {
+      let list: ArtifactItem[] = [];
+      try {
+        const stored = localStorage.getItem("swarm_artifacts_v1");
+        if (stored) list = JSON.parse(stored);
+      } catch (e) {
+        console.warn("Artifacts localStorage read error:", e);
+      }
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch(`${apiUrl}/api/artifacts`, { headers: authHeaders });
+        if (res.ok) {
+          const apiArts: ArtifactItem[] = await res.json();
+          const map = new Map<string, ArtifactItem>();
+          [...apiArts, ...list].forEach((a) => {
+            if (a && a.id) map.set(a.id, a);
+          });
+          list = Array.from(map.values());
+        }
+      } catch (e) {
+        console.warn("Artifacts API fetch error:", e);
+      }
+      setAvailableArtifacts(list);
+    };
+    fetchArtifacts();
+  }, [isOpen]);
 
   useEffect(() => {
     if (agent) {
@@ -68,6 +109,7 @@ export default function AgentEditorModal({
       setModel(currentModel === "gemini-2.5-flash" ? "gemini-3.8-flash" : currentModel === "gemini-2.5-pro" ? "gemini-4-argon" : currentModel);
       setTemperature(agent.temperature ?? 0.3);
       setIcon(agent.icon || "Bot");
+      setAttachedArtifactIds(agent.attached_artifact_ids || []);
     } else {
       setName("");
       setSlug("");
@@ -79,9 +121,70 @@ export default function AgentEditorModal({
       setModel("qwen-3.8");
       setTemperature(0.3);
       setIcon("Bot");
+      setAttachedArtifactIds([]);
     }
     setErrorMessage(null);
   }, [agent, isOpen]);
+
+  const handleQuickUploadReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const isBinary = ["pdf", "docx", "pptx", "xlsx", "zip", "png", "jpg", "jpeg"].includes(ext);
+
+    setIsUploadingArtifact(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const content = (ev.target?.result as string) || "";
+      const artId = `art_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const newArt: ArtifactItem = {
+        id: artId,
+        name: file.name,
+        filename: file.name,
+        type: ext || "txt",
+        content: content,
+        size_bytes: file.size,
+        created_at: new Date().toISOString(),
+        source_type: "upload",
+        origin_agent: "user_upload",
+        is_base64: isBinary,
+      };
+
+      try {
+        const stored = localStorage.getItem("swarm_artifacts_v1");
+        const list = stored ? JSON.parse(stored) : [];
+        list.unshift(newArt);
+        localStorage.setItem("swarm_artifacts_v1", JSON.stringify(list));
+      } catch (err) {
+        console.warn("Local storage write error:", err);
+      }
+
+      try {
+        const authHeaders = await getAuthHeaders();
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        await fetch(`${apiUrl}/api/artifacts`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify(newArt),
+        });
+      } catch (err) {
+        console.warn("Backend artifact sync error:", err);
+      }
+
+      setAvailableArtifacts((prev) => [newArt, ...prev]);
+      setAttachedArtifactIds((prev) => [...prev, artId]);
+      setIsUploadingArtifact(false);
+    };
+
+    if (isBinary) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  };
 
   // Auto-generate slug from name if creating
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,6 +229,7 @@ export default function AgentEditorModal({
         temperature,
         icon,
         is_public: false,
+        attached_artifact_ids: attachedArtifactIds,
       };
 
       const url = isEditing
@@ -347,6 +451,82 @@ export default function AgentEditorModal({
             />
           </div>
 
+          {/* Attached Knowledge Artifacts & Document Grounding */}
+          <div className="space-y-2 pt-2 border-t border-hairline">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <label className="text-[11px] font-medium text-ink flex items-center gap-1.5">
+                  <Paperclip size={12} className="text-linear-primary" /> Grounding Artifacts & Reference Knowledge
+                </label>
+                <p className="text-[10px] text-ink-subtle mt-0.5">
+                  Attach studio artifacts or upload reference files to ground this agent with domain context.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowArtifactPicker(true)}
+                  className="px-2 py-1 text-[10px] font-medium border border-hairline bg-surface-2 hover:bg-surface-3 text-ink rounded-md transition flex items-center gap-1"
+                >
+                  <FolderArchive size={11} className="text-linear-primary" /> Studio Artifacts
+                </button>
+                <label className="px-2 py-1 text-[10px] font-medium border border-hairline bg-surface-2 hover:bg-surface-3 text-ink rounded-md transition flex items-center gap-1 cursor-pointer">
+                  {isUploadingArtifact ? (
+                    <Loader2 size={11} className="animate-spin text-linear-primary" />
+                  ) : (
+                    <Upload size={11} className="text-linear-primary" />
+                  )}
+                  <span>Upload Doc</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.csv,.json,.py,.yaml,.yml"
+                    onChange={handleQuickUploadReference}
+                    disabled={isUploadingArtifact}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* List of Attached Artifacts */}
+            {attachedArtifactIds.length === 0 ? (
+              <div className="text-[10px] text-ink-tertiary italic p-2 bg-surface-1 rounded border border-hairline/60">
+                No artifacts attached yet. Click &quot;Studio Artifacts&quot; or upload files above to bind reference documents.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1.5 bg-surface-1 rounded border border-hairline">
+                {attachedArtifactIds.map((artId) => {
+                  const art = availableArtifacts.find((a) => a.id === artId);
+                  const name = art?.name || art?.filename || artId;
+                  const ext = (art?.type || name.split(".").pop() || "txt").toLowerCase();
+                  return (
+                    <span
+                      key={artId}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px]"
+                    >
+                      <span className="font-mono uppercase text-[9px] bg-violet-500/20 px-1 py-0.2 rounded text-violet-200">
+                        {ext}
+                      </span>
+                      <span className="truncate max-w-[140px]" title={name}>
+                        {name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAttachedArtifactIds((prev) => prev.filter((id) => id !== artId))
+                        }
+                        className="hover:text-red-400 font-bold ml-0.5 text-xs"
+                        title="Detach artifact"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Action Footer */}
           <div className="pt-3 border-t border-hairline flex items-center justify-end gap-2">
             <button
@@ -378,6 +558,19 @@ export default function AgentEditorModal({
           </div>
         </form>
       </div>
+
+      {/* Artifact Selector Modal */}
+      <ArtifactSelectorModal
+        isOpen={showArtifactPicker}
+        onClose={() => setShowArtifactPicker(false)}
+        alreadyAttachedIds={attachedArtifactIds}
+        onSelectArtifacts={(selected) => {
+          const newIds = new Set(attachedArtifactIds);
+          selected.forEach((a) => newIds.add(a.id));
+          setAttachedArtifactIds(Array.from(newIds));
+          setShowArtifactPicker(false);
+        }}
+      />
     </div>
   );
 }

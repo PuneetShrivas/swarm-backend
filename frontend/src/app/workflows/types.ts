@@ -20,6 +20,7 @@ export interface WorkflowStep {
   instructions: string;
   tool_ids: string[];
   knowledge_file_ids: string[];
+  attached_artifact_ids?: string[];
   depends_on: string[];
   position?: { x: number; y: number };
   step_type?: WorkflowStepType;

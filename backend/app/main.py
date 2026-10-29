@@ -114,6 +114,8 @@ class ChatRequest(BaseModel):
     model: Optional[str] = Field(None, description="Optional model selection override (e.g. gemini-3.8-flash, gemini-4-argon, sonar)")
     workflow_id: Optional[str] = Field(None, description="Optional workflow ID to execute in this turn")
     workflow_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input arguments for workflow execution")
+    artifact_ids: Optional[List[str]] = Field(default_factory=list, description="IDs of artifacts invoked or attached for context")
+    attached_artifacts: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="Direct artifact objects attached to the chat turn")
 
 class AgentTestRequest(BaseModel):
     agent_id: Optional[str] = None
@@ -125,6 +127,7 @@ class AgentTestRequest(BaseModel):
     model: Optional[str] = "gemini-3.8-flash"
     temperature: Optional[float] = 0.3
     tool_ids: Optional[List[str]] = Field(default_factory=list)
+    attached_artifact_ids: Optional[List[str]] = Field(default_factory=list)
     mock_context: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class AgentTestResponse(BaseModel):
@@ -645,6 +648,91 @@ def auto_rename_session_if_needed(session_id: str, prompt: str, current_user: Op
     return None
 
 
+def build_artifact_context_block(
+    artifact_ids: Optional[List[str]] = None,
+    attached_artifacts: Optional[List[Dict[str, Any]]] = None,
+    user_prompt: str = "",
+    user_id: str = "guest-user",
+    top_k: int = 3,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    Builds a grounded document context block from user-attached artifacts for agent prompt injection.
+    Leverages direct text excerpts for small files and hybrid RAG knowledge store for binary/large documents.
+    """
+    resolved_artifacts: List[Dict[str, Any]] = []
+    seen_ids = set()
+
+    # 1. Direct attached artifacts
+    if attached_artifacts:
+        for art in attached_artifacts:
+            if isinstance(art, dict) and art.get("id") and art["id"] not in seen_ids:
+                resolved_artifacts.append(art)
+                seen_ids.add(art["id"])
+
+    # 2. Look up by artifact_ids
+    if artifact_ids:
+        for aid in artifact_ids:
+            if not aid or aid in seen_ids:
+                continue
+            art = memory_store.get_artifact(aid)
+            if art and isinstance(art, dict):
+                resolved_artifacts.append(art)
+                seen_ids.add(aid)
+        # Check user artifacts list as well
+        for art in memory_store.get_artifacts(user_id):
+            if art.get("id") in artifact_ids and art["id"] not in seen_ids:
+                resolved_artifacts.append(art)
+                seen_ids.add(art["id"])
+
+    if not resolved_artifacts:
+        return "", []
+
+    context_sections: List[str] = [
+        "### [Attached User Artifacts & Grounded Knowledge Context]",
+        "The user has attached the following artifacts/documents to ground your response. Cite and reference their data accurately:"
+    ]
+
+    try:
+        from app.rag.store import rag_store
+    except Exception:
+        rag_store = None
+
+    for art in resolved_artifacts:
+        fname = art.get("filename") or art.get("name") or "document.txt"
+        art_type = (art.get("type") or fname.split(".")[-1] or "txt").lower()
+        content = art.get("content") or ""
+        is_binary = bool(art.get("is_base64")) or art_type in ["pdf", "docx", "pptx", "xlsx"]
+
+        if is_binary and rag_store:
+            doc_id = f"art_doc_{art['id']}"
+            rag_results = rag_store.query_context(query=user_prompt or fname, top_k=top_k, document_id=doc_id)
+            if not rag_results:
+                rag_results = rag_store.query_context(query=user_prompt or fname, top_k=top_k)
+                rag_results = [r for r in rag_results if r.get("filename") == fname]
+
+            if rag_results:
+                sec_lines = [f"#### Attached Document: `{fname}` (Format: {art_type.upper()})"]
+                for r in rag_results:
+                    conf = int(r.get("confidence", 0.8) * 100)
+                    sec_lines.append(f"> **Section: {r.get('heading', 'General')}** ({conf}% relevance):\n> {r.get('content')}")
+                context_sections.append("\n".join(sec_lines))
+            else:
+                context_sections.append(
+                    f"#### Attached Document: `{fname}` (Format: {art_type.upper()})\n"
+                    f"*Binary document attached ({art.get('size_bytes', len(content))} bytes). Ready for analysis.*"
+                )
+        else:
+            excerpt = content[:3000]
+            if len(content) > 3000:
+                excerpt += f"\n... [Truncated: {len(content) - 3000} additional characters]"
+            context_sections.append(
+                f"#### Attached Document: `{fname}` (Format: {art_type.upper()})\n"
+                f"```\n{excerpt}\n```"
+            )
+
+    return "\n\n".join(context_sections), resolved_artifacts
+
+
 @app.get("/api/sessions", response_model=List[ChatSession])
 def list_sessions(current_user: AuthUser = Depends(get_current_user)):
     """Lists all chat sessions belonging to the authenticated user."""
@@ -1085,6 +1173,32 @@ def chat(
     agent_model = normalize_model_name(getattr(config_obj, "model", None) or getattr(selected_agent, "model", "gemini-3.8-flash"))
     agent_temp = getattr(config_obj, "temperature", None) or getattr(selected_agent, "temperature", 0.3)
 
+    # Build attached artifact and grounded knowledge context if present
+    user_uid = current_user.id if current_user else "guest-user"
+    artifact_context_block, attached_arts = build_artifact_context_block(
+        artifact_ids=request.artifact_ids,
+        attached_artifacts=request.attached_artifacts,
+        user_prompt=last_user_message.content,
+        user_id=user_uid,
+    )
+    custom_art_ids = getattr(selected_agent, "attached_artifact_ids", None)
+    if custom_art_ids:
+        custom_block, custom_arts = build_artifact_context_block(
+            artifact_ids=custom_art_ids,
+            user_prompt=last_user_message.content,
+            user_id=user_uid,
+        )
+        if custom_block:
+            artifact_context_block = f"{artifact_context_block}\n\n{custom_block}".strip()
+            seen_attached = {a.get("id") for a in attached_arts}
+            for ca in custom_arts:
+                if ca.get("id") not in seen_attached:
+                    attached_arts.append(ca)
+                    seen_attached.add(ca.get("id"))
+
+    if artifact_context_block:
+        agent_prompt = f"{agent_prompt}\n\n{artifact_context_block}"
+
     # Track user message persistence if session is active
     user_node_id = (
         request.user_message_id
@@ -1258,6 +1372,11 @@ def chat(
                 }
                 if renamed_session_title:
                     agent_metadata["session_title"] = renamed_session_title
+                if attached_arts:
+                    agent_metadata["attached_artifacts"] = [
+                        {"id": a.get("id"), "filename": a.get("filename") or a.get("name"), "type": a.get("type")}
+                        for a in attached_arts
+                    ]
 
                 # Extract and catalog any generated file artifacts
                 turn_artifact = extract_file_artifact_from_turn(perp_content, agent_id, last_user_message.content)
@@ -1350,6 +1469,11 @@ def chat(
             }
             if renamed_session_title:
                 agent_metadata["session_title"] = renamed_session_title
+            if attached_arts:
+                agent_metadata["attached_artifacts"] = [
+                    {"id": a.get("id"), "filename": a.get("filename") or a.get("name"), "type": a.get("type")}
+                    for a in attached_arts
+                ]
 
             turn_artifact = extract_file_artifact_from_turn(groq_content, agent_id, last_user_message.content)
             if turn_artifact:
@@ -1464,6 +1588,11 @@ def chat(
             }
             if renamed_session_title:
                 agent_metadata["session_title"] = renamed_session_title
+            if attached_arts:
+                agent_metadata["attached_artifacts"] = [
+                    {"id": a.get("id"), "filename": a.get("filename") or a.get("name"), "type": a.get("type")}
+                    for a in attached_arts
+                ]
 
             # Detect and catalog generated file artifacts
             turn_artifact = extract_file_artifact_from_turn(agent_response_content, agent_id, last_user_message.content)
@@ -1615,6 +1744,16 @@ def chat(
             f"- **Fields Identified**: Schema extracted with high confidence\n\n"
             f"```json\n{{\n  \"status\": \"parsed\",\n  \"fields_count\": 4,\n  \"null_ratio\": 0.0,\n  \"format\": \"structured_payload\"\n}}\n```"
         )
+    elif attached_arts:
+        art_names = ", ".join([f"`{a.get('filename') or a.get('name')}`" for a in attached_arts])
+        fallback_content = (
+            f"Hello! I am **{agent_name}** (`{agent_id}`).\n\n"
+            f"I have successfully ingested and grounded your inquiry on the attached document(s): {art_names}.\n\n"
+            f"**Context Grounding & Extracted Highlights:**\n"
+            f"- Grounded across {len(attached_arts)} user artifact(s).\n"
+            f"- Active document context has been loaded into the swarm scratchpad.\n\n"
+            f"Inquiry received:\n> \"*{last_user_message.content}*\""
+        )
     else:
         fallback_content = (
             f"Hello! I am **{agent_name}** (`{agent_id}`).\n\n"
@@ -1642,6 +1781,11 @@ def chat(
     }
     if renamed_session_title:
         demo_metadata["session_title"] = renamed_session_title
+    if attached_arts:
+        demo_metadata["attached_artifacts"] = [
+            {"id": a.get("id"), "filename": a.get("filename") or a.get("name"), "type": a.get("type")}
+            for a in attached_arts
+        ]
 
     # Detect and catalog generated file artifacts in demo mode
     turn_artifact = extract_file_artifact_from_turn(fallback_content, agent_id, last_user_message.content)
@@ -1890,16 +2034,33 @@ def test_custom_agent(
             # Check custom agents in registry or memory store / Supabase
             profile = agent_registry.get_profile(payload.agent_id) or memory_store.get_user_agent(payload.agent_id, user_id)
             if profile:
-                agent_name = profile.get("name", payload.agent_id)
-                if not system_prompt:
-                    system_prompt = profile.get("system_prompt", f"You are {agent_name}.")
-                if not payload.model and profile.get("model"):
-                    model_name = profile.get("model")
-                if payload.temperature is None and profile.get("temperature") is not None:
-                    temperature = profile.get("temperature")
+                agent_name = getattr(profile, "name", None) or (profile.get("name") if isinstance(profile, dict) else payload.agent_id)
+                prof_prompt = getattr(profile, "system_prompt", None) or (profile.get("system_prompt") if isinstance(profile, dict) else None)
+                if not system_prompt and prof_prompt:
+                    system_prompt = prof_prompt
+                prof_model = getattr(profile, "model", None) or (profile.get("model") if isinstance(profile, dict) else None)
+                if not payload.model and prof_model:
+                    model_name = prof_model
+                prof_temp = getattr(profile, "temperature", None) if not isinstance(profile, dict) else profile.get("temperature")
+                if payload.temperature is None and prof_temp is not None:
+                    temperature = prof_temp
 
     if not system_prompt:
         system_prompt = f"You are {agent_name}, an autonomous specialist agent in the Swarm platform."
+
+    # Ground test prompt in attached knowledge artifacts if present
+    art_ids = list(payload.attached_artifact_ids or [])
+    if 'profile' in locals() and profile:
+        prof_arts = getattr(profile, "attached_artifact_ids", None) or (profile.get("attached_artifact_ids") if isinstance(profile, dict) else None)
+        if prof_arts:
+            for aid in prof_arts:
+                if aid not in art_ids:
+                    art_ids.append(aid)
+
+    if art_ids:
+        art_block, _ = build_artifact_context_block(artifact_ids=art_ids, user_prompt=input_text, user_id=user_id)
+        if art_block:
+            system_prompt = f"{system_prompt}\n\n{art_block}"
 
     # 3. Automatic Sonar routing for researcher or live search queries
     is_sonar = (
@@ -2560,7 +2721,23 @@ def upload_knowledge_file(
 
     file_id = str(uuid.uuid4())
     now_iso = datetime.now(timezone.utc).isoformat()
-    content_clean = extract_file_content(payload.file_name, payload.content_text.encode("utf-8"), payload.file_type)
+    
+    # Check if binary document (e.g. PDF, Word, PowerPoint, Excel, or Base64 data URI)
+    lower_name = payload.file_name.lower()
+    is_binary = any(lower_name.endswith(ext) for ext in [".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".png", ".jpg"]) or payload.content_text.startswith("data:")
+    if is_binary:
+        try:
+            from app.agents.file_parser.tools import parse_binary_document
+            parsed = parse_binary_document(payload.file_name, payload.content_text, payload.file_type or "auto")
+            if parsed.get("status") == "success" and parsed.get("text"):
+                content_clean = parsed["text"]
+            else:
+                content_clean = extract_file_content(payload.file_name, payload.content_text.encode("utf-8"), payload.file_type)
+        except Exception as e:
+            print(f"parse_binary_document error in knowledge upload: {e}")
+            content_clean = extract_file_content(payload.file_name, payload.content_text.encode("utf-8"), payload.file_type)
+    else:
+        content_clean = extract_file_content(payload.file_name, payload.content_text.encode("utf-8"), payload.file_type)
 
     doc_dict = {
         "id": file_id,
@@ -2573,6 +2750,18 @@ def upload_knowledge_file(
         "metadata": {},
         "created_at": now_iso,
     }
+
+    # Automatically index into RAG store for grounded vector/hybrid search
+    try:
+        from app.agents.file_parser.tools import ingest_and_index_document
+        ingest_and_index_document(
+            filename=payload.file_name,
+            content=content_clean,
+            file_type=payload.file_type or "auto",
+            document_id=file_id,
+        )
+    except Exception as e:
+        print(f"RAG indexing error for workflow knowledge file: {e}")
 
     if is_supabase_configured() and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)
@@ -2607,6 +2796,13 @@ def delete_knowledge_file(
     success = memory_store.delete_knowledge_file(file_id, current_user.id)
     if not success:
         raise HTTPException(status_code=404, detail="Knowledge file not found or unauthorized.")
+        
+    try:
+        from app.rag.store import rag_store
+        rag_store.delete_document(file_id)
+    except Exception as e:
+        print(f"RAG delete document error: {e}")
+
     return {"message": "Knowledge document deleted successfully."}
 
 
@@ -2822,43 +3018,93 @@ def list_artifacts(current_user: Optional[AuthUser] = Depends(get_optional_user)
 
 @app.post("/api/artifacts", response_model=Dict[str, Any])
 def create_artifact(payload: Dict[str, Any], current_user: Optional[AuthUser] = Depends(get_optional_user)):
-    """Saves a newly generated artifact to memory and Supabase persistence."""
+    """Saves a newly generated or uploaded artifact to memory, Supabase, and RAG knowledge store."""
     user_id = current_user.id if current_user else "guest-user"
     now_iso = datetime.now(timezone.utc).isoformat()
     art_id = payload.get("id") or f"art-{str(uuid.uuid4())[:8]}"
     content = payload.get("content", "")
+    fname = payload.get("filename") or payload.get("name") or f"artifact_{art_id}.txt"
+    file_type = (payload.get("type") or fname.split(".")[-1] or "txt").lower()
+    is_base64 = bool(payload.get("is_base64")) or payload.get("encoding") == "base64" or file_type in ["pdf", "pptx", "docx", "xlsx"]
+
     artifact = {
         "id": art_id,
         "user_id": user_id,
-        "name": payload.get("name") or payload.get("filename") or f"artifact_{art_id}.txt",
-        "filename": payload.get("filename") or payload.get("name") or f"artifact_{art_id}.txt",
-        "type": payload.get("type", "txt"),
+        "name": payload.get("name") or fname,
+        "filename": fname,
+        "type": file_type,
         "content": content,
         "size_bytes": payload.get("size_bytes") or len(content.encode("utf-8")),
         "created_at": payload.get("created_at") or now_iso,
-        "origin_agent": payload.get("origin_agent", "file_creator"),
-        "source_type": payload.get("source_type", "chat"),
-        "source_title": payload.get("source_title", "File Studio"),
+        "origin_agent": payload.get("origin_agent", "user_upload"),
+        "source_type": payload.get("source_type", "upload"),
+        "source_title": payload.get("source_title", "User Upload"),
         "downloadable": True,
+        "is_base64": is_base64,
+        "mime_type": payload.get("mime_type"),
+        "encoding": "base64" if is_base64 else "utf-8",
     }
     saved = memory_store.save_artifact(artifact)
+
+    # Automatically index into Swarm RAG Knowledge Store for instant multi-agent retrieval
+    try:
+        from app.agents.file_parser.tools import ingest_and_index_document
+        ingest_and_index_document(
+            filename=fname,
+            content=content if not is_base64 else "",
+            content_base64=content if is_base64 else "",
+            file_type=file_type,
+            document_id=f"art_doc_{art_id}",
+        )
+    except Exception as e:
+        print(f"RAG auto-indexing error for artifact {art_id}: {e}")
 
     if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)
         if client:
             try:
                 client.table("user_artifacts").upsert(artifact).execute()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Supabase user_artifacts upsert note: {e}")
 
     return saved
 
 
+@app.get("/api/artifacts/{artifact_id}", response_model=Dict[str, Any])
+def get_artifact(artifact_id: str, current_user: Optional[AuthUser] = Depends(get_optional_user)):
+    """Retrieves a single artifact by ID."""
+    user_id = current_user.id if current_user else "guest-user"
+    for art in memory_store.get_artifacts(user_id):
+        if art.get("id") == artifact_id:
+            return art
+    for arts in getattr(memory_store, "artifacts", {}).values():
+        for art in arts:
+            if art.get("id") == artifact_id:
+                return art
+    if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
+        client = get_user_supabase_client(current_user.token)
+        if client:
+            try:
+                res = client.table("user_artifacts").select("*").eq("id", artifact_id).single().execute()
+                if res.data:
+                    return res.data
+            except Exception:
+                pass
+    raise HTTPException(status_code=404, detail="Artifact not found.")
+
+
 @app.delete("/api/artifacts/{artifact_id}")
 def delete_artifact(artifact_id: str, current_user: Optional[AuthUser] = Depends(get_optional_user)):
-    """Deletes an artifact by ID from memory and Supabase."""
+    """Deletes an artifact by ID from memory, Supabase, and RAG knowledge store."""
     user_id = current_user.id if current_user else "guest-user"
     success = memory_store.delete_artifact(artifact_id, user_id)
+
+    # Clean up from RAG store
+    try:
+        from app.rag.store import rag_store
+        rag_store.delete_document(f"art_doc_{artifact_id}")
+    except Exception as e:
+        print(f"RAG delete notice: {e}")
 
     if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)
@@ -2869,7 +3115,7 @@ def delete_artifact(artifact_id: str, current_user: Optional[AuthUser] = Depends
             except Exception:
                 pass
 
-    return {"status": "deleted", "id": artifact_id}
+    return {"status": "deleted" if success else "not_found", "id": artifact_id}
 
 
 # ---------------------------------------------------------

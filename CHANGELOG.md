@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **User Artifact Upload & Multi-Agent Context Grounding**:
+  - **Artifacts Studio Upload (`/artifacts`)**: Added "Upload Artifact" button and modal supporting direct upload of text (`.txt`, `.md`, `.json`, `.csv`, `.py`) and binary documents (`.pdf`, `.docx`, `.pptx`, `.xlsx`). Automatically parses and indexes documents into the hybrid vector/BM25 `RAGKnowledgeStore`.
+  - **"Invoke in Chat" Grounding**: Added 1-click invocation buttons on artifact cards and preview modal navigating to `/chat?artifact_id=<id>` with automatic context chip attachment.
+  - **Chat Screen Direct Upload & Artifact Selector (`/chat`)**: Added paperclip upload popover ("Upload from Device" and "Attach from Artifacts"), drag-and-drop file upload zone, active context chips bar with format badges and dismiss `(x)`, and `<ArtifactSelectorModal />`.
+  - **Swarm Agent Context Injection (`/api/chat`)**: Updated `route_agent` and agent invocation across Groq Qwen, Perplexity Sonar, Gemini, and Demo engines to inject grounded context blocks with citations into prompt turns when `artifact_ids` or `attached_artifacts` are supplied.
+  - **Workflow Step Grounding & Studio Import (`/workflows/[id]`)**: Enhanced `KnowledgeBaseManager` to support binary document uploads and "Import from Studio". Enhanced `StepCardEditor` to bind studio artifacts (`attached_artifact_ids`) and upload context files directly to steps.
+  - **Custom Agent Configuration Grounding (`/agents`)**: Added "Grounding Artifacts & Reference Knowledge" section to `AgentEditorModal` allowing users to bind studio artifacts and upload reference files to ground agent personas and playground tests.
+  - **Automated Tests**: Added Tests 61-64 covering user artifact upload & RAG indexing, chat turn grounded context injection, custom agent grounding & testing, and workflow step execution with attached artifacts. (All 64 tests passing cleanly).
+
 - **Advanced File Generation Tooling (PDF, PPTX, DOCX, XLSX)**:
   - Installed `reportlab`, `pypdf`, `python-docx`, `python-pptx`, and `openpyxl`.
   - Added binary file generation tools in `backend/app/agents/file_creator/tools.py`:

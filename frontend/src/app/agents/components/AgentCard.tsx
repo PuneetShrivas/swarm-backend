@@ -37,6 +37,7 @@ export interface AgentCardData {
   tools?: Array<Record<string, unknown>>;
   skills?: Array<Record<string, unknown>>;
   mcp_servers?: Array<Record<string, unknown>>;
+  attached_artifact_ids?: string[];
   created_at?: string;
   updated_at?: string;
 }
