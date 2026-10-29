@@ -645,7 +645,7 @@ function ChatContent() {
   };
 
   // Handle standard user prompt submission (with lazy contextual session creation)
-  const handleSend = async (content: string) => {
+  const handleSend = async (content: string, artsToSend?: AttachedArtifact[]) => {
     if (isLoading) return;
 
     const trimmed = content.trim();
@@ -684,7 +684,7 @@ function ChatContent() {
     }
 
     const userParent = conversation.currentLeafId;
-    const currentArtifacts = [...attachedArtifacts];
+    const currentArtifacts = artsToSend && artsToSend.length > 0 ? [...artsToSend] : [...attachedArtifacts];
     const { newState, newNodeId } = addMessageNode(
       conversation,
       "user",

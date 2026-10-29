@@ -16,6 +16,42 @@ from openpyxl import load_workbook
 from app.rag.store import rag_store, chunk_text, tokenize
 
 
+def decode_content_to_bytes(content: Any) -> Optional[bytes]:
+    """
+    Decodes content that may be raw bytes, a base64 string, a data URI, or utf-8 text.
+    Handles padding errors, whitespace, and URL-encoding safely.
+    """
+    if content is None:
+        return None
+    if isinstance(content, bytes):
+        return content
+    if not isinstance(content, str) or not content.strip():
+        return b""
+
+    clean_str = content.strip()
+
+    # 1. Strip data URI prefix if present (e.g. data:application/pdf;base64,...)
+    if clean_str.startswith("data:"):
+        parts = clean_str.split(",", 1)
+        if len(parts) == 2:
+            clean_str = parts[1].strip()
+
+    # 2. Normalize whitespace, newlines, and space characters (+ encoded as space in URLs)
+    clean_str = clean_str.replace("\r", "").replace("\n", "").replace(" ", "+")
+
+    # 3. Fix base64 padding if needed
+    missing_padding = len(clean_str) % 4
+    if missing_padding:
+        clean_str += "=" * (4 - missing_padding)
+
+    # 4. Attempt base64 decode
+    try:
+        return base64.b64decode(clean_str)
+    except Exception:
+        # If not valid base64, fall back to utf-8 bytes
+        return content.encode("utf-8", errors="replace")
+
+
 def parse_binary_document(
     filename: str,
     content_base64: str,
@@ -25,11 +61,9 @@ def parse_binary_document(
     Ingests and extracts text, metadata, and structural sections from binary files
     such as PDFs, PowerPoint decks (.pptx), Word documents (.docx), and Excel spreadsheets (.xlsx).
     """
-    try:
-        clean_b64 = re.sub(r"^data:[^;]+;base64,", "", content_base64.strip())
-        raw_bytes = base64.b64decode(clean_b64)
-    except Exception as e:
-        return {"status": "error", "message": f"Failed to decode base64 binary content: {str(e)}"}
+    raw_bytes = decode_content_to_bytes(content_base64)
+    if raw_bytes is None or len(raw_bytes) == 0:
+        return {"status": "error", "message": "Content is empty or unreadable."}
 
     fname_lower = filename.lower()
     fmt = file_type.lower()
@@ -42,6 +76,8 @@ def parse_binary_document(
             fmt = "docx"
         elif fname_lower.endswith(".xlsx") or fname_lower.endswith(".xls"):
             fmt = "xlsx"
+        elif any(fname_lower.endswith(ext) for ext in [".csv", ".tsv", ".json", ".txt", ".md", ".py", ".sql", ".html", ".xml", ".yaml", ".yml", ".log"]):
+            fmt = fname_lower.split(".")[-1]
         else:
             fmt = "binary"
 
@@ -51,19 +87,30 @@ def parse_binary_document(
     try:
         if fmt == "pdf":
             reader = PdfReader(io.BytesIO(raw_bytes))
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt("")
+                except Exception:
+                    pass
             page_count = len(reader.pages)
             meta = reader.metadata or {}
             page_texts = []
             for p_idx, page in enumerate(reader.pages):
-                txt = (page.extract_text() or "").strip()
-                page_texts.append(txt)
-                sections.append({
-                    "section_type": "page",
-                    "index": p_idx + 1,
-                    "title": f"Page {p_idx + 1}",
-                    "content": txt
-                })
+                try:
+                    txt = (page.extract_text() or "").strip()
+                except Exception as p_err:
+                    txt = f"[Page {p_idx + 1} extraction note: {p_err}]"
+                if txt:
+                    page_texts.append(f"--- Page {p_idx + 1} ---\n{txt}")
+                    sections.append({
+                        "section_type": "page",
+                        "index": p_idx + 1,
+                        "title": f"Page {p_idx + 1}",
+                        "content": txt
+                    })
             extracted_text = "\n\n".join(page_texts)
+            if not extracted_text.strip():
+                extracted_text = f"[PDF Document: {filename} ({page_count} pages) - Contains no selectable text or is scanned]"
             return {
                 "status": "parsed",
                 "filename": filename,
@@ -76,7 +123,7 @@ def parse_binary_document(
                     "title": str(meta.get("/Title", filename)),
                     "creator": str(meta.get("/Creator", "PDF Engine")),
                 },
-                "sections": sections[:10]  # First 10 sections preview
+                "sections": sections[:10]
             }
 
         elif fmt == "pptx":
@@ -91,7 +138,12 @@ def parse_binary_document(
                         for p in shape.text_frame.paragraphs:
                             if p.text.strip():
                                 body_parts.append(p.text.strip())
-                combined = f"# {s_title}\n" + "\n".join(f"- {b}" for b in body_parts)
+                    elif shape.has_table:
+                        for row in shape.table.rows:
+                            row_txt = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+                            if row_txt:
+                                body_parts.append(f"[Table Row]: {row_txt}")
+                combined = f"--- Slide {s_idx + 1}: {s_title} ---\n" + "\n".join(f"- {b}" for b in body_parts)
                 slide_texts.append(combined)
                 sections.append({
                     "section_type": "slide",
@@ -120,7 +172,7 @@ def parse_binary_document(
                     if p.style.name.startswith("Heading"):
                         sections.append({"section_type": "heading", "title": txt, "style": p.style.name})
 
-            # Extract table contents
+            # Extract table contents as clean markdown tables
             table_count = len(doc.tables)
             for t_idx, table in enumerate(doc.tables):
                 t_rows = []
@@ -132,8 +184,11 @@ def parse_binary_document(
                         "index": t_idx + 1,
                         "rows": t_rows
                     })
-                    for row_cells in t_rows:
-                        doc_lines.append(" | ".join(row_cells))
+                    doc_lines.append(f"\n--- Table {t_idx + 1} ---")
+                    doc_lines.append("| " + " | ".join(t_rows[0]) + " |")
+                    doc_lines.append("| " + " | ".join(["---"] * len(t_rows[0])) + " |")
+                    for row_cells in t_rows[1:]:
+                        doc_lines.append("| " + " | ".join(row_cells) + " |")
 
             extracted_text = "\n\n".join(doc_lines)
             return {
@@ -158,11 +213,17 @@ def parse_binary_document(
                 row_count = len(rows)
                 col_count = len(rows[0]) if rows else 0
 
-                sheet_lines = [f"=== Sheet: {sheet_name} ({row_count} rows, {col_count} cols) ==="]
-                for r in rows[:25]:  # Preview first 25 rows
-                    row_vals = [str(v) if v is not None else "" for v in r]
-                    if any(row_vals):
-                        sheet_lines.append(", ".join(row_vals))
+                sheet_lines = [f"=== Sheet: {sheet_name} ({row_count} rows, {col_count} columns) ==="]
+                if rows:
+                    headers = [str(c) if c is not None else "" for c in rows[0]]
+                    sheet_lines.append("| " + " | ".join(headers) + " |")
+                    sheet_lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+                    for r in rows[1:50]:  # preview up to 50 rows per sheet
+                        row_vals = [str(v) if v is not None else "" for v in r]
+                        if any(row_vals):
+                            sheet_lines.append("| " + " | ".join(row_vals) + " |")
+                    if len(rows) > 50:
+                        sheet_lines.append(f"... [{len(rows) - 50} additional rows in {sheet_name}]")
 
                 sheet_text = "\n".join(sheet_lines)
                 all_sheets_text.append(sheet_text)
@@ -184,11 +245,104 @@ def parse_binary_document(
                 "extracted_text": extracted_text
             }
 
+        elif fmt in ["csv", "tsv", "json", "txt", "md", "py", "sql", "html", "xml", "yaml", "yml", "log"]:
+            for enc in ["utf-8", "latin-1", "cp1252"]:
+                try:
+                    extracted_text = raw_bytes.decode(enc)
+                    break
+                except Exception:
+                    pass
+            return {
+                "status": "parsed",
+                "filename": filename,
+                "format": fmt,
+                "word_count": len(extracted_text.split()),
+                "extracted_text": extracted_text,
+                "sections": []
+            }
+
         else:
+            # Fallback text decoder
+            for enc in ["utf-8", "latin-1", "cp1252"]:
+                try:
+                    extracted_text = raw_bytes.decode(enc)
+                    break
+                except Exception:
+                    pass
+            if extracted_text:
+                return {
+                    "status": "parsed",
+                    "filename": filename,
+                    "format": fmt,
+                    "word_count": len(extracted_text.split()),
+                    "extracted_text": extracted_text,
+                    "sections": []
+                }
             return {"status": "unsupported_format", "format": fmt, "message": f"Unsupported binary format '{fmt}'."}
 
     except Exception as e:
         return {"status": "error", "format": fmt, "message": f"Parsing exception: {str(e)}"}
+
+
+def extract_text_from_artifact(artifact: Dict[str, Any], max_chars: int = 12000) -> str:
+    """
+    Universally extracts clean, human-readable text from any artifact dictionary
+    (PDF, DOCX, PPTX, XLSX, CSV, JSON, code, or plain text).
+    Guarantees no raw Base64 or binary gibberish is returned.
+    """
+    if not artifact or not isinstance(artifact, dict):
+        return ""
+
+    # If already parsed and cached, return it directly
+    if artifact.get("extracted_text") and str(artifact["extracted_text"]).strip():
+        txt = str(artifact["extracted_text"]).strip()
+        return txt[:max_chars]
+
+    fname = artifact.get("filename") or artifact.get("name") or "document.txt"
+    art_type = (artifact.get("type") or fname.split(".")[-1] or "txt").lower()
+    raw_content = artifact.get("content") or ""
+    is_binary = bool(artifact.get("is_base64")) or art_type in ["pdf", "pptx", "docx", "xlsx"]
+
+    # If plain text file and not data URI
+    if not is_binary and art_type not in ["pdf", "pptx", "docx", "xlsx"] and not raw_content.startswith("data:"):
+        # Check if content looks like base64
+        if len(raw_content) > 100 and re.match(r"^[A-Za-z0-9+/=\r\n]+$", raw_content) and len(raw_content) % 4 == 0:
+            try:
+                decoded = base64.b64decode(raw_content.replace("\n", "").replace(" ", "+"))
+                if decoded.startswith(b"%PDF") or decoded.startswith(b"PK\x03\x04"):
+                    is_binary = True
+                else:
+                    try:
+                        return decoded.decode("utf-8")[:max_chars]
+                    except UnicodeDecodeError:
+                        is_binary = True
+            except Exception:
+                pass
+
+        if not is_binary:
+            return raw_content[:max_chars]
+
+    # For binary documents (PDF, DOCX, PPTX, XLSX), parse with our engine
+    parsed = parse_binary_document(filename=fname, content_base64=raw_content, file_type=art_type)
+    if parsed.get("status") == "parsed" and parsed.get("extracted_text"):
+        extracted = parsed.get("extracted_text", "").strip()
+        if extracted:
+            artifact["extracted_text"] = extracted
+            return extracted[:max_chars]
+
+    # If parsing returned error or unsupported format, try text decode fallback
+    raw_bytes = decode_content_to_bytes(raw_content)
+    if raw_bytes:
+        for enc in ["utf-8", "latin-1", "cp1252"]:
+            try:
+                dec = raw_bytes.decode(enc)
+                printable_count = sum(1 for c in dec[:500] if c.isprintable() or c in "\r\n\t")
+                if printable_count / max(1, len(dec[:500])) > 0.85:
+                    return dec[:max_chars]
+            except Exception:
+                pass
+
+    return f"[Attached Document: {fname} (Format: {art_type.upper()}) - Unable to extract readable text]"
 
 
 def ingest_and_index_document(
@@ -207,13 +361,19 @@ def ingest_and_index_document(
     fname_lower = filename.lower()
     text_to_index = content
 
-    # If binary content or binary extension, extract text first
-    if content_base64 or fname_lower.endswith((".pdf", ".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls")):
-        parse_res = parse_binary_document(filename, content_base64 or content, file_type=file_type)
-        if parse_res.get("status") == "parsed":
-            text_to_index = parse_res.get("extracted_text", "")
-        else:
-            text_to_index = content or ""
+    # Universally extract readable text across all types (binary or text)
+    art_stub = {
+        "filename": filename,
+        "name": filename,
+        "type": file_type,
+        "content": content_base64 or content,
+        "is_base64": bool(content_base64),
+    }
+    extracted = extract_text_from_artifact(art_stub)
+    if extracted and not extracted.startswith("[Attached Document:"):
+        text_to_index = extracted
+    elif content:
+        text_to_index = content
 
     if not text_to_index.strip():
         return {

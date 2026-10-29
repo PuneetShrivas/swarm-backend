@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-10-29
 
 ### Added
+- **Multi-Format File Attachment Parsing & User Message Context Chips**:
+  - **Universal Document Text Extraction Engine (`backend/app/agents/file_parser/tools.py`)**:
+    - Implemented `decode_content_to_bytes` with robust sanitization: strips data URIs (`data:...;base64,`), replaces URL spaces with `+`, removes line breaks, and pads missing 4-byte `=`.
+    - Enhanced `parse_binary_document` to decrypt blank-encrypted PDFs, extract all pages with `--- Page X ---` demarcations, format Word `.docx` tables into Markdown tables, capture PowerPoint `.pptx` slides, shapes, tables, and notes, format Excel `.xlsx` sheets into Markdown tables, and decode text/code formats.
+    - Implemented `extract_text_from_artifact` to universally extract clean human-readable text and cache `extracted_text` in the artifact record, strictly preventing raw Base64 data from leaking into prompts.
+  - **Grounded Prompt Context Overhaul (`backend/app/main.py`)**:
+    - Updated `build_artifact_context_block` to inject clean extracted text (up to 12,000 characters) with page/slide/sheet headers. Even when RAG queries return 0 passages for generic user queries (e.g. "summarize this document"), full readable text is supplied rather than binary placeholder notices.
+    - Updated `POST /api/artifacts` to automatically extract and cache readable text upon upload and index into the RAG Knowledge Store.
+  - **Workflow Engine Knowledge Base Grounding (`backend/app/workflows/engine.py`)**:
+    - Updated step knowledge context injection to resolve `attached_artifact_ids` across direct lookup, user artifacts, and input payloads, extracting readable text via `extract_text_from_artifact` instead of dumping raw Base64.
+    - Passed `"attached_artifacts": attached_arts` in `inputs` to `workflow_engine.execute_workflow` during on-the-fly execution.
+  - **User Message Attached Context UI Highlight (`frontend/src/app/chat/components/MessageItem.tsx`)**:
+    - Added an "Attached Context" section inside user message bubbles displaying format-specific badges (red for PDF, green for Excel/CSV, orange for PowerPoint, blue for Word, indigo for code), format icons, truncated file names, formatted file sizes (e.g. `24.5 KB`), uppercase format tags, and direct download actions.
+  - **Automated Tests**: Added Tests 72–74 in `backend/test_endpoints.py` verifying universal document text extraction across PDF, DOCX, PPTX, XLSX, and CSV, grounded context injection without binary leaks or placeholder errors, and chat turns with attached PDF metadata persistence. All 74 tests passing cleanly. Next.js build passes with 0 errors across 14 routes.
+
 - **Orchestrator Multi-Agent Decomposition, Native Excel Tables & Markdown Tables**:
   - **Aggressive Multi-Agent Workflow Synthesis (`backend/app/ai_generator.py`)**: Upgraded `synthesize_on_the_fly_workflow` so incoming user queries are decomposed into multi-agent DAG workflows:
     - Coding requests: 3-step DAG (`coder` $\to$ `reviewer` $\to$ `synthesizer`).

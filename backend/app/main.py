@@ -671,9 +671,11 @@ def build_artifact_context_block(
     # 1. Direct attached artifacts
     if attached_artifacts:
         for art in attached_artifacts:
-            if isinstance(art, dict) and art.get("id") and art["id"] not in seen_ids:
-                resolved_artifacts.append(art)
-                seen_ids.add(art["id"])
+            if isinstance(art, dict):
+                art_id = art.get("id") or art.get("filename") or art.get("name") or f"art-{id(art)}"
+                if art_id not in seen_ids:
+                    resolved_artifacts.append({**art, "id": art_id})
+                    seen_ids.add(art_id)
 
     # 2. Look up by artifact_ids
     if artifact_ids:
@@ -703,34 +705,44 @@ def build_artifact_context_block(
     except Exception:
         rag_store = None
 
+    try:
+        from app.agents.file_parser.tools import extract_text_from_artifact
+    except Exception:
+        extract_text_from_artifact = lambda a, max_chars=12000: str(a.get("content", ""))[:max_chars]
+
     for art in resolved_artifacts:
         fname = art.get("filename") or art.get("name") or "document.txt"
         art_type = (art.get("type") or fname.split(".")[-1] or "txt").lower()
-        content = art.get("content") or ""
-        is_binary = bool(art.get("is_base64")) or art_type in ["pdf", "docx", "pptx", "xlsx"]
 
-        if is_binary and rag_store:
-            doc_id = f"art_doc_{art['id']}"
-            rag_results = rag_store.query_context(query=user_prompt or fname, top_k=top_k, document_id=doc_id)
-            if not rag_results:
-                rag_results = rag_store.query_context(query=user_prompt or fname, top_k=top_k)
-                rag_results = [r for r in rag_results if r.get("filename") == fname]
+        # Always obtain clean, human-readable text (never raw Base64 or binary data)
+        readable_text = extract_text_from_artifact(art, max_chars=12000)
 
-            if rag_results:
-                sec_lines = [f"#### Attached Document: `{fname}` (Format: {art_type.upper()})"]
-                for r in rag_results:
-                    conf = int(r.get("confidence", 0.8) * 100)
-                    sec_lines.append(f"> **Section: {r.get('heading', 'General')}** ({conf}% relevance):\n> {r.get('content')}")
-                context_sections.append("\n".join(sec_lines))
-            else:
-                context_sections.append(
-                    f"#### Attached Document: `{fname}` (Format: {art_type.upper()})\n"
-                    f"*Binary document attached ({art.get('size_bytes', len(content))} bytes). Ready for analysis.*"
-                )
+        # Check if RAG knowledge store has specific targeted passages for this user prompt
+        rag_passages = []
+        if rag_store and user_prompt and len(user_prompt.split()) >= 3:
+            doc_id = f"art_doc_{art.get('id')}"
+            try:
+                results = rag_store.query_context(query=user_prompt, top_k=top_k, document_id=doc_id)
+                if not results:
+                    results = rag_store.query_context(query=user_prompt, top_k=top_k)
+                    results = [r for r in results if r.get("filename") == fname]
+                rag_passages = results or []
+            except Exception:
+                rag_passages = []
+
+        if rag_passages:
+            sec_lines = [f"#### Attached Document: `{fname}` (Format: {art_type.upper()})"]
+            sec_lines.append("*Targeted Passages Retrieved via Knowledge Index:*")
+            for r in rag_passages:
+                conf = int(r.get("confidence", 0.8) * 100)
+                sec_lines.append(f"> **Section: {r.get('heading', 'Content')}** ({conf}% relevance):\n> {r.get('content')}")
+            if len(readable_text) <= 4000 and not readable_text.startswith("[Attached Document:"):
+                sec_lines.append(f"\n*Full Document Context:*\n```\n{readable_text}\n```")
+            context_sections.append("\n".join(sec_lines))
         else:
-            excerpt = content[:3000]
-            if len(content) > 3000:
-                excerpt += f"\n... [Truncated: {len(content) - 3000} additional characters]"
+            excerpt = readable_text[:6000]
+            if len(readable_text) > 6000:
+                excerpt += f"\n... [Truncated: {len(readable_text) - 6000} additional characters]"
             context_sections.append(
                 f"#### Attached Document: `{fname}` (Format: {art_type.upper()})\n"
                 f"```\n{excerpt}\n```"
@@ -1441,7 +1453,11 @@ def _execute_chat_turn(
 
         run_res = workflow_engine.execute_workflow(
             workflow_data=ephemeral_wf,
-            inputs={"prompt": last_user_message.content, "query": last_user_message.content},
+            inputs={
+                "prompt": last_user_message.content,
+                "query": last_user_message.content,
+                "attached_artifacts": attached_arts,
+            },
             user_id=user_uid,
             trigger_type="chat",
             session_id=request.session_id,
@@ -3492,20 +3508,24 @@ def create_artifact(payload: Dict[str, Any], current_user: Optional[AuthUser] = 
         "mime_type": payload.get("mime_type"),
         "encoding": "base64" if is_base64 else "utf-8",
     }
-    saved = memory_store.save_artifact(artifact)
-
-    # Automatically index into Swarm RAG Knowledge Store for instant multi-agent retrieval
+    # Automatically extract clean readable text and index into RAG store
     try:
-        from app.agents.file_parser.tools import ingest_and_index_document
+        from app.agents.file_parser.tools import extract_text_from_artifact, ingest_and_index_document
+        extracted_txt = extract_text_from_artifact(artifact)
+        if extracted_txt and not extracted_txt.startswith("[Attached Document:"):
+            artifact["extracted_text"] = extracted_txt
+
         ingest_and_index_document(
             filename=fname,
-            content=content if not is_base64 else "",
+            content=extracted_txt or (content if not is_base64 else ""),
             content_base64=content if is_base64 else "",
             file_type=file_type,
             document_id=f"art_doc_{art_id}",
         )
     except Exception as e:
-        print(f"RAG auto-indexing error for artifact {art_id}: {e}")
+        print(f"RAG auto-indexing / extraction notice for artifact {art_id}: {e}")
+
+    saved = memory_store.save_artifact(artifact)
 
     if is_supabase_configured() and current_user and not current_user.id.startswith("test-"):
         client = get_user_supabase_client(current_user.token)

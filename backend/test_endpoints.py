@@ -1649,8 +1649,117 @@ All targets achieved.
     assert ds.cell(row=2, column=3).value == 95
     print("PASS: Tabular data extraction and markdown table to Excel artifact verified")
 
+    # ---------------------------------------------------------
+    # Test 72: Universal Document Text Extraction (PDF, DOCX, PPTX, XLSX, Text)
+    # ---------------------------------------------------------
+    from app.agents.file_creator.tools import (
+        generate_pdf_document,
+        generate_word_document,
+        generate_presentation_deck,
+        generate_spreadsheet_workbook,
+    )
+    from app.agents.file_parser.tools import extract_text_from_artifact, parse_binary_document
+
+    # 1. PDF
+    pdf_art = generate_pdf_document(
+        title="Quarterly Intelligence Briefing",
+        subtitle="Confidential Strategic Memo",
+        sections=[{"heading": "Executive Summary", "content": "The quarterly ARR exceeded expectations by 24 percent."}],
+        filename="quarterly_briefing.pdf"
+    )
+    pdf_txt = extract_text_from_artifact(pdf_art)
+    assert "Quarterly Intelligence Briefing" in pdf_txt
+    assert "24 percent" in pdf_txt
+    assert "--- Page 1 ---" in pdf_txt
+    assert "JVBERi" not in pdf_txt
+
+    # 2. DOCX
+    docx_art = generate_word_document(
+        title="Project Architecture Spec",
+        subtitle="Version 2.0",
+        sections=[{"heading": "System Architecture", "paragraphs": ["Microservices communicate via high-throughput gRPC."]}],
+        filename="architecture_spec.docx"
+    )
+    docx_txt = extract_text_from_artifact(docx_art)
+    assert "Project Architecture Spec" in docx_txt
+    assert "gRPC" in docx_txt
+
+    # 3. PPTX
+    pptx_art = generate_presentation_deck(
+        title="Product Roadmap 2026",
+        subtitle="Vision & Milestones",
+        slides=[{"title": "Q1 Objectives", "bullet_points": ["Launch Swarm v2", "Integrate Groq models"]}],
+        filename="roadmap_2026.pptx"
+    )
+    pptx_txt = extract_text_from_artifact(pptx_art)
+    assert "Product Roadmap 2026" in pptx_txt
+    assert "Launch Swarm v2" in pptx_txt
+
+    # 4. XLSX
+    xlsx_art = generate_spreadsheet_workbook(
+        sheets=[{"sheet_name": "Inventory", "headers": ["SKU", "Units", "Warehouse"], "rows": [["SKU-001", 500, "North"]]}],
+        filename="inventory.xlsx"
+    )
+    xlsx_txt = extract_text_from_artifact(xlsx_art)
+    assert "Inventory" in xlsx_txt
+    assert "SKU-001" in xlsx_txt
+    assert "500" in xlsx_txt
+
+    # 5. Text / CSV
+    csv_art = {"filename": "metrics.csv", "type": "csv", "content": "Metric,Value\nARR,500000\n", "is_base64": False}
+    csv_txt = extract_text_from_artifact(csv_art)
+    assert "ARR" in csv_txt
+    assert "500000" in csv_txt
+    print("PASS: Universal document text extraction verified across PDF, DOCX, PPTX, XLSX, and CSV without Base64 leakage")
+
+    # ---------------------------------------------------------
+    # Test 73: Grounded Context Injection Without Binary Leaks
+    # ---------------------------------------------------------
+    from app.main import build_artifact_context_block
+
+    context_str, resolved = build_artifact_context_block(
+        attached_artifacts=[pdf_art, xlsx_art],
+        user_prompt="summarize this report and inventory",
+        user_id="test-user-context",
+    )
+    assert len(resolved) == 2
+    assert "### [Attached User Artifacts & Grounded Knowledge Context]" in context_str
+    assert "Quarterly Intelligence Briefing" in context_str
+    assert "24 percent" in context_str
+    assert "Inventory" in context_str
+    assert "SKU-001" in context_str
+    assert "JVBERi" not in context_str
+    assert "Binary document attached" not in context_str
+    print("PASS: build_artifact_context_block delivers clean readable text without raw Base64 or binary placeholder notice")
+
+    # ---------------------------------------------------------
+    # Test 74: Chat Turn with Attached PDF & User Metadata Persistence
+    # ---------------------------------------------------------
+    res_chat_context = client.post(
+        "/api/chat",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Please analyze the attached financial memo.",
+                    "metadata": {"attached_artifacts": [pdf_art]},
+                }
+            ],
+            "session_id": "b6e9d760-6d69-4370-9ea6-6ee2da6020ad",
+            "attached_artifacts": [pdf_art],
+            "artifact_ids": [pdf_art.get("id", "art-pdf-test")],
+        },
+        headers=auth_headers,
+    )
+    assert res_chat_context.status_code == 200, f"Chat with attached artifact failed: {res_chat_context.text}"
+    chat_resp = res_chat_context.json()
+    assert chat_resp["role"] == "agent"
+    assert "content" in chat_resp
+    assert chat_resp["metadata"]["agent_state"] == "completed"
+    print("PASS: POST /api/chat executed turn with attached PDF artifact and verified clean agent completion")
+
     print("\n========================================")
-    print("ALL 71 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
+    print("ALL 74 MODULAR ENDPOINT & WORKFLOW TESTS PASSED SUCCESSFULLY!")
     print("========================================")
 
 if __name__ == "__main__":

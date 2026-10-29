@@ -28,6 +28,7 @@ import {
   Zap,
   BookOpen,
   ExternalLink,
+  Paperclip,
 } from "lucide-react";
 import { ChatNode } from "../types";
 import { GranularStepTrace, WorkflowSpec } from "./GranularStepTrace";
@@ -223,6 +224,19 @@ export default function MessageItem({
     return null;
   }, [node.metadata, node.content]);
 
+  // Context artifacts attached to this turn (e.g. uploaded files or studio artifacts)
+  const attachedArtifacts = useMemo(() => {
+    const fromMeta = node.metadata?.attached_artifacts;
+    if (Array.isArray(fromMeta) && fromMeta.length > 0) {
+      return fromMeta as Array<Record<string, unknown>>;
+    }
+    const fromArts = node.metadata?.artifacts;
+    if (isUser && Array.isArray(fromArts) && fromArts.length > 0) {
+      return fromArts as Array<Record<string, unknown>>;
+    }
+    return [];
+  }, [node.metadata, isUser]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -309,6 +323,107 @@ export default function MessageItem({
                   {node.metadata.latency_ms}ms
                 </span>
               )}
+            </div>
+          )}
+
+          {/* User Message Attached Context Highlight */}
+          {isUser && attachedArtifacts.length > 0 && (
+            <div className="mb-2.5 pb-2 border-b border-hairline/60 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-mono text-ink-subtle">
+                <Paperclip size={12} className="text-linear-primary shrink-0" />
+                <span className="font-semibold text-ink">
+                  Attached Context ({attachedArtifacts.length} {attachedArtifacts.length === 1 ? "file" : "files"}):
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {attachedArtifacts.map((art, aIdx) => {
+                  const fname = String(art.filename || art.name || "attachment");
+                  const ext = (String(art.type || fname.split(".").pop() || "txt")).toLowerCase();
+                  const sizeBytes = Number(art.size_bytes) || 0;
+                  const sizeKb = sizeBytes > 0 ? `${(sizeBytes / 1024).toFixed(1)} KB` : "";
+                  const content = String(art.content || "");
+                  const isBase64 = Boolean(art.is_base64);
+                  const mime = art.mime_type ? String(art.mime_type) : undefined;
+
+                  const getFormatStyles = (f: string) => {
+                    switch (f) {
+                      case "pdf":
+                        return {
+                          badge: "bg-red-500/10 text-red-400 border-red-500/20",
+                          icon: <FileText size={12} className="text-red-400 shrink-0" />,
+                        };
+                      case "xlsx":
+                      case "xls":
+                      case "csv":
+                        return {
+                          badge: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                          icon: <FileSpreadsheet size={12} className="text-emerald-400 shrink-0" />,
+                        };
+                      case "pptx":
+                      case "ppt":
+                        return {
+                          badge: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+                          icon: <Presentation size={12} className="text-orange-400 shrink-0" />,
+                        };
+                      case "docx":
+                      case "doc":
+                        return {
+                          badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+                          icon: <FileText size={12} className="text-blue-400 shrink-0" />,
+                        };
+                      case "py":
+                      case "js":
+                      case "ts":
+                      case "json":
+                      case "sql":
+                        return {
+                          badge: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+                          icon: <FileCode size={12} className="text-indigo-400 shrink-0" />,
+                        };
+                      default:
+                        return {
+                          badge: "bg-surface-3 text-ink-subtle border-hairline",
+                          icon: <Paperclip size={12} className="text-ink-subtle shrink-0" />,
+                        };
+                    }
+                  };
+
+                  const { badge, icon } = getFormatStyles(ext);
+
+                  return (
+                    <div
+                      key={aIdx}
+                      className="px-2.5 py-1.5 rounded-md bg-canvas/90 border border-hairline flex items-center gap-2 text-xs shadow-xs hover:border-linear-primary/40 transition-colors"
+                    >
+                      <div className={`p-1 rounded ${badge} flex items-center justify-center`}>
+                        {icon}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-medium text-ink truncate max-w-[200px]" title={fname}>
+                          {fname}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[10px] text-ink-subtle font-mono">
+                          <span className="uppercase font-semibold">{ext}</span>
+                          {sizeKb && <span>&middot; {sizeKb}</span>}
+                        </div>
+                      </div>
+                      {content && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadFile(fname, content, mime, isBase64);
+                          }}
+                          className="ml-1 p-1 rounded hover:bg-surface-2 text-ink-subtle hover:text-ink transition-colors cursor-pointer"
+                          title="Download file"
+                        >
+                          <Download size={12} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

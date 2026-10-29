@@ -550,12 +550,37 @@ class WorkflowExecutionEngine:
         attached_art_ids = set(step.get("attached_artifact_ids") or [])
         relevant_files = [f for f in knowledge_files if not attached_k_ids or f.get("id") in attached_k_ids]
         if attached_art_ids:
-            for art in memory_store.get_artifacts(user_id):
-                if art.get("id") in attached_art_ids:
+            try:
+                from app.agents.file_parser.tools import extract_text_from_artifact
+            except Exception:
+                extract_text_from_artifact = lambda a: str(a.get("content", ""))
+
+            seen_aids = set()
+            for aid in attached_art_ids:
+                art = memory_store.get_artifact(aid)
+                if art and aid not in seen_aids:
                     relevant_files.append({
                         "file_name": art.get("filename") or art.get("name"),
-                        "content_text": art.get("content", ""),
+                        "content_text": extract_text_from_artifact(art),
                     })
+                    seen_aids.add(aid)
+
+            for art in memory_store.get_artifacts(user_id):
+                if art.get("id") in attached_art_ids and art["id"] not in seen_aids:
+                    relevant_files.append({
+                        "file_name": art.get("filename") or art.get("name"),
+                        "content_text": extract_text_from_artifact(art),
+                    })
+                    seen_aids.add(art["id"])
+
+            for art in (inputs.get("attached_artifacts") or []):
+                if isinstance(art, dict) and art.get("id") in attached_art_ids and art["id"] not in seen_aids:
+                    relevant_files.append({
+                        "file_name": art.get("filename") or art.get("name"),
+                        "content_text": extract_text_from_artifact(art),
+                    })
+                    seen_aids.add(art["id"])
+
         kb_text = format_knowledge_context(relevant_files)
 
         # 4. Resolve agent
