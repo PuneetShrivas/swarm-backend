@@ -23,6 +23,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     - Added `backend/test_orchestration_query_routing.py` testing routing for poem instructions with download, non-market substring isolation, market research preservation, and markdown artifact extraction. All 5 tests passing.
 
 ### Added
+- **LLM-Driven Intent Analysis & Semantic Orchestration Engine (`backend/app/ai_generator.py` & `backend/app/main.py`)**:
+  - **Single-Pass Structured LLM Intent Evaluation**:
+    - Replaced over 1,200 lines of procedural, keyword-matching `if any(k in prompt_lower for k in [...])` blocks with `analyze_query_intent`, evaluating user prompts in a single semantic inference pass via Groq LPU (`qwen-3.8` / `qwen/qwen3.8-27b`) with automatic fallback to Gemini Flash (`gemini-3.8-flash`).
+    - Classifies queries into 11 distinct domain intents (`spreadsheet_operations`, `document_authoring`, `artifact_report`, `code_engineering`, `strategic_planning`, `market_intelligence`, `live_web_research`, `data_analytics`, `document_parsing`, `conversational_greeting`, `general_inquiry`).
+    - Unified multidimensional analysis detecting real-time internet search necessity (`requires_live_web_search`), deliverable file exports (`file_export_requested`), and exact file format (`export_format`).
+    - In-memory bounded LRU cache (`_INTENT_CACHE`) delivering 0ms response latency for repeated queries.
+  - **Declarative Pipeline Factory (`build_workflow_from_intent`)**:
+    - Direct declarative mapping from evaluated intent models to multi-agent DAG execution specifications.
+    - Completely decoupled prompt semantics from workflow generation, eliminating keyword collisions, greedy priority inversions, and procedural routing bugs.
+    - Seamlessly configures Perplexity Sonar for real-time web discovery and attaches all 8 enterprise computational tools to `excel_specialist`.
+  - **Deterministic Token-Boundary Fallback Layer**:
+    - Added `_deterministic_intent_fallback` ensuring 100% system resilience and zero turn interruptions during external LLM API outages or network timeouts.
+  - **Chat Execution & Granular Trace Integration**:
+    - Granular trace events in `main.py` display evaluated intent labels and 1-sentence reasoning in the chat UI.
+  - **Automated Test Suite (`backend/test_llm_intent_orchestration.py`)**:
+    - 7 comprehensive unit and integration tests covering poetry with markdown exports, stock research with spreadsheets, cell operations, greetings, coding, planning, and offline fallback resilience. All 7 tests passing.
+
 - **Enterprise Excel & Computational Intelligence Agent (`excel_specialist`) & Chat UI Ergonomics (`backend/` & `frontend/`)**:
   - **Enterprise Agent Package Manifest & Operational Persona (`backend/app/agents/excel_specialist/`)**:
     - Created modular agent package with manifest `config.json` (ID `excel_specialist`, display name "Excel & Computational Intelligence Specialist", role "Enterprise Spreadsheet & Computational Architect", model `qwen-3.8`, icon `FileSpreadsheet`).

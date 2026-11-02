@@ -2,7 +2,303 @@ import os
 import re
 import json
 import uuid
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal, Tuple
+from pydantic import BaseModel, Field
+
+try:
+    from app.groq_client import get_groq_client, is_groq_configured, execute_groq_chat
+except ImportError:
+    from groq_client import get_groq_client, is_groq_configured, execute_groq_chat
+
+
+# -------------------------------------------------------------
+# 0. Intent Classification Models & Caching
+# -------------------------------------------------------------
+
+class QueryIntentClassification(BaseModel):
+    primary_intent: Literal[
+        "spreadsheet_operations",
+        "document_authoring",
+        "artifact_report",
+        "code_engineering",
+        "strategic_planning",
+        "market_intelligence",
+        "live_web_research",
+        "data_analytics",
+        "document_parsing",
+        "conversational_greeting",
+        "general_inquiry",
+    ] = "general_inquiry"
+    requires_live_web_search: bool = False
+    file_export_requested: bool = False
+    export_format: Optional[Literal["md", "xlsx", "csv", "pdf", "pptx", "py", "json", "txt"]] = None
+    is_multi_step: bool = True
+    workflow_title: str = "Coordinated Multi-Agent Pipeline"
+    workflow_description: str = "Collaborative multi-agent execution pipeline."
+    recommended_agent_ids: List[str] = Field(default_factory=lambda: ["general_assistant", "synthesizer"])
+    reasoning: str = ""
+
+
+_INTENT_CACHE: Dict[str, QueryIntentClassification] = {}
+
+INTENT_CLASSIFIER_PROMPT = """You are the Swarm Autonomous Orchestrator Intent Analyzer.
+Your task is to analyze the user prompt and context to produce a structured JSON classification that decides which specialist agent pipeline should execute the request.
+
+Analyze the prompt holistically into exactly ONE primary_intent:
+- "spreadsheet_operations": Natural language queries on Excel/spreadsheets, cell coordinate operations, format-preserving edits, multi-sheet relational joins, pivot tables, complex formulas, or statistical computing on sheets.
+- "document_authoring": Creative or instructional document composition: poems, poetry guides, essays, creative stories, editorial articles, manuals, blog posts, newsletters.
+- "artifact_report": Formal structured report synthesis (e.g. Executive Summary, Technical Specification, Compliance Review, Research Synthesis, Financial Analysis, Meeting Minutes) based on /artifact command or attached documents/PDFs.
+- "code_engineering": Writing software code, scripts, algorithms, debugging, code refactoring, security audits, unit tests.
+- "strategic_planning": Project roadmaps, milestone phasing, sprint plans, task decomposition, timelines.
+- "market_intelligence": Real-time stock prices, tickers, equity valuations, market performance, crypto quotes, financial metrics.
+- "live_web_research": Current events, breaking news, live web facts, verified citations, or time-sensitive lookups requiring up-to-date internet research.
+- "data_analytics": Statistical computations, numerical dataset analysis, math calculations, data modeling (without specific spreadsheet coordinate editing).
+- "document_parsing": Document extraction, indexing, RAG, text schemas from PDFs or unstructured files.
+- "conversational_greeting": Casual greetings, pleasantries, trivial single-turn questions (e.g. "hi", "hello", "who are you").
+- "general_inquiry": General knowledge questions, conceptual explanations, multi-domain exploration.
+
+Also determine:
+- requires_live_web_search (boolean): True ONLY if answering requires fresh real-time web search / current internet information (e.g. current stock prices, recent news, live facts, weather).
+- file_export_requested (boolean): True if the user asks for a file to be generated, saved, created, or made available for download.
+- export_format: "md", "xlsx", "csv", "pdf", "pptx", "py", "json", "txt", or null.
+- is_multi_step (boolean): False ONLY for trivial conversational greetings. True for all reasoning/content/research/spreadsheet/coding tasks.
+- recommended_agent_ids: Ordered sequence of specialist agents to execute the workflow (e.g. ["writer", "file_creator", "synthesizer"]).
+- workflow_title: A concise, descriptive title (e.g. "Document Authoring & Downloadable Markdown Synthesis Pipeline").
+- workflow_description: A 1-sentence description.
+- reasoning: A 1-sentence explanation of why this intent and pipeline were chosen.
+
+Return ONLY a raw JSON object matching the exact structure without markdown commentary:
+{
+  "primary_intent": "...",
+  "requires_live_web_search": false,
+  "file_export_requested": false,
+  "export_format": null,
+  "is_multi_step": true,
+  "workflow_title": "...",
+  "workflow_description": "...",
+  "recommended_agent_ids": ["..."],
+  "reasoning": "..."
+}"""
+
+
+def _deterministic_intent_fallback(
+    prompt: str,
+    attached_artifacts: Optional[List[Dict[str, Any]]] = None,
+) -> QueryIntentClassification:
+    """
+    High-accuracy deterministic fallback classifier used when LLM providers are unreachable.
+    Uses regex word boundaries to avoid substring collision errors.
+    """
+    p_lower = (prompt or "").lower().strip()
+    has_attached = bool(attached_artifacts)
+    
+    # 1. Artifact report
+    if "/artifact" in p_lower or (has_attached and any(k in p_lower for k in ["report", "summary", "analyze", "review"])):
+        return QueryIntentClassification(
+            primary_intent="artifact_report",
+            requires_live_web_search=False,
+            file_export_requested=True,
+            export_format="pdf",
+            is_multi_step=True,
+            workflow_title="Artifact Report Synthesis Pipeline",
+            workflow_description="Multi-agent document extraction, structured template drafting, and downloadable report compilation.",
+            recommended_agent_ids=["file_parser", "writer", "synthesizer"] if has_attached else ["researcher", "writer", "synthesizer"],
+            reasoning="Fallback: Detected template report request with attached document/context."
+        )
+
+    # 2. Market intelligence
+    market_terms = [r"\bstocks?\b", r"\btickers?\b", r"\bmarket quotes?\b", r"\bshare prices?\b", r"\bcrypto\b", r"\bbtc\b", r"\bnasdaq\b", r"\bdow jones\b", r"\bs&p\b", r"\bstock performances?\b"]
+    if any(re.search(t, p_lower) for t in market_terms):
+        has_file = bool(re.search(r"\b(excel|xlsx|spreadsheet|csv|sheet|download|file)\b", p_lower))
+        return QueryIntentClassification(
+            primary_intent="market_intelligence",
+            requires_live_web_search=True,
+            file_export_requested=has_file,
+            export_format="xlsx" if has_file else None,
+            is_multi_step=True,
+            workflow_title="Live Market Data & Spreadsheet Generation Pipeline" if has_file else "Live Market & Valuation Intelligence Pipeline",
+            workflow_description="Multi-agent live market research with Perplexity Sonar and financial analysis.",
+            recommended_agent_ids=["researcher", "data_analyst", "file_creator"] if has_file else ["researcher", "data_analyst", "synthesizer"],
+            reasoning="Fallback: Detected financial market intelligence inquiry requiring live Sonar discovery."
+        )
+
+    # 3. Spreadsheet operations (Excel Specialist)
+    if bool(re.search(r"\b(excel|spreadsheet|xlsx|xlsm|pivot table|relational join|merge sheets|join sheets|join sheet|cell coordinate|cell [a-z]+\d+|vba macro|sheet\d+)\b", p_lower)):
+        req_search = bool(re.search(r"\b(stock|price|market|ticker|latest|current|real-time)\b", p_lower))
+        return QueryIntentClassification(
+            primary_intent="spreadsheet_operations",
+            requires_live_web_search=req_search,
+            file_export_requested=True,
+            export_format="xlsx",
+            is_multi_step=True,
+            workflow_title="Enterprise Excel & Computational Intelligence Pipeline",
+            workflow_description="Format-preserving spreadsheet mutations, cell coordinate resolution, and analytical joins.",
+            recommended_agent_ids=["researcher", "excel_specialist", "synthesizer"] if req_search else ["excel_specialist", "synthesizer"],
+            reasoning="Fallback: Detected spreadsheet manipulation and computational cell operations."
+        )
+
+    # 4. Document authoring & creative writing
+    writing_terms = [r"\bpoems?\b", r"\bpoetry\b", r"\bessays?\b", r"\barticles?\b", r"\bblog posts?\b", r"\bwriting guide\b", r"\bcreative story\b"]
+    if any(re.search(t, p_lower) for t in writing_terms) or (bool(re.search(r"\b(write|draft|author|compose)\b", p_lower)) and bool(re.search(r"\b(guide|manual|story|speech|post|poem)\b", p_lower))):
+        has_download = bool(re.search(r"\b(download|available for download|markdown|md file|\.md|save as file)\b", p_lower))
+        return QueryIntentClassification(
+            primary_intent="document_authoring",
+            requires_live_web_search=False,
+            file_export_requested=has_download,
+            export_format="md" if has_download else None,
+            is_multi_step=True,
+            workflow_title="Document Authoring & Downloadable Markdown Synthesis Pipeline" if has_download else "Editorial Content & Polish Pipeline",
+            workflow_description="Creative and instructional document authoring and markdown file delivery.",
+            recommended_agent_ids=["writer", "file_creator", "synthesizer"] if has_download else ["writer", "synthesizer"],
+            reasoning="Fallback: Detected creative or instructional document authoring intent."
+        )
+
+    # 5. Code engineering
+    if bool(re.search(r"\b(code|coding|function|python|javascript|typescript|sql|bug|refactor|script|program|class|api|unit test)\b", p_lower)):
+        return QueryIntentClassification(
+            primary_intent="code_engineering",
+            requires_live_web_search=False,
+            file_export_requested=bool(re.search(r"\b(file|download|save|script)\b", p_lower)),
+            export_format="py",
+            is_multi_step=True,
+            workflow_title="Software Engineering & Quality Review Pipeline",
+            workflow_description="Production code implementation, security review, and technical documentation.",
+            recommended_agent_ids=["coder", "reviewer", "synthesizer"],
+            reasoning="Fallback: Detected software implementation and engineering request."
+        )
+
+    # 6. Strategic planning
+    if bool(re.search(r"\b(roadmap|milestone plan|sprint plan|project plan|timeline plan|task decomposition)\b", p_lower)):
+        return QueryIntentClassification(
+            primary_intent="strategic_planning",
+            requires_live_web_search=False,
+            file_export_requested=False,
+            is_multi_step=True,
+            workflow_title="Strategic Roadmap & Phasing Pipeline",
+            workflow_description="Multi-agent roadmap design, task decomposition, and milestone synthesis.",
+            recommended_agent_ids=["planner", "synthesizer"],
+            reasoning="Fallback: Detected strategic planning and milestone decomposition."
+        )
+
+    # 7. Conversational greeting
+    if p_lower.strip("!.? ") in ["hi", "hello", "hey", "greetings", "good morning", "good evening", "howdy", "sup", "yo", "who are you"] or len(prompt.split()) <= 2:
+        return QueryIntentClassification(
+            primary_intent="conversational_greeting",
+            requires_live_web_search=False,
+            file_export_requested=False,
+            is_multi_step=False,
+            workflow_title="General Assistant Turn",
+            workflow_description="Direct single-agent response for conversational greeting.",
+            recommended_agent_ids=["general_assistant"],
+            reasoning="Fallback: Detected casual greeting or pleasantry."
+        )
+
+    # 8. Live web research
+    if bool(re.search(r"\b(search|websearch|look up|find out|latest|news|current|recent|today|weather)\b", p_lower)):
+        return QueryIntentClassification(
+            primary_intent="live_web_research",
+            requires_live_web_search=True,
+            file_export_requested=False,
+            is_multi_step=True,
+            workflow_title="Live Web Discovery & Synthesis Pipeline",
+            workflow_description="Real-time web search with Perplexity Sonar and verified fact synthesis.",
+            recommended_agent_ids=["researcher", "synthesizer"],
+            reasoning="Fallback: Detected time-sensitive live research query."
+        )
+
+    # Default general inquiry
+    return QueryIntentClassification(
+        primary_intent="general_inquiry",
+        requires_live_web_search=False,
+        file_export_requested=False,
+        is_multi_step=True,
+        workflow_title="Coordinated Knowledge & Synthesis Pipeline",
+        workflow_description="Multi-agent exploratory research and comprehensive synthesis pipeline.",
+        recommended_agent_ids=["general_assistant", "synthesizer"],
+        reasoning="Fallback: General knowledge and conceptual analysis request."
+    )
+
+
+def analyze_query_intent(
+    prompt: str,
+    attached_artifacts: Optional[List[Dict[str, Any]]] = None,
+) -> QueryIntentClassification:
+    """
+    Evaluates user prompt semantics and context in a single pass using LLM analysis.
+    Classifies intent, determines real-time search necessity, detects file export intent,
+    and returns a structured QueryIntentClassification.
+    """
+    clean_p = (prompt or "").strip()
+    if not clean_p:
+        return QueryIntentClassification(
+            primary_intent="conversational_greeting",
+            is_multi_step=False,
+            recommended_agent_ids=["general_assistant"],
+            workflow_title="General Assistant Turn",
+            reasoning="Empty prompt"
+        )
+
+    # Check in-memory cache
+    cache_key = f"{clean_p.lower()}__art_{bool(attached_artifacts)}"
+    if cache_key in _INTENT_CACHE:
+        return _INTENT_CACHE[cache_key]
+
+    context_note = ""
+    if attached_artifacts:
+        fnames = [a.get("filename") or a.get("name") or "file" for a in attached_artifacts]
+        context_note = f"\nAttached context files: {', '.join(fnames)}"
+
+    user_eval_prompt = f"User Request:\n{clean_p}{context_note}"
+
+    # 1. Attempt Groq LPU inference (ultra-low latency)
+    if is_groq_configured():
+        groq_client, _ = get_groq_client()
+        if groq_client:
+            try:
+                res_text, _, _, _, _ = execute_groq_chat(
+                    client=groq_client,
+                    messages=[{"role": "user", "content": user_eval_prompt}],
+                    system_prompt=INTENT_CLASSIFIER_PROMPT,
+                    requested_model="qwen-3.8",
+                    temperature=0.1,
+                    max_completion_tokens=600,
+                )
+                cleaned = _clean_json_markdown(res_text)
+                data = json.loads(cleaned)
+                classification = QueryIntentClassification(**data)
+                if len(_INTENT_CACHE) > 500:
+                    _INTENT_CACHE.clear()
+                _INTENT_CACHE[cache_key] = classification
+                return classification
+            except Exception as e:
+                print(f"Groq intent classification warning: {e}, attempting Gemini fallback.")
+
+    # 2. Attempt Google Gemini Flash inference
+    gemini_client, _ = get_gemini_client()
+    if gemini_client:
+        try:
+            full_prompt = f"{INTENT_CLASSIFIER_PROMPT}\n\n{user_eval_prompt}"
+            response = gemini_client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=full_prompt,
+            )
+            raw_text = response.text or ""
+            cleaned = _clean_json_markdown(raw_text)
+            data = json.loads(cleaned)
+            classification = QueryIntentClassification(**data)
+            if len(_INTENT_CACHE) > 500:
+                _INTENT_CACHE.clear()
+            _INTENT_CACHE[cache_key] = classification
+            return classification
+        except Exception as e:
+            print(f"Gemini intent classification warning: {e}, using deterministic fallback.")
+
+    # 3. Fallback to deterministic token-boundary classifier
+    fallback = _deterministic_intent_fallback(clean_p, attached_artifacts)
+    if len(_INTENT_CACHE) > 500:
+        _INTENT_CACHE.clear()
+    _INTENT_CACHE[cache_key] = fallback
+    return fallback
 
 
 def get_gemini_client():
@@ -611,6 +907,694 @@ def requires_fresh_internet_information(prompt: str) -> bool:
     return False
 
 
+def build_workflow_from_intent(
+    intent: QueryIntentClassification,
+    prompt_clean: str,
+    slug_id: str,
+    art_ids: List[str],
+) -> Dict[str, Any]:
+    """
+    Declarative workflow factory mapping an evaluated QueryIntentClassification
+    directly to a multi-agent DAG specification.
+    """
+    pri = intent.primary_intent
+    steps: List[Dict[str, Any]] = []
+    edges: List[Dict[str, str]] = []
+    wf_title = intent.workflow_title
+    wf_desc = intent.workflow_description
+
+    # 1. Spreadsheet Operations (Excel Specialist)
+    if pri == "spreadsheet_operations":
+        excel_tools = [
+            "introspect_spreadsheet",
+            "resolve_coordinates",
+            "edit_spreadsheet_cells",
+            "execute_statistical_analysis",
+            "relational_join_sheets",
+            "create_pivot_table",
+            "rollback_spreadsheet_transactions",
+            "validate_workbook_integrity"
+        ]
+        if intent.requires_live_web_search:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Live Grounded Market Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Search live sources using Perplexity Sonar for verified facts, figures, and metrics required for: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Enterprise Spreadsheet & Cell Resolution Operations",
+                    "step_type": "agent",
+                    "agent_id": "excel_specialist",
+                    "instructions": f"Translate natural language requests into exact cell coordinates, perform targeted mutations while strictly preserving all cell styling, formulas, number formats, and VBA macros, validate pre-save schema integrity, and apply results: {{{{steps.step_1.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": excel_tools,
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Computational Audit & Delivery Briefing",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Consolidate verified research findings, cell modifications, and transaction audit summary into a cohesive delivery directly fulfilling the user's goal: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+        else:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Enterprise Spreadsheet & Cell Resolution Operations",
+                    "step_type": "agent",
+                    "agent_id": "excel_specialist",
+                    "instructions": f"Translate natural language requests into exact cell coordinates, perform targeted mutations while strictly preserving all cell styling, formulas, number formats, and VBA macros, execute calculations, and validate schema integrity for: {prompt_clean}",
+                    "tool_ids": excel_tools,
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Computational Audit & Delivery Briefing",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Consolidate cell modifications, structural operations, and calculation audit summary into a cohesive final briefing directly fulfilling the user's goal: {{{{steps.step_1.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+            ]
+
+    # 2. Document Authoring & Writing
+    elif pri == "document_authoring":
+        if intent.file_export_requested:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Creative & Instructional Content Authoring",
+                    "step_type": "agent",
+                    "agent_id": "writer",
+                    "instructions": f"Author complete, high-quality, comprehensive written content directly satisfying the user's goal '{prompt_clean}'. Organize into clear structured sections with evocative prose, deep insight, and practical guidance. Avoid conversational filler.",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Downloadable Markdown File Compilation",
+                    "step_type": "agent",
+                    "agent_id": "file_creator",
+                    "instructions": f"Compile the authored document into a polished, downloadable markdown (.md) document with an appropriate main header (# Title), clean subheadings, bullet points, and formatting ready for direct file export: {{{{steps.step_1.output.text}}}} User Request: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Executive Overview & File Delivery",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Deliver the final markdown document to the user along with a concise executive overview directly fulfilling the goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+        elif intent.requires_live_web_search:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Live Topic Research & Evidence Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Gather live background context, verified citations, and recent developments: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Editorial Content Drafting",
+                    "step_type": "agent",
+                    "agent_id": "writer",
+                    "instructions": f"Draft engaging, high quality editorial content adhering strictly to the user's goal '{prompt_clean}' incorporating research findings: {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Editorial Review & Delivery Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Consolidate editorial copy and citations into a polished final deliverable directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+        else:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Targeted Content Drafting",
+                    "step_type": "agent",
+                    "agent_id": "writer",
+                    "instructions": f"Draft complete, polished written content directly satisfying the user's goal '{prompt_clean}'. Avoid unnecessary boilerplate.",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Editorial Polish & Delivery",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Ensure cohesive formatting, headings, and seamless presentation directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+            ]
+
+    # 3. Artifact Report (/artifact or PDF document context)
+    elif pri == "artifact_report":
+        if art_ids:
+            step_1 = {
+                "id": "step_1",
+                "name": "PDF Document Extraction & Analysis",
+                "step_type": "agent",
+                "agent_id": "file_parser",
+                "instructions": f"Extract all critical text schemas, tabular data, metrics, key findings, and structure from the attached PDF document(s) relevant to: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+        elif intent.requires_live_web_search:
+            step_1 = {
+                "id": "step_1",
+                "name": "Live Grounded Fact & Market Research",
+                "step_type": "agent",
+                "agent_id": "researcher",
+                "model": "sonar",
+                "instructions": f"Gather verified facts, recent developments, metrics, and citations for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+        else:
+            step_1 = {
+                "id": "step_1",
+                "name": "Topic Research & Strategic Structuring",
+                "step_type": "agent",
+                "agent_id": "planner",
+                "instructions": f"Analyze core principles, outline section requirements, and establish evidence points for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+        steps = [
+            step_1,
+            {
+                "id": "step_2",
+                "name": "Template-Guided Report Drafting",
+                "step_type": "agent",
+                "agent_id": "writer",
+                "instructions": f"Using the extracted context, draft a thorough, comprehensive report structured into clear sections directly adhering to the requested artifact template for: {prompt_clean}\n\nContext:\n{{{{steps.step_1.output.text}}}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_1"],
+            },
+            {
+                "id": "step_3",
+                "name": "Final Report & PDF Artifact Compilation",
+                "step_type": "agent",
+                "agent_id": "synthesizer",
+                "instructions": f"Finalize the report into a polished, professional markdown document with clean headings, formatted tables, bullet points, and an executive sign-off ready for dual display and automated PDF generation: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_2"],
+            },
+        ]
+        edges = [
+            {"source": "step_1", "target": "step_2"},
+            {"source": "step_2", "target": "step_3"},
+        ]
+
+    # 4. Code Engineering
+    elif pri == "code_engineering":
+        steps = [
+            {
+                "id": "step_1",
+                "name": "Production Code Implementation",
+                "step_type": "agent",
+                "agent_id": "coder",
+                "instructions": f"Design and implement production-ready code with complete algorithms, typing, and error handling for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            },
+            {
+                "id": "step_2",
+                "name": "Code Review & Security Audit",
+                "step_type": "agent",
+                "agent_id": "reviewer",
+                "instructions": "Conduct code review, security audit, edge-case analysis, and verification: {{steps.step_1.output.text}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_1"],
+            },
+            {
+                "id": "step_3",
+                "name": "Technical Documentation & Instructions",
+                "step_type": "agent",
+                "agent_id": "synthesizer",
+                "instructions": f"Synthesize technical implementation details, architecture notes, security review results, and execution instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_2"],
+            },
+        ]
+        edges = [
+            {"source": "step_1", "target": "step_2"},
+            {"source": "step_2", "target": "step_3"},
+        ]
+
+    # 5. Strategic Planning
+    elif pri == "strategic_planning":
+        steps = [
+            {
+                "id": "step_1",
+                "name": "Roadmap Architecture & Task Decomposition",
+                "step_type": "agent",
+                "agent_id": "planner",
+                "instructions": f"Decompose project requirements into structured phases, milestones, dependencies, and completion criteria for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            },
+            {
+                "id": "step_2",
+                "name": "Executive Roadmap Synthesis",
+                "step_type": "agent",
+                "agent_id": "synthesizer",
+                "instructions": f"Synthesize milestones, timelines, and execution recommendations into a cohesive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_1"],
+            },
+        ]
+        edges = [
+            {"source": "step_1", "target": "step_2"},
+        ]
+
+    # 6. Market Intelligence (Stocks, Crypto, Equities)
+    elif pri == "market_intelligence":
+        if intent.file_export_requested:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Live Market Data & Stock Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Search live financial sources and market quotes using Perplexity Sonar for real-time stock prices, trading volume, daily/historical performance, and valuation metrics: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Financial Data Normalization & Tabular Structuring",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": f"Analyze discovered market data, calculate performance deltas and ratios, and format clean structured tabular rows with typed headers (Ticker, Company, Current Price, Change %, Market Cap, P/E Ratio, 52-Week Range): {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Production Spreadsheet & File Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "file_creator",
+                    "instructions": f"Generate a formatted production Excel spreadsheet (.xlsx/CSV) with styled tables, column widths, and summary rows from the tabular data, and provide an executive summary of market performance: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+        else:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Live Market Data & Stock Discovery",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Search live financial sources and market quotes for current stock prices, volume, and valuation metrics: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Quantitative Valuation Analysis",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": f"Perform quantitative analysis on the discovered data, calculate key metrics, identify trends and anomalies, and structure findings: {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Executive Market Briefing & Valuation Delivery",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Deliver a cohesive financial briefing synthesizing all discovered market data, valuation ratios, and analytical insights directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+
+    # 7. Live Web Research
+    elif pri == "live_web_research":
+        if intent.file_export_requested:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Live Web Discovery & Evidence Gathering",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Execute live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current developments: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Comparative Analysis & Tabular Structuring",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": f"Analyze research findings, extract key metrics, structure comparative facts, and format clean structured tabular data: {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Production File & Spreadsheet Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "file_creator",
+                    "instructions": f"Generate formatted production file artifact (.xlsx, CSV, or document) incorporating structured tabular data: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+        else:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Live Web Discovery & Citation Gathering",
+                    "step_type": "agent",
+                    "agent_id": "researcher",
+                    "model": "sonar",
+                    "instructions": f"Execute live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current developments: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Goal-Aligned Fact Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize verified findings, citations, and live evidence into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+            ]
+
+    # 8. Data Analytics & Calculations
+    elif pri == "data_analytics":
+        if intent.file_export_requested:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Statistical & Numerical Analysis",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": f"Analyze data and numerical parameters, calculate descriptive metrics, identify patterns, and structure clean data: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Formatted File & Report Generation",
+                    "step_type": "agent",
+                    "agent_id": "file_creator",
+                    "instructions": "Generate formatted downloadable file incorporating numerical analysis: {{steps.step_1.output.text}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Dataset Summary & Verification",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize all analytical metrics and generated file artifact details into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ]
+        else:
+            steps = [
+                {
+                    "id": "step_1",
+                    "name": "Numerical Computation & Statistical Analysis",
+                    "step_type": "agent",
+                    "agent_id": "data_analyst",
+                    "instructions": f"Extract numerical parameters, execute statistical calculations, and structure data: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Executive Analytics Briefing",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Translate numerical results, statistical analyses, and structured data into a cohesive, comprehensive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ]
+            edges = [
+                {"source": "step_1", "target": "step_2"},
+            ]
+
+    # 9. Document Parsing & Ingestion
+    elif pri == "document_parsing":
+        steps = [
+            {
+                "id": "step_1",
+                "name": "Document Parsing & Schema Extraction",
+                "step_type": "agent",
+                "agent_id": "file_parser",
+                "instructions": f"Parse context files, extract text schemas, tabular data, and key entities: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            },
+            {
+                "id": "step_2",
+                "name": "Structured Data Synthesis",
+                "step_type": "agent",
+                "agent_id": "data_analyst",
+                "instructions": "Analyze parsed document contents, organize schema, and summarize key data: {{steps.step_1.output.text}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_1"],
+            },
+            {
+                "id": "step_3",
+                "name": "Document Insights Synthesis",
+                "step_type": "agent",
+                "agent_id": "synthesizer",
+                "instructions": f"Synthesize all parsed document contents, structured schemas, and analytical findings into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_2"],
+            },
+        ]
+        edges = [
+            {"source": "step_1", "target": "step_2"},
+            {"source": "step_2", "target": "step_3"},
+        ]
+
+    # 10. Conversational Greeting (Single Step)
+    elif pri == "conversational_greeting":
+        steps = [
+            {
+                "id": "step_1",
+                "name": "Conversational Response",
+                "step_type": "agent",
+                "agent_id": "general_assistant",
+                "instructions": prompt_clean,
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+        ]
+        edges = []
+
+    # 11. General Inquiry (Default Coordinated 2-Step)
+    else:
+        steps = [
+            {
+                "id": "step_1",
+                "name": "Domain Exploration & Concept Analysis",
+                "step_type": "agent",
+                "agent_id": "general_assistant",
+                "instructions": f"Analyze core principles, background context, and nuanced perspectives for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            },
+            {
+                "id": "step_2",
+                "name": "Cohesive Synthesis & Executive Response",
+                "step_type": "agent",
+                "agent_id": "synthesizer",
+                "instructions": f"Synthesize a comprehensive, polished response with structured headings, bullet points, and actionable takeaways directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": [],
+                "depends_on": ["step_1"],
+            },
+        ]
+        edges = [
+            {"source": "step_1", "target": "step_2"},
+        ]
+
+    return {
+        "id": f"ephemeral_wf_{slug_id}",
+        "title": f"{wf_title} ({slug_id})",
+        "description": wf_desc,
+        "goal": prompt_clean,
+        "is_ephemeral": True,
+        "is_multi_step": intent.is_multi_step,
+        "intent_analysis": {
+            "primary_intent": intent.primary_intent,
+            "requires_live_web_search": intent.requires_live_web_search,
+            "file_export_requested": intent.file_export_requested,
+            "export_format": intent.export_format,
+            "reasoning": intent.reasoning,
+        },
+        "steps": steps,
+        "edges": edges,
+    }
+
+
 def synthesize_on_the_fly_workflow(
     prompt: str,
     target_agent_id: Optional[str] = None,
@@ -659,1300 +1643,6 @@ def synthesize_on_the_fly_workflow(
             "edges": [],
         }
 
-    # 2. PDF Attachment & /artifact Report Generation Pipeline
-    has_artifact_command = "/artifact" in prompt_lower
-    has_pdf_or_doc = bool(attached_artifacts) or "pdf" in prompt_lower or ".pdf" in prompt_lower
-    has_report_request = any(k in prompt_lower for k in [
-        "prepare a report", "prepare report", "generate a report", "generate report",
-        "create a report", "create report", "executive summary", "research synthesis",
-        "technical specification", "tech spec", "financial analysis", "compliance review",
-        "meeting minutes", "artifact report", "synthesize report", "draft report"
-    ])
-
-    if has_artifact_command or (has_report_request and has_pdf_or_doc):
-        if has_pdf_or_doc and attached_artifacts:
-            step_1_def = {
-                "id": "step_1",
-                "name": "PDF Document Extraction & Analysis",
-                "step_type": "agent",
-                "agent_id": "file_parser",
-                "instructions": f"Extract all critical text schemas, tabular data, metrics, key findings, and structure from the attached PDF document(s) relevant to: {prompt_clean}",
-                "tool_ids": [],
-                "knowledge_file_ids": [],
-                "attached_artifact_ids": art_ids,
-                "depends_on": [],
-            }
-            step_2_input = "{{steps.step_1.output.text}}"
-        elif requires_fresh_internet_information(prompt_clean):
-            step_1_def = {
-                "id": "step_1",
-                "name": "Live Grounded Fact & Market Research",
-                "step_type": "agent",
-                "agent_id": "researcher",
-                "model": "sonar",
-                "instructions": f"Gather verified facts, recent developments, metrics, and citations for: {prompt_clean}",
-                "tool_ids": [],
-                "knowledge_file_ids": [],
-                "attached_artifact_ids": art_ids,
-                "depends_on": [],
-            }
-            step_2_input = "{{steps.step_1.output.text}}"
-        else:
-            step_1_def = {
-                "id": "step_1",
-                "name": "Topic Research & Strategic Structuring",
-                "step_type": "agent",
-                "agent_id": "planner",
-                "instructions": f"Analyze core principles, outline section requirements, and establish evidence points for: {prompt_clean}",
-                "tool_ids": [],
-                "knowledge_file_ids": [],
-                "attached_artifact_ids": art_ids,
-                "depends_on": [],
-            }
-            step_2_input = "{{steps.step_1.output.text}}"
-
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Artifact Report Synthesis Pipeline ({slug_id})",
-            "description": "Multi-agent PDF extraction, structured template drafting, and dual markdown/downloadable PDF compilation.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                step_1_def,
-                {
-                    "id": "step_2",
-                    "name": "Template-Guided Report Drafting",
-                    "step_type": "agent",
-                    "agent_id": "writer",
-                    "instructions": f"Using the extracted context, draft a thorough, comprehensive report structured into clear sections (Executive Summary, Key Findings, In-Depth Analysis, Data/Metrics Table, and Recommendations) directly adhering to the requested artifact template for: {prompt_clean}\n\nContext:\n{step_2_input}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Final Report & PDF Artifact Compilation",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Finalize the report into a polished, professional markdown document with clean headings, formatted tables, bullet points, and an executive sign-off ready for dual display and automated PDF generation: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # 3. Enterprise Excel & Computational Intelligence Pipeline (Excel Specialist Agent)
-    has_excel_specialist = any(k in prompt_lower for k in [
-        "excel specialist", "spreadsheet coordinate", "cell coordinate", "cell coordinates",
-        "excel formula", "spreadsheet formula", "pivot table", "relational join",
-        "join sheets", "merge sheets", "excel macro", "update cell", "format-preserving",
-        "format preserving", "multi-sheet", "coordinate resolution", "edit spreadsheet",
-        "excel edit", "modify cell", "targeted edit"
-    ]) or (
-        any(k in prompt_lower for k in ["excel", "xlsx", "xlsm", "spreadsheet"]) and
-        any(k in prompt_lower for k in ["cell", "row", "column", "formula", "join", "merge", "pivot", "preserve", "edit", "update", "coordinate", "schema", "validation", "rollback"])
-    )
-    if has_excel_specialist:
-        if requires_fresh_internet_information(prompt_clean):
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Research & Enterprise Excel Mutation Pipeline ({slug_id})",
-                "description": "Multi-agent live market discovery with Perplexity Sonar followed by surgical format-preserving spreadsheet edits and synthesis.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Grounded Market Discovery",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Search live sources using Perplexity Sonar for verified facts, figures, and metrics required for: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Enterprise Spreadsheet & Cell Resolution Operations",
-                        "step_type": "agent",
-                        "agent_id": "excel_specialist",
-                        "instructions": f"Translate natural language requests into exact cell coordinates, perform targeted mutations while strictly preserving all cell styling, formulas, number formats, and VBA macros, validate pre-save schema integrity, and apply results: {{{{steps.step_1.output.text}}}} Goal: {prompt_clean}",
-                        "tool_ids": [
-                            "introspect_spreadsheet",
-                            "resolve_coordinates",
-                            "edit_spreadsheet_cells",
-                            "execute_statistical_analysis",
-                            "relational_join_sheets",
-                            "create_pivot_table",
-                            "rollback_spreadsheet_transactions",
-                            "validate_workbook_integrity"
-                        ],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Computational Audit & Delivery Briefing",
-                        "step_type": "agent",
-                        "agent_id": "synthesizer",
-                        "instructions": f"Consolidate verified research findings, cell modifications, and transaction audit summary into a cohesive delivery directly fulfilling the user's goal: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Enterprise Computational Spreadsheet Intelligence Pipeline ({slug_id})",
-            "description": "Targeted format-preserving spreadsheet mutations, multi-sheet joins, pivot tables, and pre-save schema validation.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Surgical Spreadsheet Operations & Validation",
-                    "step_type": "agent",
-                    "agent_id": "excel_specialist",
-                    "instructions": f"Resolve natural language coordinates, execute targeted cell mutations/formulas, perform relational joins or multi-axis pivot tables, preserve original styling and VBA macros, and guarantee pre-save workbook integrity for: {prompt_clean}",
-                    "tool_ids": [
-                        "introspect_spreadsheet",
-                        "resolve_coordinates",
-                        "edit_spreadsheet_cells",
-                        "execute_statistical_analysis",
-                        "relational_join_sheets",
-                        "create_pivot_table",
-                        "rollback_spreadsheet_transactions",
-                        "validate_workbook_integrity"
-                    ],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Audit Log & Executive Spreadsheet Summary",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize cell mutation diffs, statistical outputs, and transaction audit verification into a clear, executive-ready summary directly fulfilling the user's goal: {{{{steps.step_1.output.text}}}} Goal: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # 4. Optimized Deterministic Non-Agent Blocks (Python Code / Math Execution)
-    has_code_calc = any(k in prompt_lower for k in [
-        "python code block", "non agent", "non-agent", "compute with python",
-        "calculate with python", "deterministic code", "python runner", "python script block"
-    ])
-    if has_code_calc:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Deterministic Computational Pipeline ({slug_id})",
-            "description": "Optimized execution using a sandboxed Python code block for zero-token deterministic calculation.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Deterministic Sandboxed Calculation",
-                    "step_type": "python_code",
-                    "agent_id": "python_runner",
-                    "code": (
-                        "def execute(inputs, previous_outputs, context):\n"
-                        "    prompt = str(inputs.get('prompt') or inputs.get('query') or '')\n"
-                        "    # Execute verified formula computation\n"
-                        "    res = {'status': 'success', 'calculation': 'Completed deterministic computation', 'goal': prompt}\n"
-                        "    if 'interest' in prompt.lower() or 'compound' in prompt.lower():\n"
-                        "        p, r, t = 10000.0, 0.05, 10.0\n"
-                        "        total = p * ((1.0 + r) ** t)\n"
-                        "        res.update({'principal': p, 'rate': r, 'years': t, 'total_amount': round(total, 2), 'interest_earned': round(total - p, 2)})\n"
-                        "    return res\n"
-                    ),
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Goal-Aligned Output Synthesis",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Format and summarize the verified computation results into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # 3. Content Writing & Editorial Drafting (Writer Agent)
-    has_writing = any(k in prompt_lower for k in [
-        "write an article", "write article", "blog post", "draft essay", "write an essay",
-        "write essay", "newsletter", "copywriting", "write a speech", "write a story", "draft email",
-        "poem", "poetry", "write a poem", "how a good poem", "how to write a poem",
-        "how a poem should be written", "instructing how", "instruction on", "instructions on",
-        "writing guide", "guide to writing", "tutorial on writing", "how to write"
-    ]) or (
-        any(k in prompt_lower for k in ["write", "draft", "author", "compose", "instruct", "instructing"]) and
-        any(k in prompt_lower for k in ["poem", "poetry", "guide", "manual", "handbook", "article", "essay", "story", "post", "document"])
-    )
-    has_doc_file_export = any(k in prompt_lower for k in [
-        "markdown file", "md file", ".md file", "generate a markdown", "create a markdown",
-        "download", "downloadable", "available for download", "make it available for download",
-        "save as file", "export file", "file format", "text file", "txt file"
-    ])
-    if has_writing:
-        if has_doc_file_export:
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Document Authoring & Downloadable Markdown Synthesis Pipeline ({slug_id})",
-                "description": "Multi-agent creative and instructional document authoring, markdown file compilation, and deliverable handoff.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Creative & Instructional Content Authoring",
-                        "step_type": "agent",
-                        "agent_id": "writer",
-                        "instructions": f"Author complete, high-quality, comprehensive written content directly satisfying the user's goal '{prompt_clean}'. Organize into clear structured sections with evocative prose, deep insight, and practical guidance. Avoid conversational filler.",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Downloadable Markdown File Compilation",
-                        "step_type": "agent",
-                        "agent_id": "file_creator",
-                        "instructions": f"Compile the authored document into a polished, downloadable markdown (.md) document with an appropriate main header (# Title), clean subheadings, bullet points, and formatting ready for direct file export: {{{{steps.step_1.output.text}}}} User Request: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Executive Overview & File Delivery",
-                        "step_type": "agent",
-                        "agent_id": "synthesizer",
-                        "instructions": f"Deliver the final markdown document to the user along with a concise executive overview directly fulfilling the goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-        if requires_fresh_internet_information(prompt_clean):
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Research & Editorial Writing Pipeline ({slug_id})",
-                "description": "Multi-agent live research and structured editorial content drafting.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Topic Research & Evidence Discovery",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Gather live background context, verified citations, and recent developments: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Editorial Content Drafting",
-                        "step_type": "agent",
-                        "agent_id": "writer",
-                        "instructions": f"Draft engaging, high quality editorial content adhering strictly to the user's goal '{prompt_clean}' incorporating research findings: {{{{steps.step_1.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Editorial Review & Delivery Synthesis",
-                        "step_type": "agent",
-                        "agent_id": "synthesizer",
-                        "instructions": f"Consolidate editorial copy and citations into a polished final deliverable directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Editorial Content & Polish Pipeline ({slug_id})",
-            "description": "Content drafting and stylistic synthesis.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Targeted Content Drafting",
-                    "step_type": "agent",
-                    "agent_id": "writer",
-                    "instructions": f"Draft complete, polished written content directly satisfying the user's goal '{prompt_clean}'. Avoid unnecessary boilerplate.",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Editorial Polish & Delivery",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Ensure cohesive formatting, headings, and seamless presentation directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # 4. Strategic Planning & Roadmaps (Planner Agent)
-    has_planning = any(k in prompt_lower for k in [
-        "roadmap", "milestone plan", "sprint plan", "project plan", "timeline plan",
-        "task decomposition", "launch plan", "implementation plan"
-    ])
-    if has_planning:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Strategic Roadmap & Phasing Pipeline ({slug_id})",
-            "description": "Multi-agent roadmap design, task decomposition, and milestone synthesis.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Roadmap Architecture & Task Decomposition",
-                    "step_type": "agent",
-                    "agent_id": "planner",
-                    "instructions": f"Decompose project requirements into structured phases, milestones, dependencies, and completion criteria for: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Executive Roadmap Synthesis",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize milestones, timelines, and execution recommendations into a cohesive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # 5. Composite Multi-Agent Workflows Decomposition
-    # A) Live Market & Financial Intelligence
-    market_terms = [
-        r"\bstocks?\b", r"\btickers?\b", r"\bmarket quotes?\b", r"\bshare prices?\b",
-        r"\bequity\b", r"\bequities\b", r"\bcrypto\b", r"\bbtc\b", r"\bbitcoin\b", r"\beth\b",
-        r"\bfinancial metrics?\b", r"\bp/e ratios?\b", r"\bvaluations?\b",
-        r"\bnasdaq\b", r"\bdow jones\b", r"\bdow\b", r"\bs&p\b", r"\bs&p 500\b",
-        r"\bmarket performances?\b", r"\bstock performances?\b"
-    ]
-    has_market_kw = any(re.search(term, prompt_lower) for term in market_terms)
-    has_analysis_kw = any(k in prompt_lower for k in [
-        "analysis", "analyze", "compare", "valuation", "ratio", "briefing", "summary",
-        "financial", "trend", "forecast", "insight"
-    ])
-    has_file_export = any(k in prompt_lower for k in [
-        "excel", "xlsx", "spreadsheet", "csv", "sheet", "workbook", "create file", "export file", "download file", "generate file"
-    ])
-    if has_market_kw and (has_analysis_kw or has_file_export or len(prompt_clean.split()) > 6):
-        if has_file_export:
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Market Data & Spreadsheet Generation Pipeline ({slug_id})",
-                "description": "Multi-agent live market research with Perplexity Sonar, quantitative tabular normalization, and production Excel spreadsheet synthesis.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Market Data & Stock Discovery",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Search live financial sources and market quotes using Perplexity Sonar for real-time stock prices, trading volume, daily/historical performance, and valuation metrics: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Financial Data Normalization & Tabular Structuring",
-                        "step_type": "agent",
-                        "agent_id": "data_analyst",
-                        "instructions": f"Analyze discovered market data, calculate performance deltas and ratios, and format clean structured tabular rows with typed headers (Ticker, Company, Current Price, Change %, Market Cap, P/E Ratio, 52-Week Range): {{{{steps.step_1.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Production Spreadsheet & File Synthesis",
-                        "step_type": "agent",
-                        "agent_id": "file_creator",
-                        "instructions": f"Generate a formatted production Excel spreadsheet (.xlsx/CSV) with styled tables, column widths, and summary rows from the tabular data, and provide an executive summary of market performance: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Live Market & Valuation Intelligence Pipeline ({slug_id})",
-            "description": "Multi-agent research and valuation analysis using Perplexity Sonar and Groq Qwen.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Live Market Data & Stock Discovery",
-                    "step_type": "agent",
-                    "agent_id": "researcher",
-                    "model": "sonar",
-                    "instructions": f"Search live financial sources and market quotes for current stock prices, volume, and valuation metrics: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Quantitative Valuation Analysis",
-                    "step_type": "agent",
-                    "agent_id": "data_analyst",
-                    "instructions": f"Perform quantitative analysis on the discovered data, calculate key metrics, identify trends and anomalies, and structure findings: {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Market Intelligence Briefing",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize all verified discoveries and quantitative evaluations into a cohesive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # B) Research + Production Code + Quality Review + Goal Synthesis
-    has_research_kw = any(k in prompt_lower for k in ["research", "investigate", "find out", "learn about", "look up", "documentation", "spec"])
-    has_code_kw = any(k in prompt_lower for k in ["code", "implement", "python", "script", "program", "build", "develop", "function", "api"])
-    if has_research_kw and has_code_kw:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Technical Research, Engineering & Code Review Pipeline ({slug_id})",
-            "description": "Collaborative research, production implementation, security review, and goal-aligned synthesis.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Technical Specifications & Documentation Discovery",
-                    "step_type": "agent",
-                    "agent_id": "researcher",
-                    "model": "sonar",
-                    "instructions": f"Gather official documentation, API specifications, and architecture requirements for: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Production Software Implementation",
-                    "step_type": "agent",
-                    "agent_id": "coder",
-                    "instructions": "Implement robust, complete production code based on technical specifications: {{steps.step_1.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Code Review & Security Verification",
-                    "step_type": "agent",
-                    "agent_id": "reviewer",
-                    "instructions": "Perform code review, security audit, and edge-case validation for the implementation: {{steps.step_2.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-                {
-                    "id": "step_4",
-                    "name": "Technical Synthesis & Usage Guide",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize technical implementation details, architecture overview, security review results, and execution instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_3.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_3"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-                {"source": "step_3", "target": "step_4"},
-            ],
-        }
-
-    # C) Security Vulnerability Audit & Hardened Refactor + Synthesis
-    has_sec_kw = any(k in prompt_lower for k in ["security", "vulnerability", "audit", "cve", "owasp", "pen test", "penetration", "exploit"])
-    if has_sec_kw:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Security Audit, Remediation & Briefing Pipeline ({slug_id})",
-            "description": "Comprehensive security audit, hardened implementation, and executive synthesis.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Vulnerability & Threat Assessment",
-                    "step_type": "agent",
-                    "agent_id": "reviewer",
-                    "instructions": f"Conduct thorough vulnerability analysis and security audit: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Hardened Remediation Implementation",
-                    "step_type": "agent",
-                    "agent_id": "coder",
-                    "instructions": "Implement secure code remediating all identified audit findings: {{steps.step_1.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Security Remediation & Executive Briefing",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize security audit findings, vulnerability remediations, and defensive best practices into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # D) Data Analysis & Document / Dataset Export
-    has_data_kw = any(k in prompt_lower for k in ["data", "dataset", "statistics", "numbers", "sales", "metrics", "calculate"])
-    has_file_kw = any(k in prompt_lower for k in ["csv", "excel", "xlsx", "pdf", "report", "spreadsheet", "file", "download"])
-    if has_data_kw and has_file_kw:
-        if requires_fresh_internet_information(prompt_clean):
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Research, Analysis & File Export Pipeline ({slug_id})",
-                "description": "Multi-agent live research with Perplexity Sonar, quantitative analysis, and formatted file artifact generation.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Web Discovery & Evidence Gathering",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Conduct live web search using Perplexity Sonar to gather authoritative citations, verified facts, and recent metrics: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Statistical & Numerical Analysis",
-                        "step_type": "agent",
-                        "agent_id": "data_analyst",
-                        "instructions": f"Analyze discovered data and parameters, calculate descriptive metrics, identify patterns, and structure clean data: {{{{steps.step_1.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Formatted File & Report Generation",
-                        "step_type": "agent",
-                        "agent_id": "file_creator",
-                        "instructions": "Generate formatted downloadable file incorporating numerical analysis: {{steps.step_2.output.text}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Data Analysis & File Export Pipeline ({slug_id})",
-            "description": "Calculates statistics and exports formatted downloadable datasets or documents.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Statistical & Numerical Analysis",
-                    "step_type": "agent",
-                    "agent_id": "data_analyst",
-                    "instructions": f"Analyze data and numerical parameters, calculate descriptive metrics, identify patterns, and structure clean data: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Formatted File & Report Generation",
-                    "step_type": "agent",
-                    "agent_id": "file_creator",
-                    "instructions": "Generate formatted downloadable file incorporating numerical analysis: {{steps.step_1.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Dataset Summary & Verification",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize all analytical metrics and generated file artifact details into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # E) In-Depth Research & Executive Synthesis
-    has_deep_kw = any(k in prompt_lower for k in [
-        "deep dive", "in-depth", "comprehensive", "comparative", "compare",
-        "executive summary", "detailed briefing", "investigate", "explain in detail"
-    ])
-    if (has_deep_kw or len(prompt_clean.split()) > 14) and not has_file_export:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Deep Investigation & Executive Synthesis Pipeline ({slug_id})",
-            "description": "Multi-agent deep research and executive briefing synthesis.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Domain Discovery & Evidence Gathering",
-                    "step_type": "agent",
-                    "agent_id": "researcher",
-                    "model": "sonar",
-                    "instructions": f"Gather evidence, background context, and current developments: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Executive Synthesis & Strategic Briefing",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Consolidate research findings and evidence into a comprehensive, cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # 3. Aggressive Multi-Agent Workflow Decompositions
-    # F) Structured File Generation & Tabular Data Architecture Workflow (3 Steps)
-    has_file_gen = any(k in prompt_lower for k in [
-        "create file", "generate csv", "make csv", "generate pdf", "generate pptx", "excel",
-        "xlsx", "spreadsheet", "table", "dataset", "generate file", "make file", "csv file",
-        "word document", "presentation", "export file"
-    ])
-    if has_file_gen:
-        if requires_fresh_internet_information(prompt_clean):
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Discovery & File Generation Pipeline ({slug_id})",
-                "description": "Multi-agent live web research with Perplexity Sonar, tabular normalization, and production file artifact synthesis.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Web Discovery & Evidence Gathering",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Conduct live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current metrics for: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Data Schema & Tabular Normalization",
-                        "step_type": "agent",
-                        "agent_id": "data_analyst",
-                        "instructions": f"Analyze discovered web findings, design clean column schemas, calculate metrics, and structure normalized tabular data with typed columns and headers: {{{{steps.step_1.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Production File & Spreadsheet Synthesis",
-                        "step_type": "agent",
-                        "agent_id": "file_creator",
-                        "instructions": f"Generate formatted production file artifact (native Excel spreadsheet table with openpyxl, CSV, PDF, or presentation) incorporating structured tabular data: {{{{steps.step_2.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Tabular Architecture & File Generation Pipeline ({slug_id})",
-            "description": "Collaborative pipeline to structure normalized tabular data, generate formatted file artifacts, and synthesize takeaways.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Data Schema & Tabular Normalization",
-                    "step_type": "agent",
-                    "agent_id": "data_analyst",
-                    "instructions": f"Analyze query requirements, design clean column schemas, calculate metrics, and structure normalized tabular data with typed columns and headers: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Production File & Spreadsheet Synthesis",
-                    "step_type": "agent",
-                    "agent_id": "file_creator",
-                    "instructions": "Generate formatted production file artifact (native Excel spreadsheet table with openpyxl, CSV, PDF, or presentation) incorporating structured tabular data: {{steps.step_1.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Artifact Quality & Executive Summary",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Review generated file artifact, summarize column structure, row counts, key insights, and file access instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # G) Software Engineering, Implementation & Quality Review Workflow (3 Steps)
-    has_coding = bool(re.search(
-        r"\b(code|coding|function|python|javascript|typescript|sql|bug|refactor|algorithm|script|program|class|method|api|backend|frontend|unit test|write code|fix code)\b",
-        prompt_lower
-    ))
-    if has_coding:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Software Implementation & Quality Review Pipeline ({slug_id})",
-            "description": "Multi-agent engineering workflow implementing robust code, auditing security and edge-cases, and generating usage guides.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Production Code Implementation",
-                    "step_type": "agent",
-                    "agent_id": "coder",
-                    "instructions": f"Design and implement production-ready code with complete algorithms, typing, and error handling for: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Code Review & Security Audit",
-                    "step_type": "agent",
-                    "agent_id": "reviewer",
-                    "instructions": "Conduct code review, security audit, edge-case analysis, and verification: {{steps.step_1.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Technical Documentation & Instructions",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize technical implementation details, architecture notes, security review results, and execution instructions into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # H) Real-Time Research, Fact Verification & Synthesis Workflow (2 or 3 Steps)
-    is_fresh = requires_fresh_internet_information(prompt_clean)
-    has_search = any(k in prompt_lower for k in [
-        "web search", "websearch", "search", "search out", "search for", "latest", "news",
-        "price", "prices", "who is", "when did", "current", "recent", "lookup", "look up",
-        "find", "find out", "trends", "what happened"
-    ])
-    if has_search or is_fresh:
-        if has_file_export:
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Web Research & File Generation Pipeline ({slug_id})",
-                "description": "Multi-agent live research with Perplexity Sonar, quantitative tabular normalization, and production file synthesis.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Web Discovery & Evidence Gathering",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Execute live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current developments: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Comparative Analysis & Tabular Structuring",
-                        "step_type": "agent",
-                        "agent_id": "data_analyst",
-                        "instructions": f"Analyze research findings, extract key metrics, structure comparative facts, and format clean structured tabular data: {{{{steps.step_1.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Production File & Spreadsheet Synthesis",
-                        "step_type": "agent",
-                        "agent_id": "file_creator",
-                        "instructions": f"Generate formatted production file artifact (.xlsx, CSV, or document) incorporating structured tabular data: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-
-        has_metrics_or_price = any(k in prompt_lower for k in [
-            "price", "gold", "market", "rate", "cost", "quote", "metrics", "data", "compare", "valuation", "p/e"
-        ])
-        if has_metrics_or_price:
-            return {
-                "id": f"ephemeral_wf_{slug_id}",
-                "title": f"Live Web Research & Fact Synthesis Pipeline ({slug_id})",
-                "description": "Multi-agent research gathering verified live web evidence and synthesizing comprehensive briefings.",
-                "goal": prompt_clean,
-                "is_ephemeral": True,
-                "is_multi_step": True,
-                "steps": [
-                    {
-                        "id": "step_1",
-                        "name": "Live Web Discovery & Evidence Gathering",
-                        "step_type": "agent",
-                        "agent_id": "researcher",
-                        "model": "sonar",
-                        "instructions": f"Execute live web search to gather authoritative citations, verified facts, and recent developments: {prompt_clean}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": art_ids,
-                        "depends_on": [],
-                    },
-                    {
-                        "id": "step_2",
-                        "name": "Comparative Analysis & Fact Verification",
-                        "step_type": "agent",
-                        "agent_id": "data_analyst",
-                        "instructions": "Analyze research findings, extract key metrics, structure comparative facts, and check data consistency: {{steps.step_1.output.text}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_1"],
-                    },
-                    {
-                        "id": "step_3",
-                        "name": "Executive Synthesis & Strategic Briefing",
-                        "step_type": "agent",
-                        "agent_id": "synthesizer",
-                        "instructions": f"Synthesize verified findings, citations, and analytical comparisons into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                        "tool_ids": [],
-                        "knowledge_file_ids": [],
-                        "attached_artifact_ids": [],
-                        "depends_on": ["step_2"],
-                    },
-                ],
-                "edges": [
-                    {"source": "step_1", "target": "step_2"},
-                    {"source": "step_2", "target": "step_3"},
-                ],
-            }
-        # Direct live web query (weather, sports scores, recent news, live facts)
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Live Web Discovery & Synthesis Pipeline ({slug_id})",
-            "description": "Multi-agent live internet research with Perplexity Sonar and verified synthesis.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Live Web Discovery & Citation Gathering",
-                    "step_type": "agent",
-                    "agent_id": "researcher",
-                    "model": "sonar",
-                    "instructions": f"Execute live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current developments: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Goal-Aligned Fact Synthesis",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize verified findings, citations, and live evidence into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # I) Quantitative Analytics & Statistical Evaluation Workflow (2 Steps)
-    has_math = bool(re.search(
-        r"\b(math|calculate|average|median|statistics|analytics|percentage|variance|forecast|sum|formula|computation)\b",
-        prompt_lower
-    ))
-    if has_math:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Quantitative Analytics & Statistical Pipeline ({slug_id})",
-            "description": "Evaluates numerical metrics, executes computations, and formats structured findings.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Numerical Computation & Statistical Analysis",
-                    "step_type": "agent",
-                    "agent_id": "data_analyst",
-                    "instructions": f"Extract numerical parameters, execute statistical calculations, and structure data: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Executive Analytics Briefing",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Translate numerical results, statistical analyses, and structured data into a cohesive, comprehensive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-            ],
-        }
-
-    # J) Document Ingestion, Schema Extraction & RAG Pipeline (3 Steps)
-    has_parse = any(k in prompt_lower for k in [
-        "parse", "inspect", "extract schema", "rag", "ingest", "read file", "unstructured"
-    ])
-    if has_parse:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Document Ingestion & Schema Extraction Pipeline ({slug_id})",
-            "description": "Extracts structured tables and metadata from documents, analyzing semantic patterns.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": True,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Document Parsing & Schema Extraction",
-                    "step_type": "agent",
-                    "agent_id": "file_parser",
-                    "instructions": f"Parse context files, extract text schemas, tabular data, and key entities: {prompt_clean}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                },
-                {
-                    "id": "step_2",
-                    "name": "Structured Data Synthesis",
-                    "step_type": "agent",
-                    "agent_id": "data_analyst",
-                    "instructions": "Analyze parsed document contents, organize schema, and summarize key data: {{steps.step_1.output.text}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_1"],
-                },
-                {
-                    "id": "step_3",
-                    "name": "Document Insights Synthesis",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize all parsed document contents, structured schemas, and analytical findings into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
-            ],
-            "edges": [
-                {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
-            ],
-        }
-
-    # K) Conversational Greetings Check (Single Agent Step only for trivial greetings)
-    is_trivial_greeting = prompt_lower.strip("!.? ") in [
-        "hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening",
-        "howdy", "sup", "yo", "who are you", "what can you do", "help"
-    ] or len(prompt_clean.split()) <= 2
-
-    if is_trivial_greeting:
-        return {
-            "id": f"ephemeral_wf_{slug_id}",
-            "title": f"General Assistant Turn ({slug_id})",
-            "description": "Direct response for conversational greeting.",
-            "goal": prompt_clean,
-            "is_ephemeral": True,
-            "is_multi_step": False,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": "Conversational Response",
-                    "step_type": "agent",
-                    "agent_id": "general_assistant",
-                    "instructions": prompt_clean,
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                }
-            ],
-            "edges": [],
-        }
-
-    # L) General Knowledge Exploration & Synthesis Workflow (2 Steps for all other queries)
-    return {
-        "id": f"ephemeral_wf_{slug_id}",
-        "title": f"Coordinated Knowledge & Synthesis Pipeline ({slug_id})",
-        "description": "Multi-agent exploratory research and comprehensive synthesis pipeline.",
-        "goal": prompt_clean,
-        "is_ephemeral": True,
-        "is_multi_step": True,
-        "steps": [
-            {
-                "id": "step_1",
-                "name": "Domain Exploration & Concept Analysis",
-                "step_type": "agent",
-                "agent_id": "general_assistant",
-                "instructions": f"Analyze core principles, background context, and nuanced perspectives for: {prompt_clean}",
-                "tool_ids": [],
-                "knowledge_file_ids": [],
-                "attached_artifact_ids": art_ids,
-                "depends_on": [],
-            },
-            {
-                "id": "step_2",
-                "name": "Cohesive Synthesis & Executive Response",
-                "step_type": "agent",
-                "agent_id": "synthesizer",
-                "instructions": f"Synthesize a comprehensive, polished response with structured headings, bullet points, and actionable takeaways directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
-                "tool_ids": [],
-                "knowledge_file_ids": [],
-                "attached_artifact_ids": [],
-                "depends_on": ["step_1"],
-            },
-        ],
-        "edges": [
-            {"source": "step_1", "target": "step_2"},
-        ],
-    }
+    # 2. LLM-Driven Intent Analysis (Single-Pass Semantic Evaluation)
+    intent = analyze_query_intent(prompt_clean, attached_artifacts)
+    return build_workflow_from_intent(intent, prompt_clean, slug_id, art_ids)

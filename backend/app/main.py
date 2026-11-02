@@ -1428,12 +1428,20 @@ def _execute_chat_turn(
             except Exception:
                 pass
 
+        intent_info = ephemeral_wf.get("intent_analysis") or {}
+        intent_label = "Analyzing query intent and assembling grounded context"
+        if intent_info.get("primary_intent"):
+            intent_label = f"Analyzed intent: {intent_info['primary_intent'].replace('_', ' ').title()}"
+            if intent_info.get("reasoning"):
+                intent_label += f" — {intent_info['reasoning']}"
+
         granular_events: List[Dict[str, Any]] = [
             {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "phase": "intent_analysis",
-                "label": "Analyzing query intent and assembling grounded context",
+                "label": intent_label,
                 "status": "completed",
+                "intent_data": intent_info,
             },
             {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1509,6 +1517,7 @@ def _execute_chat_turn(
             "step_runs": run_res.get("step_runs", []),
             "granular_trace": granular_events,
             "workflow_spec": ephemeral_wf,
+            "intent_analysis": intent_info,
             "is_ephemeral_workflow": True,
             "is_multi_step": ephemeral_wf.get("is_multi_step", False),
             "tokens_used": run_res.get("total_tokens", 0),
