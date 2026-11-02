@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-11-02
+
+### Fixed
+- **Frontend pnpm Lockfile Desynchronization (`frontend/pnpm-lock.yaml`)**:
+  - Resolved `ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile"` failure on Vercel frontend deployments caused by `remark-gfm` added in `f4d6ce6` without updating `pnpm-lock.yaml`.
+  - Regenerated and synchronized `frontend/pnpm-lock.yaml` using `pnpm@9.15.9`.
+  - Removed outdated and duplicate `frontend/package-lock.json` to prevent package manager desynchronization.
+  - Specified `"packageManager": "pnpm@9.15.9"` in `frontend/package.json` for deterministic package manager selection on Vercel and CI environments.
+  - Verified clean passes with `pnpm install --frozen-lockfile`, `pnpm run lint`, and TypeScript checking (`pnpm tsc --noEmit`).
+
 ## [Unreleased] - 2026-10-29
 
 ### Added
