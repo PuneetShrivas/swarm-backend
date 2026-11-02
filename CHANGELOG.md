@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 2026-11-02
 
+### Fixed
+- **Orchestration Query Routing & Markdown Document Artifact Synthesis (`backend/app/ai_generator.py` & `backend/app/main.py`)**:
+  - **Word Boundary Regex on Market Tickers**:
+    - Replaced raw substring checks (`k in prompt_lower`) for financial market terms with strict word-boundary regular expressions (`r"\bdow\b"`, `r"\bbtc\b"`, `r"\bs&p\b"`, `r"\bstocks?\b"`).
+    - Resolved false positive routing where common words like `"download"` falsely matched `"dow"` and triggered `Live Market Data & Stock Discovery` pipelines.
+  - **Document Authoring & Downloadable Markdown Synthesis Pipeline**:
+    - Expanded `has_writing` triggers to recognize poem, poetry, guide, tutorial, and instructional queries.
+    - Added dedicated multi-agent document creation pipeline: `writer` (Creative & Instructional Content Authoring) -> `file_creator` (Downloadable Markdown File Compilation) -> `synthesizer` (Executive Overview & File Delivery).
+  - **Downloadable Markdown Artifact Extraction**:
+    - Enhanced `extract_file_artifact_from_turn` to recognize markdown file generation requests with or without markdown code fences.
+    - Added header-based slugification for `.md` filenames (e.g. `how_to_write_a_good_poem_<timestamp>.md`).
+    - Added `content_base64` payload to enable immediate 1-click **Download File** pill cards in the chat UI.
+    - Added fallback artifact extraction in `_execute_chat_turn` from previous step outputs (`file_creator`), guaranteeing deliverables are preserved even when the synthesizer outputs a concise delivery summary.
+  - **Automated Test Suite**:
+    - Added `backend/test_orchestration_query_routing.py` testing routing for poem instructions with download, non-market substring isolation, market research preservation, and markdown artifact extraction. All 5 tests passing.
+
 ### Added
 - **Enterprise Excel & Computational Intelligence Agent (`excel_specialist`) & Chat UI Ergonomics (`backend/` & `frontend/`)**:
   - **Enterprise Agent Package Manifest & Operational Persona (`backend/app/agents/excel_specialist/`)**:

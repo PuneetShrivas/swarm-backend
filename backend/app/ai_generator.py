@@ -190,7 +190,12 @@ def generate_workflow_spec(
     prompt_lower = prompt.lower()
     slug_id = uuid.uuid4().hex[:6]
 
-    if any(k in prompt_lower for k in ["stock", "price", "ticker", "market quote", "share price", "equity", "crypto", "btc", "websearch", "live info"]):
+    market_terms_fb = [
+        r"\bstocks?\b", r"\btickers?\b", r"\bmarket quotes?\b", r"\bshare prices?\b",
+        r"\bequity\b", r"\bequities\b", r"\bcrypto\b", r"\bbtc\b", r"\bbitcoin\b",
+        r"\bwebsearch\b", r"\blive search\b", r"\blive info\b"
+    ]
+    if any(re.search(term, prompt_lower) for term in market_terms_fb):
         return {
             "title": f"Live Market & Stock Intelligence Pipeline ({slug_id})",
             "description": "Extracts real-time market data, quotes, and financial indicators using Perplexity Sonar live search.",
@@ -915,9 +920,68 @@ def synthesize_on_the_fly_workflow(
     # 3. Content Writing & Editorial Drafting (Writer Agent)
     has_writing = any(k in prompt_lower for k in [
         "write an article", "write article", "blog post", "draft essay", "write an essay",
-        "write essay", "newsletter", "copywriting", "write a speech", "write a story", "draft email"
+        "write essay", "newsletter", "copywriting", "write a speech", "write a story", "draft email",
+        "poem", "poetry", "write a poem", "how a good poem", "how to write a poem",
+        "how a poem should be written", "instructing how", "instruction on", "instructions on",
+        "writing guide", "guide to writing", "tutorial on writing", "how to write"
+    ]) or (
+        any(k in prompt_lower for k in ["write", "draft", "author", "compose", "instruct", "instructing"]) and
+        any(k in prompt_lower for k in ["poem", "poetry", "guide", "manual", "handbook", "article", "essay", "story", "post", "document"])
+    )
+    has_doc_file_export = any(k in prompt_lower for k in [
+        "markdown file", "md file", ".md file", "generate a markdown", "create a markdown",
+        "download", "downloadable", "available for download", "make it available for download",
+        "save as file", "export file", "file format", "text file", "txt file"
     ])
     if has_writing:
+        if has_doc_file_export:
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Document Authoring & Downloadable Markdown Synthesis Pipeline ({slug_id})",
+                "description": "Multi-agent creative and instructional document authoring, markdown file compilation, and deliverable handoff.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Creative & Instructional Content Authoring",
+                        "step_type": "agent",
+                        "agent_id": "writer",
+                        "instructions": f"Author complete, high-quality, comprehensive written content directly satisfying the user's goal '{prompt_clean}'. Organize into clear structured sections with evocative prose, deep insight, and practical guidance. Avoid conversational filler.",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Downloadable Markdown File Compilation",
+                        "step_type": "agent",
+                        "agent_id": "file_creator",
+                        "instructions": f"Compile the authored document into a polished, downloadable markdown (.md) document with an appropriate main header (# Title), clean subheadings, bullet points, and formatting ready for direct file export: {{{{steps.step_1.output.text}}}} User Request: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Executive Overview & File Delivery",
+                        "step_type": "agent",
+                        "agent_id": "synthesizer",
+                        "instructions": f"Deliver the final markdown document to the user along with a concise executive overview directly fulfilling the goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
         if requires_fresh_internet_information(prompt_clean):
             return {
                 "id": f"ephemeral_wf_{slug_id}",
@@ -1047,11 +1111,14 @@ def synthesize_on_the_fly_workflow(
 
     # 5. Composite Multi-Agent Workflows Decomposition
     # A) Live Market & Financial Intelligence
-    has_market_kw = any(k in prompt_lower for k in [
-        "stock", "ticker", "market quote", "share price", "equity", "crypto", "btc",
-        "financial metric", "p/e ratio", "valuation", "nasdaq", "dow", "s&p",
-        "market performance", "stock performance", "stock performances"
-    ])
+    market_terms = [
+        r"\bstocks?\b", r"\btickers?\b", r"\bmarket quotes?\b", r"\bshare prices?\b",
+        r"\bequity\b", r"\bequities\b", r"\bcrypto\b", r"\bbtc\b", r"\bbitcoin\b", r"\beth\b",
+        r"\bfinancial metrics?\b", r"\bp/e ratios?\b", r"\bvaluations?\b",
+        r"\bnasdaq\b", r"\bdow jones\b", r"\bdow\b", r"\bs&p\b", r"\bs&p 500\b",
+        r"\bmarket performances?\b", r"\bstock performances?\b"
+    ]
+    has_market_kw = any(re.search(term, prompt_lower) for term in market_terms)
     has_analysis_kw = any(k in prompt_lower for k in [
         "analysis", "analyze", "compare", "valuation", "ratio", "briefing", "summary",
         "financial", "trend", "forecast", "insight"

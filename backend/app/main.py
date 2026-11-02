@@ -3,6 +3,7 @@ import re
 import json
 import time
 import uuid
+import base64
 import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple, Callable
@@ -1117,12 +1118,22 @@ def extract_file_artifact_from_turn(
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }
 
+    # Detect explicit markdown document request
+    is_markdown_req = any(k in prompt_lower for k in [
+        "markdown file", "md file", ".md file", "generate a markdown", "create a markdown", "as a markdown"
+    ])
+
     # Handle code fence with optional lang, spaces, and CRLF or LF newlines
     code_match = re.search(r"```([a-zA-Z0-9_-]+)?[ \t]*\r?\n([\s\S]+?)\r?\n```", content)
     code_body = ""
     ext = ""
 
-    if code_match:
+    if is_markdown_req and not (code_match and (code_match.group(1) or "").strip().lower() in ["markdown", "md"]):
+        # The user requested a markdown file, and either there is no code block or code block is an inner snippet.
+        # Treat the entire content as the markdown file body.
+        code_body = content.strip()
+        ext = "md"
+    elif code_match:
         lang = (code_match.group(1) or "").strip().lower()
         code_body = code_match.group(2).strip()
         ext = ext_map.get(lang, "")
@@ -1133,13 +1144,25 @@ def extract_file_artifact_from_turn(
                 ext = "json"
             elif "python" in prompt_lower or "def " in code_body or "import " in code_body:
                 ext = "py"
+            elif is_markdown_req or "markdown" in prompt_lower or "md" in prompt_lower or code_body.startswith("#"):
+                ext = "md"
             else:
                 ext = "txt"
     else:
         # Fallback: Check if agent is file_creator or prompt explicitly asks to generate/create a file
-        is_file_intent = agent_id == "file_creator" or any(k in prompt_lower for k in [
-            "generate csv", "sample csv", "create csv", "make csv", "generate file", "create file", "csv file", "download file"
+        is_file_intent = agent_id in ["file_creator", "orchestrator", "writer", "synthesizer"] and any(k in prompt_lower for k in [
+            "generate csv", "sample csv", "create csv", "make csv", "generate file", "create file", "csv file", "download file",
+            "markdown file", "md file", ".md file", "generate a markdown", "create a markdown",
+            "available for download", "make it available for download", "for download", "downloadable",
+            "download", "save as file", "export file"
         ])
+        if not is_file_intent:
+            is_file_intent = any(k in prompt_lower for k in [
+                "generate csv", "sample csv", "create csv", "make csv", "generate file", "create file", "csv file", "download file",
+                "markdown file", "md file", ".md file", "generate a markdown", "create a markdown",
+                "available for download", "make it available for download", "for download", "downloadable"
+            ])
+
         if is_file_intent:
             code_body = content.strip()
             if "csv" in prompt_lower or ("," in code_body and "\n" in code_body and "{" not in code_body):
@@ -1148,6 +1171,8 @@ def extract_file_artifact_from_turn(
                 ext = "json"
             elif "python" in prompt_lower or "def " in code_body or "import " in code_body:
                 ext = "py"
+            elif is_markdown_req or "markdown" in prompt_lower or "md" in prompt_lower or code_body.startswith("#"):
+                ext = "md"
             else:
                 ext = "txt"
         else:
@@ -1172,6 +1197,13 @@ def extract_file_artifact_from_turn(
             filename = f"data_{int(time.time())}.json"
         elif ext == "py":
             filename = f"script_{int(time.time())}.py"
+        elif ext == "md":
+            title_match = re.search(r"^#+\s+(.+)$", code_body, re.MULTILINE)
+            if title_match:
+                slug = re.sub(r"[^a-zA-Z0-9_]+", "_", title_match.group(1).strip().lower()).strip("_")
+                filename = f"{slug[:32]}_{int(time.time())}.md" if slug else f"document_{int(time.time())}.md"
+            else:
+                filename = f"document_{int(time.time())}.md"
         else:
             filename = f"generated_file_{int(time.time())}.{ext}"
 
@@ -1184,6 +1216,7 @@ def extract_file_artifact_from_turn(
         "type": ext,
         "mime_type": mime,
         "content": code_body,
+        "content_base64": base64.b64encode(code_body.encode("utf-8")).decode("utf-8"),
         "size_bytes": len(code_body.encode("utf-8")),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "origin_agent": agent_id,
@@ -1446,6 +1479,16 @@ def _execute_chat_turn(
         wf_artifacts = list(run_res.get("output_data", {}).get("artifacts", []))
 
         auto_art = extract_file_artifact_from_turn(final_res, "orchestrator", last_user_message.content, attached_arts)
+        if not auto_art:
+            # Check previous step outputs (e.g. from file_creator or writer step)
+            step_outputs = run_res.get("output_data", {}).get("step_outputs", {})
+            for step_id, s_out in reversed(list(step_outputs.items())):
+                step_text = s_out.get("text") or ""
+                candidate_art = extract_file_artifact_from_turn(step_text, s_out.get("agent_id", "file_creator"), last_user_message.content, attached_arts)
+                if candidate_art:
+                    auto_art = candidate_art
+                    break
+
         if auto_art:
             wf_artifacts.append(auto_art)
             memory_store.save_artifact({
