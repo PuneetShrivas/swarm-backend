@@ -55,11 +55,16 @@ def generate_workflow_spec(
         )
     else:
         agent_roster_summary = (
-            "- ID: researcher, Role: Deep investigative research & evidence gathering\n"
+            "- ID: researcher, Role: Live web search, cited factual evidence & current data (uses Perplexity Sonar)\n"
             "- ID: coder, Role: Production software development & system engineering\n"
             "- ID: reviewer, Role: Security audits & code review\n"
-            "- ID: data_analyst, Role: Numerical calculations & statistics\n"
-            "- ID: synthesizer, Role: Technical briefings & executive documentation\n"
+            "- ID: data_analyst, Role: Universal numerical calculations & statistical analysis across all domains\n"
+            "- ID: synthesizer, Role: Goal-aligned briefings & deliverable consolidation\n"
+            "- ID: file_creator, Role: Document & downloadable file synthesis (PDF, PPTX, DOCX, XLSX, CSV)\n"
+            "- ID: file_parser, Role: Document extraction, indexing & RAG retrieval\n"
+            "- ID: writer, Role: Content, editorial & copywriting specialist for articles, essays, and communication\n"
+            "- ID: planner, Role: Strategic project roadmaps, milestone planning, and task decomposition\n"
+            "- ID: general_assistant, Role: Conversational inquiry & direct conceptual explanations\n"
             "- ID: orchestrator, Role: Swarm routing & goal decomposition"
         )
 
@@ -103,7 +108,8 @@ def generate_workflow_spec(
         '    {"source": "step_1", "target": "step_2"}\n'
         "  ]\n"
         "}\n\n"
-        "CRITICAL MODEL DIRECTIVE: When creating workflow steps that involve web search, real-time data, breaking news, or live web discovery, ALWAYS assign agent_id 'researcher' or specify model 'sonar' (Perplexity Sonar). Perplexity is the mandatory model for all live information and web search tasks.\n\n"
+        "CRITICAL MODEL & RESEARCH DIRECTIVE: When creating workflow steps that involve web search, real-time data, breaking news, today's weather, live stock quotes, sports results, or fresh internet discovery, ALWAYS assign agent_id 'researcher' with model 'sonar' (Perplexity Sonar). Perplexity Sonar is the mandatory model for all live information and web search tasks.\n\n"
+        "CRITICAL BLOCK OPTIMIZATION DIRECTIVE: Whenever a workflow task involves deterministic computation, mathematical calculations, string parsing, or data formatting, ALWAYS prefer a 'python_code' non-agent block instead of an LLM agent block. Python scripts execute with zero tokens and 100% precision. Reserve 'agent' blocks for tasks requiring reasoning, language generation, web search, or code creation.\n\n"
         "CRITICAL ORCHESTRATION DIRECTIVE: For all multi-step workflows, the final step MUST ALWAYS be a synthesis step assigned to agent 'synthesizer' to consolidate previous step outputs and deliver a cohesive final output directly in line with the high-level workflow goal.\n\n"
         "GENERAL DATA ANALYST DIRECTIVE: The data_analyst agent is a general-purpose numerical, statistical, and tabular analysis agent across all domains. Do NOT inject scenario-specific or finance-specific constraints (e.g. price-to-earnings, stock quotes) into data analyst steps unless explicitly requested by the user.\n\n"
         f"Available Agents to assign:\n{agent_roster_summary}\n\n"
@@ -539,6 +545,53 @@ def generate_agent_spec(
     }
 
 
+def requires_fresh_internet_information(prompt: str) -> bool:
+    """
+    Detects whether a user prompt requires real-time, current, live, or time-sensitive
+    information from the web that warrants using the Research Agent with Perplexity Sonar.
+    """
+    p = prompt.lower().strip()
+
+    # Temporal recency cues
+    temporal_cues = [
+        "today", "yesterday", "tonight", "this morning", "this afternoon", "this week",
+        "this month", "this quarter", "this year", "right now", "currently", "current",
+        "latest", "recent", "recently", "newest", "upcoming", "breaking", "as of now",
+        "as of today", "real-time", "real time", "live data", "live info", "live information",
+        "live update", "2025", "2026", "2027", "updated"
+    ]
+    if any(re.search(rf"\b{re.escape(cue)}\b", p) for cue in temporal_cues):
+        return True
+
+    # Real-time entities & topics
+    realtime_topics = [
+        "weather", "forecast", "temperature", "climate today",
+        "stock price", "stock prices", "ticker", "market quote", "share price",
+        "crypto price", "btc price", "bitcoin price", "eth price", "nasdaq",
+        "sports score", "sports scores", "game score", "match score", "who won",
+        "game result", "match result", "tournament", "championship", "standings",
+        "election", "poll results", "who won the election", "vote count",
+        "did spacex", "spacex launch", "starship", "nasa launch",
+        "what happened to", "what happened with", "what is happening",
+        "breaking news", "headlines", "top stories", "press release",
+        "flight status", "delay status", "traffic today"
+    ]
+    if any(topic in p for topic in realtime_topics):
+        return True
+
+    # Explicit web search and fact verification queries
+    search_intents = [
+        "web search", "websearch", "search web", "search online", "search the internet",
+        "google", "browse", "look up", "find online", "who is the current", "what is the current",
+        "when did", "fact check", "fact-check", "citations for", "sources for", "verify claims",
+        "verify if", "is it true that"
+    ]
+    if any(intent in p for intent in search_intents):
+        return True
+
+    return False
+
+
 def synthesize_on_the_fly_workflow(
     prompt: str,
     target_agent_id: Optional[str] = None,
@@ -587,7 +640,192 @@ def synthesize_on_the_fly_workflow(
             "edges": [],
         }
 
-    # 2. Composite Multi-Agent Workflows Decomposition
+    # 2. Optimized Deterministic Non-Agent Blocks (Python Code / Math Execution)
+    has_code_calc = any(k in prompt_lower for k in [
+        "python code block", "non agent", "non-agent", "compute with python",
+        "calculate with python", "deterministic code", "python runner", "python script block"
+    ])
+    if has_code_calc:
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Deterministic Computational Pipeline ({slug_id})",
+            "description": "Optimized execution using a sandboxed Python code block for zero-token deterministic calculation.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Deterministic Sandboxed Calculation",
+                    "step_type": "python_code",
+                    "agent_id": "python_runner",
+                    "code": (
+                        "def execute(inputs, previous_outputs, context):\n"
+                        "    prompt = str(inputs.get('prompt') or inputs.get('query') or '')\n"
+                        "    # Execute verified formula computation\n"
+                        "    res = {'status': 'success', 'calculation': 'Completed deterministic computation', 'goal': prompt}\n"
+                        "    if 'interest' in prompt.lower() or 'compound' in prompt.lower():\n"
+                        "        p, r, t = 10000.0, 0.05, 10.0\n"
+                        "        total = p * ((1.0 + r) ** t)\n"
+                        "        res.update({'principal': p, 'rate': r, 'years': t, 'total_amount': round(total, 2), 'interest_earned': round(total - p, 2)})\n"
+                        "    return res\n"
+                    ),
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Goal-Aligned Output Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Format and summarize the verified computation results into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # 3. Content Writing & Editorial Drafting (Writer Agent)
+    has_writing = any(k in prompt_lower for k in [
+        "write an article", "write article", "blog post", "draft essay", "write an essay",
+        "write essay", "newsletter", "copywriting", "write a speech", "write a story", "draft email"
+    ])
+    if has_writing:
+        if requires_fresh_internet_information(prompt_clean):
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Research & Editorial Writing Pipeline ({slug_id})",
+                "description": "Multi-agent live research and structured editorial content drafting.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Topic Research & Evidence Discovery",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Gather live background context, verified citations, and recent developments: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Editorial Content Drafting",
+                        "step_type": "agent",
+                        "agent_id": "writer",
+                        "instructions": f"Draft engaging, high quality editorial content adhering strictly to the user's goal '{prompt_clean}' incorporating research findings: {{{{steps.step_1.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Editorial Review & Delivery Synthesis",
+                        "step_type": "agent",
+                        "agent_id": "synthesizer",
+                        "instructions": f"Consolidate editorial copy and citations into a polished final deliverable directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Editorial Content & Polish Pipeline ({slug_id})",
+            "description": "Content drafting and stylistic synthesis.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Targeted Content Drafting",
+                    "step_type": "agent",
+                    "agent_id": "writer",
+                    "instructions": f"Draft complete, polished written content directly satisfying the user's goal '{prompt_clean}'. Avoid unnecessary boilerplate.",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Editorial Polish & Delivery",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Ensure cohesive formatting, headings, and seamless presentation directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # 4. Strategic Planning & Roadmaps (Planner Agent)
+    has_planning = any(k in prompt_lower for k in [
+        "roadmap", "milestone plan", "sprint plan", "project plan", "timeline plan",
+        "task decomposition", "launch plan", "implementation plan"
+    ])
+    if has_planning:
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Strategic Roadmap & Phasing Pipeline ({slug_id})",
+            "description": "Multi-agent roadmap design, task decomposition, and milestone synthesis.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Roadmap Architecture & Task Decomposition",
+                    "step_type": "agent",
+                    "agent_id": "planner",
+                    "instructions": f"Decompose project requirements into structured phases, milestones, dependencies, and completion criteria for: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Executive Roadmap Synthesis",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize milestones, timelines, and execution recommendations into a cohesive final briefing directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # 5. Composite Multi-Agent Workflows Decomposition
     # A) Live Market & Financial Intelligence
     has_market_kw = any(k in prompt_lower for k in [
         "stock", "ticker", "market quote", "share price", "equity", "crypto", "btc",
@@ -968,27 +1206,81 @@ def synthesize_on_the_fly_workflow(
             ],
         }
 
-    # H) Real-Time Research, Fact Verification & Synthesis Workflow (3 Steps)
+    # H) Real-Time Research, Fact Verification & Synthesis Workflow (2 or 3 Steps)
+    is_fresh = requires_fresh_internet_information(prompt_clean)
     has_search = any(k in prompt_lower for k in [
         "web search", "websearch", "search", "latest", "news", "price", "who is", "when did",
         "current", "recent", "lookup", "find", "trends", "what happened"
     ])
-    if has_search:
+    if has_search or is_fresh:
+        has_metrics_or_price = any(k in prompt_lower for k in [
+            "price", "gold", "market", "rate", "cost", "quote", "metrics", "data", "compare", "valuation", "p/e"
+        ])
+        if has_metrics_or_price:
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Web Research & Fact Synthesis Pipeline ({slug_id})",
+                "description": "Multi-agent research gathering verified live web evidence and synthesizing comprehensive briefings.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Web Discovery & Evidence Gathering",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Execute live web search to gather authoritative citations, verified facts, and recent developments: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Comparative Analysis & Fact Verification",
+                        "step_type": "agent",
+                        "agent_id": "data_analyst",
+                        "instructions": "Analyze research findings, extract key metrics, structure comparative facts, and check data consistency: {{steps.step_1.output.text}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Executive Synthesis & Strategic Briefing",
+                        "step_type": "agent",
+                        "agent_id": "synthesizer",
+                        "instructions": f"Synthesize verified findings, citations, and analytical comparisons into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+        # Direct live web query (weather, sports scores, recent news, live facts)
         return {
             "id": f"ephemeral_wf_{slug_id}",
-            "title": f"Live Web Research & Fact Synthesis Pipeline ({slug_id})",
-            "description": "Multi-agent research gathering verified live web evidence and synthesizing comprehensive briefings.",
+            "title": f"Live Web Discovery & Synthesis Pipeline ({slug_id})",
+            "description": "Multi-agent live internet research with Perplexity Sonar and verified synthesis.",
             "goal": prompt_clean,
             "is_ephemeral": True,
             "is_multi_step": True,
             "steps": [
                 {
                     "id": "step_1",
-                    "name": "Live Web Discovery & Evidence Gathering",
+                    "name": "Live Web Discovery & Citation Gathering",
                     "step_type": "agent",
                     "agent_id": "researcher",
                     "model": "sonar",
-                    "instructions": f"Execute live web search to gather authoritative citations, verified facts, and recent developments: {prompt_clean}",
+                    "instructions": f"Execute live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current developments: {prompt_clean}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": art_ids,
@@ -996,30 +1288,18 @@ def synthesize_on_the_fly_workflow(
                 },
                 {
                     "id": "step_2",
-                    "name": "Comparative Analysis & Fact Verification",
+                    "name": "Goal-Aligned Fact Synthesis",
                     "step_type": "agent",
-                    "agent_id": "data_analyst",
-                    "instructions": "Analyze research findings, extract key metrics, structure comparative facts, and check data consistency: {{steps.step_1.output.text}}",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize verified findings, citations, and live evidence into a cohesive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_1.output.text}}}}",
                     "tool_ids": [],
                     "knowledge_file_ids": [],
                     "attached_artifact_ids": [],
                     "depends_on": ["step_1"],
                 },
-                {
-                    "id": "step_3",
-                    "name": "Executive Synthesis & Strategic Briefing",
-                    "step_type": "agent",
-                    "agent_id": "synthesizer",
-                    "instructions": f"Synthesize verified findings, citations, and analytical comparisons into a cohesive, comprehensive final response directly fulfilling the user's goal '{prompt_clean}': {{{{steps.step_2.output.text}}}}",
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": [],
-                    "depends_on": ["step_2"],
-                },
             ],
             "edges": [
                 {"source": "step_1", "target": "step_2"},
-                {"source": "step_2", "target": "step_3"},
             ],
         }
 

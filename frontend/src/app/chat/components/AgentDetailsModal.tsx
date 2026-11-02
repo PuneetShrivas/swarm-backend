@@ -24,6 +24,8 @@ import {
   ChevronDown,
   ChevronUp,
   Terminal,
+  PenTool,
+  Calendar,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Agent } from "../types";
@@ -175,6 +177,14 @@ export default function AgentDetailsModal({
         return <BarChart2 className="w-5 h-5 text-violet-500" />;
       case "synthesizer":
         return <FileText className="w-5 h-5 text-cyan-500" />;
+      case "file_creator":
+        return <FileText className="w-5 h-5 text-teal-500" />;
+      case "file_parser":
+        return <Search className="w-5 h-5 text-rose-500" />;
+      case "writer":
+        return <PenTool className="w-5 h-5 text-pink-500" />;
+      case "planner":
+        return <Calendar className="w-5 h-5 text-orange-500" />;
       default:
         return <Bot className="w-5 h-5 text-primary" />;
     }

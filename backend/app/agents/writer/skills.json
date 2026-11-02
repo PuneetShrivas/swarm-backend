@@ -1,0 +1,26 @@
+[
+  {
+    "id": "content_drafting",
+    "name": "Long-Form Content Drafting",
+    "description": "Drafts structured essays, feature articles, newsletters, and thought leadership pieces.",
+    "triggers": ["article", "essay", "blog post", "draft", "write about", "newsletter", "speech"]
+  },
+  {
+    "id": "copywriting",
+    "name": "Creative Copywriting",
+    "description": "Crafts compelling headlines, value propositions, email communications, and promotional copy.",
+    "triggers": ["copywriting", "headline", "pitch", "tagline", "email copy", "marketing copy"]
+  },
+  {
+    "id": "editorial_polishing",
+    "name": "Editorial Refinement",
+    "description": "Polishes tone, clarity, sentence flow, and narrative cohesion without altering factual meaning.",
+    "triggers": ["polish", "rewrite", "improve flow", "editorial", "tone", "proofread"]
+  },
+  {
+    "id": "readability_analysis",
+    "name": "Readability & Word Budget Evaluation",
+    "description": "Evaluates sentence complexity, reading ease, and target audience comprehension level.",
+    "triggers": ["readability", "word count", "reading time", "simplify text", "grade level"]
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "id": "planner",
+  "name": "Planning Agent",
+  "role": "Strategic Planning & Task Decomposition Specialist",
+  "status": "active",
+  "model": "qwen-3.8",
+  "temperature": 0.3,
+  "is_orchestrator": false,
+  "icon": "calendar",
+  "description": "Decomposes complex goals into sequenced milestones, actionable roadmaps, dependency graphs, and resource estimates."
+}

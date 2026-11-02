@@ -1,0 +1,11 @@
+{
+  "id": "writer",
+  "name": "Writer Agent",
+  "role": "Content, Editorial & Copywriting Specialist",
+  "status": "active",
+  "model": "qwen-3.8",
+  "temperature": 0.4,
+  "is_orchestrator": false,
+  "icon": "pen-tool",
+  "description": "Crafts compelling articles, essays, blog posts, professional communications, and creative copy tailored strictly to user goals."
+}

@@ -116,6 +116,16 @@ export function GranularStepTrace({
         return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
       case "file_parser":
         return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
+      case "writer":
+        return "bg-rose-500/10 text-rose-400 border-rose-500/20";
+      case "planner":
+        return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+      case "python_runner":
+        return "bg-teal-500/10 text-teal-400 border-teal-500/20";
+      case "artifact_generator":
+        return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
+      case "condition_evaluator":
+        return "bg-amber-500/10 text-amber-400 border-amber-500/20";
       default:
         return "bg-linear-primary/10 text-linear-primary border-linear-primary/20";
     }

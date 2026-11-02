@@ -1,0 +1,26 @@
+[
+  {
+    "id": "strategic_roadmapping",
+    "name": "Strategic Roadmapping",
+    "description": "Designs phased development roadmaps, quarterly deliverables, and launch targets.",
+    "triggers": ["roadmap", "strategy", "launch plan", "timeline", "quarters", "milestones"]
+  },
+  {
+    "id": "task_decomposition",
+    "name": "Task & Scope Decomposition",
+    "description": "Decomposes high-level objectives into granular, actionable, and testable work packages.",
+    "triggers": ["break down", "decompose", "steps to achieve", "checklist", "work package"]
+  },
+  {
+    "id": "dependency_sequencing",
+    "name": "Critical Path & Dependency Sequencing",
+    "description": "Maps dependencies between deliverables and orders execution to avoid blockers.",
+    "triggers": ["dependencies", "critical path", "prerequisites", "sequence", "order of operations"]
+  },
+  {
+    "id": "sprint_planning",
+    "name": "Iterative Sprint & Capacity Scoping",
+    "description": "Allocates tasks into iterative sprints, balancing team velocity and scope constraints.",
+    "triggers": ["sprint", "capacity", "backlog", "estimation", "velocity"]
+  }
+]

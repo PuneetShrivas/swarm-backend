@@ -21,6 +21,8 @@ import {
   Layers,
   Thermometer,
   Info,
+  PenTool,
+  Calendar,
 } from "lucide-react";
 
 export interface AgentCardData {
@@ -87,6 +89,12 @@ export default function AgentCard({
     }
     if (id === "file_parser" || iconName === "filesearch" || iconName === "file-search") {
       return <Search size={14} className="text-rose-400" />;
+    }
+    if (id === "writer" || iconName === "pen-tool" || iconName === "pentool") {
+      return <PenTool size={14} className="text-pink-400" />;
+    }
+    if (id === "planner" || iconName === "calendar") {
+      return <Calendar size={14} className="text-amber-400" />;
     }
     if (iconName === "sparkles") {
       return <Sparkles size={14} className="text-linear-primary" />;

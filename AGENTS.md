@@ -12,6 +12,7 @@ For any feature, bug fix, refactor, or architectural change:
 4. Update documentation in the same change as the code.
 5. If implementation reveals a changed assumption, update `plan.md` and
    `decisions.md` before continuing.
+6. Read DESIGN.md for rules when making changes to the frontend.
 
 ## Required feature documentation
 

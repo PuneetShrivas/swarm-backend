@@ -439,22 +439,47 @@ def route_agent(target_id: Optional[str], last_user_content: str):
         if coder:
             return coder
 
-    research_keywords = [
-        "research", "investigate", "history", "quantum", "paper", "scientific", "study", "fact check", "source", "citation",
-        "web search", "websearch", "search web", "search online", "google", "stock price", "stock prices",
-        "stocks", "ticker", "current price", "live price", "market quote", "share price", "equity price",
-        "latest news", "breaking news", "live data", "live info", "live information", "crypto price", "btc price"
-    ]
-    if any(k in content_lower for k in research_keywords):
-        researcher = agent_registry.get("researcher")
-        if researcher:
-            return researcher
-
+    # Orchestrator Multi-Agent Keywords
     orchestrator_keywords = ["swarm", "orchestrat", "workflow", "plan our", "pipeline", "multi-agent"]
     if any(k in content_lower for k in orchestrator_keywords):
         orchestrator = agent_registry.get_orchestrator()
         if orchestrator:
             return orchestrator
+
+    # Content & Editorial Writer Specialist
+    writer_keywords = [
+        "write an article", "write article", "blog post", "essay", "draft essay",
+        "write an essay", "newsletter", "copywriting", "write a speech", "write a story", "draft email"
+    ]
+    if any(k in content_lower for k in writer_keywords):
+        writer = agent_registry.get("writer")
+        if writer:
+            return writer
+
+    # Strategic Planning Specialist
+    planner_keywords = [
+        "roadmap", "milestone plan", "sprint plan", "project plan", "timeline plan",
+        "schedule plan", "task decomposition", "launch plan"
+    ]
+    if any(k in content_lower for k in planner_keywords):
+        planner = agent_registry.get("planner")
+        if planner:
+            return planner
+
+    # Research Agent & Fresh Internet Discovery Specialist
+    research_keywords = [
+        "research", "investigate", "history", "quantum", "paper", "scientific", "study", "fact check", "source", "citation",
+        "web search", "websearch", "search web", "search online", "google", "stock price", "stock prices",
+        "stocks", "ticker", "current price", "live price", "market quote", "share price", "equity price",
+        "latest news", "breaking news", "live data", "live info", "live information", "crypto price", "btc price",
+        "weather", "forecast", "temperature", "who won", "game score", "sports score", "today", "yesterday", "tonight",
+        "current", "currently", "latest", "recent", "recently", "breaking", "as of today", "who is the current",
+        "what happened to", "what happened with", "did spacex"
+    ]
+    if any(k in content_lower for k in research_keywords):
+        researcher = agent_registry.get("researcher")
+        if researcher:
+            return researcher
 
     # 3. Conversational intent matching -> general_assistant (for general conversational chat)
     conversational_phrases = ["how are you", "who are you", "what can you do", "tell me a joke", "chat with me", "good morning", "good evening", "good afternoon"]
