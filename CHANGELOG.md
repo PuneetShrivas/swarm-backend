@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 2026-11-02
 
+### Added
+- **DAG Editor Attached Toolbar & Diagram Controls (`frontend/src/app/workflows/components/`)**:
+  - Implemented `DAGToolbar.tsx` docked directly to the top of the workflow DAG editor frame adhering to Linear Design tokens (`#010102` canvas, `#0f1011` surface-1, `#5e6ad2` primary accent, hairline borders).
+  - Designed 5 rich block thumbnail cards (`agent`, `condition`, `python_code`, `loop`, `artifact`) with micro-schematic previews, colored badges, and dual support for click-to-add and HTML5 drag-and-drop placement on the canvas.
+  - Added DAG canvas controls: Auto-Layout Tidy Up (`calculateDAGLayout`), Fit View, Zoom In/Out, Canvas Grid Switcher (`Dots`, `Lines`, `Cross`, `none`), and MiniMap toggle.
+  - Added diagram block controls: Multi-node Expand All / Collapse All via `Set<string>`, Duplicate Selected Block with complete parameter and dependency replication, Delete Selected with safety confirmation, Unit Test Selected Block, and System Test DAG trigger.
+  - Upgraded `VisualGraphEditor.tsx` with `<ReactFlowProvider>`, canvas `onDragOver`/`onDrop` coordinate translation via `screenToFlowPosition`, and active node selection tracking (`onSelectionChange`).
+
 ### Fixed
 - **Frontend pnpm Lockfile Desynchronization (`frontend/pnpm-lock.yaml`)**:
   - Resolved `ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile"` failure on Vercel frontend deployments caused by `remark-gfm` added in `f4d6ce6` without updating `pnpm-lock.yaml`.
