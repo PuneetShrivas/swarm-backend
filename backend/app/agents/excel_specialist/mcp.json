@@ -1,0 +1,20 @@
+{
+  "servers": [
+    {
+      "name": "excel-mcp",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "app.agents.excel_specialist.tools"],
+      "tools": [
+        "introspect_spreadsheet",
+        "resolve_coordinates",
+        "edit_spreadsheet_cells",
+        "execute_statistical_analysis",
+        "relational_join_sheets",
+        "create_pivot_table",
+        "rollback_spreadsheet_transactions",
+        "validate_workbook_integrity"
+      ]
+    }
+  ]
+}

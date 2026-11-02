@@ -26,6 +26,7 @@ import {
   Terminal,
   PenTool,
   Calendar,
+  FileSpreadsheet,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Agent } from "../types";
@@ -185,6 +186,8 @@ export default function AgentDetailsModal({
         return <PenTool className="w-5 h-5 text-pink-500" />;
       case "planner":
         return <Calendar className="w-5 h-5 text-orange-500" />;
+      case "excel_specialist":
+        return <FileSpreadsheet className="w-5 h-5 text-emerald-500" />;
       default:
         return <Bot className="w-5 h-5 text-primary" />;
     }

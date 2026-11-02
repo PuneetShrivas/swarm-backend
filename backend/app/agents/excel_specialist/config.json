@@ -1,0 +1,11 @@
+{
+  "id": "excel_specialist",
+  "name": "Excel & Computational Intelligence Specialist",
+  "role": "Enterprise Spreadsheet & Computational Architect",
+  "status": "active",
+  "model": "qwen-3.8",
+  "temperature": 0.1,
+  "is_orchestrator": false,
+  "icon": "FileSpreadsheet",
+  "description": "Enterprise-grade computational intelligence agent for Excel files. Natively translates natural language into precise cell coordinates, performs targeted format-preserving cell edits, executes statistical calculations, multi-sheet relational joins, and dynamic pivot tables, protected by isolated transactions, multi-step rollbacks, and pre-save schema validation."
+}

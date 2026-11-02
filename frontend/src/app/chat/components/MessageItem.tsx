@@ -253,7 +253,7 @@ export default function MessageItem({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.15 }}
-      className={`group flex gap-3 ${
+      className={`group flex gap-3 w-full min-w-0 overflow-hidden ${
         isUser ? "flex-row-reverse" : "flex-row"
       }`}
     >
@@ -272,13 +272,13 @@ export default function MessageItem({
 
       {/* Message Body & Actions Container */}
       <div
-        className={`flex flex-col max-w-[85%] md:max-w-2xl ${
+        className={`flex flex-col max-w-[85%] md:max-w-2xl min-w-0 overflow-hidden ${
           isUser ? "items-end" : "items-start"
         }`}
       >
         {/* Main Content Bubble */}
         <div
-          className={`px-4 py-3 rounded-lg text-[14px] leading-relaxed transition-colors relative border ${
+          className={`px-4 py-3 rounded-lg text-[14px] leading-relaxed transition-colors relative border max-w-full min-w-0 break-words [overflow-wrap:anywhere] ${
             isUser
               ? "bg-surface-2 border-hairline-strong text-ink rounded-tr-xs"
               : "bg-surface-1 border-hairline text-ink rounded-tl-xs"
@@ -474,13 +474,27 @@ export default function MessageItem({
             </div>
           ) : (
             <>
-              <div className="prose prose-sm dark:prose-invert max-w-none break-words text-ink">
+              <div className="prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere] min-w-0 text-ink">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
+                    p({ children }) {
+                      return (
+                        <p className="mb-2 last:mb-0 break-words [overflow-wrap:anywhere] leading-relaxed whitespace-pre-wrap">
+                          {children}
+                        </p>
+                      );
+                    },
+                    div({ children }) {
+                      return (
+                        <div className="break-words [overflow-wrap:anywhere] max-w-full">
+                          {children}
+                        </div>
+                      );
+                    },
                     table({ children }) {
                       return (
-                        <div className="not-prose my-3 overflow-x-auto rounded-lg border border-hairline shadow-xs bg-surface-1">
+                        <div className="not-prose my-3 max-w-full overflow-x-auto rounded-lg border border-hairline shadow-xs bg-surface-1">
                           <table className="w-full border-collapse text-left text-xs">
                             {children}
                           </table>
@@ -510,21 +524,21 @@ export default function MessageItem({
                     },
                     th({ children }) {
                       return (
-                        <th className="px-3.5 py-2.5 font-medium whitespace-nowrap text-ink">
+                        <th className="px-3.5 py-2.5 font-medium text-ink break-words">
                           {children}
                         </th>
                       );
                     },
                     td({ children }) {
                       return (
-                        <td className="px-3.5 py-2.5 text-ink-subtle whitespace-nowrap">
+                        <td className="px-3.5 py-2.5 text-ink-subtle break-words">
                           {children}
                         </td>
                       );
                     },
                     pre({ children }) {
                       return (
-                        <pre className="not-prose my-2.5 overflow-x-auto rounded-md bg-canvas p-3 text-xs text-ink-muted border border-hairline font-mono">
+                        <pre className="not-prose my-2.5 max-w-full overflow-x-auto rounded-md bg-canvas p-3 text-xs text-ink-muted border border-hairline font-mono break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
                           {children}
                         </pre>
                       );
@@ -534,7 +548,7 @@ export default function MessageItem({
                       if (isInline) {
                         return (
                           <code
-                            className="rounded-xs bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-ink border border-hairline"
+                            className="rounded-xs bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-ink border border-hairline break-words [overflow-wrap:anywhere]"
                             {...props}
                           >
                             {children}
@@ -542,7 +556,7 @@ export default function MessageItem({
                         );
                       }
                       return (
-                        <code className={className} {...props}>
+                        <code className={`${className || ""} break-words [overflow-wrap:anywhere] whitespace-pre-wrap`} {...props}>
                           {children}
                         </code>
                       );

@@ -65,6 +65,7 @@ def generate_workflow_spec(
             "- ID: writer, Role: Content, editorial & copywriting specialist for articles, essays, and communication\n"
             "- ID: planner, Role: Strategic project roadmaps, milestone planning, and task decomposition\n"
             "- ID: general_assistant, Role: Conversational inquiry & direct conceptual explanations\n"
+            "- ID: excel_specialist, Role: Enterprise Excel & computational intelligence specialist for coordinate resolution, cell-level edits, multi-sheet joins, pivots, statistical formulas, and format-preserving mutations\n"
             "- ID: orchestrator, Role: Swarm routing & goal decomposition"
         )
 
@@ -112,6 +113,7 @@ def generate_workflow_spec(
         "CRITICAL BLOCK OPTIMIZATION DIRECTIVE: Whenever a workflow task involves deterministic computation, mathematical calculations, string parsing, or data formatting, ALWAYS prefer a 'python_code' non-agent block instead of an LLM agent block. Python scripts execute with zero tokens and 100% precision. Reserve 'agent' blocks for tasks requiring reasoning, language generation, web search, or code creation.\n\n"
         "CRITICAL ORCHESTRATION DIRECTIVE: For all multi-step workflows, the final step MUST ALWAYS be a synthesis step assigned to agent 'synthesizer' to consolidate previous step outputs and deliver a cohesive final output directly in line with the high-level workflow goal.\n\n"
         "GENERAL DATA ANALYST DIRECTIVE: The data_analyst agent is a general-purpose numerical, statistical, and tabular analysis agent across all domains. Do NOT inject scenario-specific or finance-specific constraints (e.g. price-to-earnings, stock quotes) into data analyst steps unless explicitly requested by the user.\n\n"
+        "CRITICAL ENTERPRISE EXCEL DIRECTIVE: For tasks requiring spreadsheet coordinate resolution, cell-level edits, Excel formulas, multi-sheet relational joins, multi-dimensional pivot tables, VBA macro preservation, or format-preserving spreadsheet mutations, ALWAYS assign agent 'excel_specialist'.\n\n"
         f"Available Agents to assign:\n{agent_roster_summary}\n\n"
         f"Available Script Tools:\n{tools_summary}\n"
     )
@@ -742,7 +744,123 @@ def synthesize_on_the_fly_workflow(
             ],
         }
 
-    # 3. Optimized Deterministic Non-Agent Blocks (Python Code / Math Execution)
+    # 3. Enterprise Excel & Computational Intelligence Pipeline (Excel Specialist Agent)
+    has_excel_specialist = any(k in prompt_lower for k in [
+        "excel specialist", "spreadsheet coordinate", "cell coordinate", "cell coordinates",
+        "excel formula", "spreadsheet formula", "pivot table", "relational join",
+        "join sheets", "merge sheets", "excel macro", "update cell", "format-preserving",
+        "format preserving", "multi-sheet", "coordinate resolution", "edit spreadsheet",
+        "excel edit", "modify cell", "targeted edit"
+    ]) or (
+        any(k in prompt_lower for k in ["excel", "xlsx", "xlsm", "spreadsheet"]) and
+        any(k in prompt_lower for k in ["cell", "row", "column", "formula", "join", "merge", "pivot", "preserve", "edit", "update", "coordinate", "schema", "validation", "rollback"])
+    )
+    if has_excel_specialist:
+        if requires_fresh_internet_information(prompt_clean):
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Research & Enterprise Excel Mutation Pipeline ({slug_id})",
+                "description": "Multi-agent live market discovery with Perplexity Sonar followed by surgical format-preserving spreadsheet edits and synthesis.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Grounded Market Discovery",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Search live sources using Perplexity Sonar for verified facts, figures, and metrics required for: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Enterprise Spreadsheet & Cell Resolution Operations",
+                        "step_type": "agent",
+                        "agent_id": "excel_specialist",
+                        "instructions": f"Translate natural language requests into exact cell coordinates, perform targeted mutations while strictly preserving all cell styling, formulas, number formats, and VBA macros, validate pre-save schema integrity, and apply results: {{{{steps.step_1.output.text}}}} Goal: {prompt_clean}",
+                        "tool_ids": [
+                            "introspect_spreadsheet",
+                            "resolve_coordinates",
+                            "edit_spreadsheet_cells",
+                            "execute_statistical_analysis",
+                            "relational_join_sheets",
+                            "create_pivot_table",
+                            "rollback_spreadsheet_transactions",
+                            "validate_workbook_integrity"
+                        ],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Computational Audit & Delivery Briefing",
+                        "step_type": "agent",
+                        "agent_id": "synthesizer",
+                        "instructions": f"Consolidate verified research findings, cell modifications, and transaction audit summary into a cohesive delivery directly fulfilling the user's goal: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Enterprise Computational Spreadsheet Intelligence Pipeline ({slug_id})",
+            "description": "Targeted format-preserving spreadsheet mutations, multi-sheet joins, pivot tables, and pre-save schema validation.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "name": "Surgical Spreadsheet Operations & Validation",
+                    "step_type": "agent",
+                    "agent_id": "excel_specialist",
+                    "instructions": f"Resolve natural language coordinates, execute targeted cell mutations/formulas, perform relational joins or multi-axis pivot tables, preserve original styling and VBA macros, and guarantee pre-save workbook integrity for: {prompt_clean}",
+                    "tool_ids": [
+                        "introspect_spreadsheet",
+                        "resolve_coordinates",
+                        "edit_spreadsheet_cells",
+                        "execute_statistical_analysis",
+                        "relational_join_sheets",
+                        "create_pivot_table",
+                        "rollback_spreadsheet_transactions",
+                        "validate_workbook_integrity"
+                    ],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": art_ids,
+                    "depends_on": [],
+                },
+                {
+                    "id": "step_2",
+                    "name": "Audit Log & Executive Spreadsheet Summary",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Synthesize cell mutation diffs, statistical outputs, and transaction audit verification into a clear, executive-ready summary directly fulfilling the user's goal: {{{{steps.step_1.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+            ],
+        }
+
+    # 4. Optimized Deterministic Non-Agent Blocks (Python Code / Math Execution)
     has_code_calc = any(k in prompt_lower for k in [
         "python code block", "non agent", "non-agent", "compute with python",
         "calculate with python", "deterministic code", "python runner", "python script block"

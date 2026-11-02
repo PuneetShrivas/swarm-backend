@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Copy, Check, FileText, Compass, BarChart3, Clock, Sparkles } from "lucide-react";
 import { ArtifactTemplate } from "../types";
 
@@ -18,8 +19,13 @@ export default function TemplateDetailsModal({
   onApplyTemplate,
 }: TemplateDetailsModalProps) {
   const [copied, setCopied] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  if (!isOpen || !template) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isOpen || !template || !mounted) return null;
 
   const handleCopy = () => {
     if (!template.markdownInstructions) return;
@@ -28,10 +34,13 @@ export default function TemplateDetailsModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-card border border-border/80 rounded-2xl shadow-card overflow-hidden"
+        className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-card border border-border/80 rounded-2xl shadow-card overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -101,7 +110,7 @@ export default function TemplateDetailsModal({
               <div className="p-3 rounded-xl bg-muted/40 border border-border/60">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-foreground mb-1">
                   <BarChart3 size={13} className="text-primary" />
-                  <span>Data Heaviness</span>
+                  <span>Data Density</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
                   {template.dataHeaviness}
@@ -113,7 +122,7 @@ export default function TemplateDetailsModal({
               <div className="p-3 rounded-xl bg-muted/40 border border-border/60">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-foreground mb-1">
                   <Clock size={13} className="text-primary" />
-                  <span>Target Length & Pacing</span>
+                  <span>Target Length</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
                   {template.targetLength}
@@ -122,30 +131,31 @@ export default function TemplateDetailsModal({
             )}
           </div>
 
-          {/* Blueprint Sections */}
+          {/* Section Blueprint */}
           {template.sections && template.sections.length > 0 && (
-            <div className="p-3 rounded-xl bg-muted/20 border border-border/50">
-              <span className="text-xs font-semibold text-foreground uppercase tracking-wider block mb-2 font-mono text-[10px]">
-                Required Section Blueprint
+            <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60">
+              <span className="text-xs font-medium text-foreground block mb-2">
+                Mandatory Section Blueprint ({template.sections.length} Sections)
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {template.sections.map((sec, idx) => (
                   <span
                     key={idx}
-                    className="text-xs font-mono px-2 py-1 rounded-md bg-background border border-border text-foreground/90"
+                    className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-background border border-border/70 text-foreground flex items-center gap-1"
                   >
-                    #{sec}
+                    <span className="text-primary font-bold">{idx + 1}.</span>
+                    <span>{sec}</span>
                   </span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Markdown Instructions Specification */}
-          <div className="space-y-2">
+          {/* Full Markdown Specifications */}
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-foreground uppercase tracking-wider font-mono text-[10px]">
-                Complete Template Instructions (.md)
+              <span className="text-xs font-medium text-foreground">
+                Complete Markdown Instructions & System Prompt Blueprint
               </span>
               <button
                 type="button"
@@ -190,6 +200,7 @@ export default function TemplateDetailsModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

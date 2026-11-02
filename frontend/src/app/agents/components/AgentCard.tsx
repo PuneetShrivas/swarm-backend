@@ -23,6 +23,7 @@ import {
   Info,
   PenTool,
   Calendar,
+  FileSpreadsheet,
 } from "lucide-react";
 
 export interface AgentCardData {
@@ -95,6 +96,9 @@ export default function AgentCard({
     }
     if (id === "planner" || iconName === "calendar") {
       return <Calendar size={14} className="text-amber-400" />;
+    }
+    if (id === "excel_specialist" || iconName === "filespreadsheet" || iconName === "file-spreadsheet") {
+      return <FileSpreadsheet size={14} className="text-emerald-400" />;
     }
     if (iconName === "sparkles") {
       return <Sparkles size={14} className="text-linear-primary" />;

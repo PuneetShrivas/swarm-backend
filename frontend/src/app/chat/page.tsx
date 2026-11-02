@@ -885,7 +885,7 @@ function ChatContent() {
         />
 
         {/* Main Chat Feed Area */}
-        <div className="flex-1 flex flex-col bg-canvas relative overflow-hidden h-full">
+        <div className="flex-1 flex flex-col bg-canvas relative overflow-hidden h-full min-w-0">
           {/* Top Header */}
           <ChatHeader
             agents={agents}
@@ -907,7 +907,7 @@ function ChatContent() {
           />
 
           {/* Message Feed */}
-          <main className="flex-1 p-4 md:p-8 overflow-y-auto space-y-6 scroll-smooth bg-canvas">
+          <main className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden space-y-6 scroll-smooth bg-canvas min-w-0">
             <AnimatePresence initial={false}>
               {isLoadingMessages ? (
                 <div className="space-y-5 py-4 max-w-2xl">

@@ -7,6 +7,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-02
 
 ### Added
+- **Enterprise Excel & Computational Intelligence Agent (`excel_specialist`) & Chat UI Ergonomics (`backend/` & `frontend/`)**:
+  - **Enterprise Agent Package Manifest & Operational Persona (`backend/app/agents/excel_specialist/`)**:
+    - Created modular agent package with manifest `config.json` (ID `excel_specialist`, display name "Excel & Computational Intelligence Specialist", role "Enterprise Spreadsheet & Computational Architect", model `qwen-3.8`, icon `FileSpreadsheet`).
+    - Implemented enterprise system prompt `prompt.md` covering coordinate resolution protocols, format-preserving mutation mandates, multi-step rollback guarantees, pre-save schema validation, and error recovery loops.
+    - Defined 6 specialized skills in `skills.json`: `coordinate_resolution`, `format_preserving_edits`, `statistical_computing`, `relational_sheet_joins`, `multidimensional_pivoting`, and `transaction_rollback_and_validation`.
+  - **Core Computational Tools Module (`backend/app/agents/excel_specialist/tools.py`)**:
+    - `introspect_spreadsheet`: Deep inspection of workbook dimensions, header rows, data type classification (`number`, `text`, `datetime`, `boolean`, `formula`), formula cell sample maps, and structured row previews.
+    - `resolve_coordinates`: Natural language coordinate resolver translating colloquial queries (e.g. `APAC Q4 Revenue`) into exact 2D cell coordinates (`C2`), quoted criteria, column ranges (`C2:C4`), column letters (`C`), and structural relative rows (`last row`, `last N rows`).
+    - `edit_spreadsheet_cells`: Surgical cell mutations with 100% preservation of cell styles (Font name, size, bold, color; PatternFill; Border; Alignment; number_format), formula strings, and VBA macros via `openpyxl` with `keep_vba=True`.
+    - `execute_statistical_analysis`: High-performance descriptive statistics (count, sum, mean, median, variance, standard deviation, min, max, percentiles p25/p50/p75/p90/p95/p99, IQR) over ranges/columns, optionally rendering a formatted `Statistical_Analysis` sheet.
+    - `relational_join_sheets`: In-memory relational hash joins (`inner`, `left`, `right`, `outer`) across sheets with primary/foreign key matching, header deduplication, and formatted output sheets.
+    - `create_pivot_table`: 2D multi-axis pivot engine supporting row indices, column dimensions, aggregation functions (`sum`, `mean`, `count`, `min`, `max`), and grand total margins.
+    - `StateManagedTransactionStore` & `rollback_spreadsheet_transactions`: Transaction log storing cell-level before-and-after snapshots for multi-step rollbacks and state reversion.
+    - `validate_workbook_schema`: Pre-save schema validator checking XML integrity, formula parentheses/quotes syntax balance, coordinate bounds, and sheet naming rules.
+    - `@error_recovery_loop`: Safe error-recovery decorator catching mutation exceptions, invoking automatic rollbacks, and preventing workbook corruption.
+  - **System Orchestration & Routing Integration (`backend/app/ai_generator.py` & `backend/app/main.py`)**:
+    - Added `excel_specialist` to default agent roster in `generate_workflow_spec` with `CRITICAL ENTERPRISE EXCEL DIRECTIVE`.
+    - Added on-the-fly workflow branch in `synthesize_on_the_fly_workflow` detecting spreadsheet queries, routing them through `excel_specialist` with all 8 enterprise tools, and pairing with `researcher` (when live market data is requested) and `synthesizer`.
+  - **Frontend UI & Visual Integration (`frontend/src/app/`)**:
+    - **Message Text Wrapping (`MessageItem.tsx` & `chat/page.tsx`)**: Constrained message containers with `w-full min-w-0 overflow-hidden` and added `break-words [overflow-wrap:anywhere] leading-relaxed whitespace-pre-wrap` to markdown paragraphs, tables, and pre blocks so long content wraps into newlines gracefully without forcing horizontal workspace scrollbars.
+    - **Centered Template Modal (`TemplateDetailsModal.tsx`)**: Replaced local inline rendering with React `createPortal(..., document.body)` so the inspection modal is detached from `ChatInput`'s `backdrop-blur-xl` containing block and opens dead center in the viewport.
+    - **Icons (`AgentCard.tsx` & `AgentDetailsModal.tsx`)**: Integrated `FileSpreadsheet` icon for `excel_specialist`.
+  - **Automated Test Suite (`backend/test_excel_specialist.py`)**:
+    - Implemented 10 unit and integration tests verifying all 8 enterprise tools, format preservation, multi-step rollback, formula syntax validation, safe recovery, and orchestration routing. All 10 tests passing. Passed all regression suites and full Next.js production build.
+
 - **Detailed Markdown Artifact Templates, Custom Templates & Aggressive Researcher Orchestration (`frontend/` & `backend/`)**:
   - **Standalone Markdown Template Guidelines (`frontend/src/app/chat/templates/`)**:
     - Upgraded artifact report templates from superficial section lists into dedicated, comprehensive `.md` specification files: `executive_summary.md`, `research_synthesis.md`, `technical_specification.md`, `financial_analysis.md`, `compliance_review.md`, and `meeting_minutes.md`.

@@ -1,0 +1,85 @@
+[
+  {
+    "id": "coordinate_resolution",
+    "name": "Natural Language Coordinate Resolution",
+    "description": "Translates ambiguous natural language queries into exact spreadsheet coordinates, structural ranges, and specific column headers without explicit technical cell references.",
+    "triggers": [
+      "coordinate",
+      "locate cell",
+      "find column",
+      "resolve range",
+      "cell reference",
+      "table boundary",
+      "row intersection"
+    ]
+  },
+  {
+    "id": "format_preserving_edits",
+    "name": "Targeted Format & Formula Preservation",
+    "description": "Performs targeted cell-level modifications that preserve existing fonts, fills, borders, number formatting, formula chains, and VBA macros.",
+    "triggers": [
+      "edit cell",
+      "update cell",
+      "modify value",
+      "preserve format",
+      "keep formatting",
+      "inject formula",
+      "macro preservation"
+    ]
+  },
+  {
+    "id": "statistical_computing",
+    "name": "High-Performance Statistical Computing",
+    "description": "Executes advanced descriptive metrics, variance, standard deviation, percentiles, z-scores, rolling averages, and Pearson correlations across spreadsheet ranges.",
+    "triggers": [
+      "statistics",
+      "calculate mean",
+      "percentile",
+      "variance",
+      "standard deviation",
+      "z-score",
+      "correlation",
+      "moving average"
+    ]
+  },
+  {
+    "id": "relational_sheet_joins",
+    "name": "Multi-Sheet Relational Joins",
+    "description": "Executes in-memory hash joins (inner, left, right, full outer) across multiple worksheets based on key identifiers, generating merged output sheets with aligned schemas.",
+    "triggers": [
+      "join sheets",
+      "relational join",
+      "merge sheets",
+      "vlookup join",
+      "inner join",
+      "left join",
+      "combine tables"
+    ]
+  },
+  {
+    "id": "multidimensional_pivoting",
+    "name": "Multi-Dimensional Pivot Table Engine",
+    "description": "Generates dynamic multi-axis pivot tables with row dimensions, column dimensions, aggregate metrics, hierarchical headers, and grand totals.",
+    "triggers": [
+      "pivot table",
+      "create pivot",
+      "multidimensional pivot",
+      "aggregate by",
+      "cross-tabulate",
+      "grand totals"
+    ]
+  },
+  {
+    "id": "transaction_rollback_and_validation",
+    "name": "Transaction Rollbacks & Pre-Save Validation",
+    "description": "Protects workbook integrity using state-managed transaction logs with multi-step rollbacks, automated error recovery, and pre-save schema validation.",
+    "triggers": [
+      "rollback",
+      "undo transaction",
+      "validate workbook",
+      "pre-save validation",
+      "error recovery",
+      "schema validation"
+    ]
+  }
+]
