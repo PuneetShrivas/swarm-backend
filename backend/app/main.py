@@ -358,12 +358,11 @@ def normalize_model_name(model_name: Optional[str]) -> str:
 
 def route_agent(target_id: Optional[str], last_user_content: str):
     """
-    Selects the target agent or auto-routes based on prompt intent and agent specialties.
-    Prioritizes file creation requests so CSV/dataset/script generation is never hijacked
-    by general data analysis or conversational agents.
+    Selects the target agent.
+    - If a specific agent or custom profile is explicitly selected by the user (and not 'orchestrator'), returns that agent.
+    - Otherwise (default chat mode or explicit 'orchestrator'), returns the Swarm Orchestrator so it can dynamically analyze intent and synthesize on-the-fly multi-agent workflows.
     """
-    # 1. Explicit target selection
-    if target_id and target_id.strip():
+    if target_id and target_id.strip() and target_id.strip().lower() != "orchestrator":
         agent = agent_registry.get(target_id.strip())
         if agent:
             return agent
@@ -371,126 +370,7 @@ def route_agent(target_id: Optional[str], last_user_content: str):
         if custom:
             return custom
 
-    content_lower = last_user_content.lower()
-
-    # 2. File Creation Specialists (EVALUATED FIRST to prevent data analyst interception)
-    file_create_keywords = [
-        "create file", "generate file", "make file", "write to file", "download file",
-        "export file", "save file", "create script", "generate csv", "generate report file",
-        "export dataset", "sample csv", "create csv", "make csv", "build csv", "produce csv",
-        "csv file", "json file", "sample file", "generate a file", "create a file", "generate a csv",
-        "create a csv", "sample data file", "generate dataset", "create spreadsheet", "generate spreadsheet",
-        "give me a csv", "give me a file", "output as csv", "provide a csv", "create a spreadsheet",
-        "generate pdf", "create pdf", "make pdf", "export pdf", "pdf report", "pdf document", "download pdf",
-        "generate presentation", "create presentation", "make presentation", "powerpoint", "slide deck",
-        "presentation deck", "generate ppt", "create ppt", "generate pptx", "create pptx", "pitch deck",
-        "generate word", "create word document", "make docx", "generate docx", "create docx", "word doc",
-        "generate excel", "create excel", "make excel", "generate xlsx", "create xlsx", "excel sheet",
-        "excel spreadsheet", "financial model xlsx"
-    ]
-    is_file_creation = (
-        any(k in content_lower for k in file_create_keywords)
-        or (
-            any(verb in content_lower for verb in ["create", "generate", "make", "export", "download", "produce", "write", "build", "provide", "give me"])
-            and any(noun in content_lower for noun in ["csv", "file", "json", "spreadsheet", "dataset", "markdown file", "txt file", "pdf", "pptx", "presentation", "deck", "docx", "word document", "xlsx", "excel sheet"])
-        )
-    )
-    if is_file_creation:
-        creator = agent_registry.get("file_creator")
-        if creator:
-            return creator
-
-    file_parse_keywords = [
-        "parse file", "parse log", "parse json", "parse csv", "ingest file", "ingest document",
-        "validate schema", "extract schema", "parse document", "inspect file", "ingest",
-        "parse pdf", "read pdf", "extract pdf", "parse ppt", "parse pptx", "read presentation",
-        "parse docx", "read word document", "parse excel", "read excel", "parse xlsx",
-        "rag", "rag search", "query document", "search in file", "search document", "document context",
-        "find in document", "ask document", "document qa", "context passing"
-    ]
-    if any(k in content_lower for k in file_parse_keywords):
-        parser = agent_registry.get("file_parser")
-        if parser:
-            return parser
-
-    # Security & Code Audit Reviewer
-    review_keywords = ["audit", "security", "vulnerability", "owasp", "leak", "test coverage", "qa", "lint", "complexity"]
-    if any(k in content_lower for k in review_keywords):
-        reviewer = agent_registry.get("reviewer")
-        if reviewer:
-            return reviewer
-
-    # Data Analyst (Mathematical & statistical analysis; excludes file synthesis)
-    data_keywords = ["statistics", "mean", "median", "table analysis", "percentile", "trend", "distribution", "variance", "stdev", "metrics", "data analysis", "data analyst", "analyze data"]
-    if any(k in content_lower for k in data_keywords):
-        analyst = agent_registry.get("data_analyst")
-        if analyst:
-            return analyst
-
-    synthesis_keywords = ["executive summary", "briefing", "readme", "documentation", "tldr", "docs", "manual", "guide"]
-    if any(k in content_lower for k in synthesis_keywords):
-        synth = agent_registry.get("synthesizer")
-        if synth:
-            return synth
-
-    coder_keywords = ["code", "function", "bug", "python", "javascript", "typescript", "fastapi", "react", "sql", "api", "git", "class", "error", "compile", "syntax", "refactor"]
-    if any(k in content_lower for k in coder_keywords):
-        coder = agent_registry.get("coder")
-        if coder:
-            return coder
-
-    # Orchestrator Multi-Agent Keywords
-    orchestrator_keywords = ["swarm", "orchestrat", "workflow", "plan our", "pipeline", "multi-agent"]
-    if any(k in content_lower for k in orchestrator_keywords):
-        orchestrator = agent_registry.get_orchestrator()
-        if orchestrator:
-            return orchestrator
-
-    # Content & Editorial Writer Specialist
-    writer_keywords = [
-        "write an article", "write article", "blog post", "essay", "draft essay",
-        "write an essay", "newsletter", "copywriting", "write a speech", "write a story", "draft email"
-    ]
-    if any(k in content_lower for k in writer_keywords):
-        writer = agent_registry.get("writer")
-        if writer:
-            return writer
-
-    # Strategic Planning Specialist
-    planner_keywords = [
-        "roadmap", "milestone plan", "sprint plan", "project plan", "timeline plan",
-        "schedule plan", "task decomposition", "launch plan"
-    ]
-    if any(k in content_lower for k in planner_keywords):
-        planner = agent_registry.get("planner")
-        if planner:
-            return planner
-
-    # Research Agent & Fresh Internet Discovery Specialist
-    research_keywords = [
-        "research", "investigate", "history", "quantum", "paper", "scientific", "study", "fact check", "source", "citation",
-        "web search", "websearch", "search web", "search online", "google", "stock price", "stock prices",
-        "stocks", "ticker", "current price", "live price", "market quote", "share price", "equity price",
-        "latest news", "breaking news", "live data", "live info", "live information", "crypto price", "btc price",
-        "weather", "forecast", "temperature", "who won", "game score", "sports score", "today", "yesterday", "tonight",
-        "current", "currently", "latest", "recent", "recently", "breaking", "as of today", "who is the current",
-        "what happened to", "what happened with", "did spacex"
-    ]
-    if any(k in content_lower for k in research_keywords):
-        researcher = agent_registry.get("researcher")
-        if researcher:
-            return researcher
-
-    # 3. Conversational intent matching -> general_assistant (for general conversational chat)
-    conversational_phrases = ["how are you", "who are you", "what can you do", "tell me a joke", "chat with me", "good morning", "good evening", "good afternoon"]
-    casual_words = {"hello", "hi", "hey", "greetings", "howdy", "sup"}
-    cleaned_words = re.sub(r"[^\w\s]", " ", content_lower).split()
-    if any(phrase in content_lower for phrase in conversational_phrases) or (cleaned_words and cleaned_words[0] in casual_words):
-        assistant = agent_registry.get("general_assistant")
-        if assistant:
-            return assistant
-
-    # 4. Default to Swarm Orchestrator
+    # Default to Swarm Orchestrator for dynamic on-the-fly workflow synthesis
     orchestrator = agent_registry.get_orchestrator()
     if orchestrator:
         return orchestrator

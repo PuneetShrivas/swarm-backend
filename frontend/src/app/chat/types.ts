@@ -5,6 +5,13 @@ export interface ArtifactTemplate {
   description: string;
   sections: string[];
   defaultFormat: "pdf" | "markdown" | "docx";
+  tone?: string;
+  construction?: string;
+  dataHeaviness?: string;
+  targetLength?: string;
+  markdownInstructions?: string;
+  isCustom?: boolean;
+  artifactId?: string;
 }
 
 export interface ToolCall {

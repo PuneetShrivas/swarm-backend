@@ -61,6 +61,42 @@ export default function ArtifactsStudioPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Custom template creation modal state
+  const [isCreateTemplateOpen, setIsCreateTemplateOpen] = useState(false);
+  const [newTemplateTitle, setNewTemplateTitle] = useState("");
+  const [newTemplateBadge, setNewTemplateBadge] = useState("");
+  const [newTemplateDescription, setNewTemplateDescription] = useState("");
+  const [newTemplateContent, setNewTemplateContent] = useState(`# Custom Report Specification
+
+## Document Overview
+Brief description of this custom artifact report.
+
+---
+
+## Writing Guidelines
+
+### 1. Tone & Voice
+- Authoritative, clear, objective, and executive-ready.
+
+### 2. Construction Framework
+- Inverted pyramid leading with core findings, followed by evidence and next steps.
+
+### 3. Data Heaviness & Quantitative Metrics
+- Include high-density quantitative metrics, comparison tables, and percentage deltas.
+
+### 4. Length Constraints
+- Target 800 – 1,200 words.
+
+---
+
+## Required Section Blueprint
+### 1. Executive Summary
+### 2. Detailed Findings & Metrics Table
+### 3. Risk Assessment
+### 4. Action Plan & Next Steps
+`);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+
   // Fetch artifacts from FastAPI backend merged with client localStorage cache
   const fetchArtifacts = useCallback(async () => {
     setIsLoading(true);
@@ -338,6 +374,70 @@ export default function ArtifactsStudioPage() {
     }
   };
 
+  // Handle Create Custom Template Submission
+  const handleCreateCustomTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTemplateTitle.trim() || !newTemplateContent.trim()) return;
+    setIsSavingTemplate(true);
+    try {
+      const cleanTitle = newTemplateTitle.trim();
+      const slug = cleanTitle.toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 40);
+      const filename = `${slug || "template"}.md`;
+
+      const payload: Artifact = {
+        id: `art-tmpl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        name: `${cleanTitle}.md`,
+        filename,
+        type: "template",
+        content: newTemplateContent,
+        size_bytes: new Blob([newTemplateContent]).size,
+        created_at: new Date().toISOString(),
+        origin_agent: "user_template",
+        source_type: "template",
+        source_title: newTemplateDescription.trim() || `${newTemplateBadge || "Custom"} Template`,
+        downloadable: true,
+        is_base64: false,
+        encoding: "utf-8",
+        mime_type: "text/markdown",
+      };
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
+      const res = await fetch(`${apiUrl}/api/artifacts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const saved: Artifact = res.ok ? await res.json() : payload;
+
+      try {
+        const raw = localStorage.getItem("swarm_local_artifacts");
+        const list = raw ? JSON.parse(raw) : [];
+        localStorage.setItem("swarm_local_artifacts", JSON.stringify([saved, ...list].slice(0, 50)));
+      } catch {
+        // Ignore cache error
+      }
+
+      setArtifacts((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)]);
+      setIsCreateTemplateOpen(false);
+      setNewTemplateTitle("");
+      setNewTemplateBadge("");
+      setNewTemplateDescription("");
+    } catch (err) {
+      console.error("Failed to create custom template:", err);
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
   // Filtered artifacts
   const filteredArtifacts = useMemo(() => {
     return artifacts.filter((art) => {
@@ -349,7 +449,11 @@ export default function ArtifactsStudioPage() {
 
       const matchesType =
         typeFilter === "all" ||
-        (art.type || "").toLowerCase() === typeFilter.toLowerCase();
+        (typeFilter === "template"
+          ? (art.type || "").toLowerCase() === "template" ||
+            (art.filename || "").toLowerCase().endsWith(".md") ||
+            (art.type || "").toLowerCase() === "md"
+          : (art.type || "").toLowerCase() === typeFilter.toLowerCase());
 
       return matchesSearch && matchesType;
     });
@@ -357,6 +461,9 @@ export default function ArtifactsStudioPage() {
 
   const getFileIcon = (type: string) => {
     const t = type.toLowerCase();
+    if (t === "template" || t === "md" || t === "markdown") {
+      return <FileText size={18} className="text-linear-primary" />;
+    }
     if (t === "pdf") {
       return <FileText size={18} className="text-red-400" />;
     }
@@ -416,6 +523,15 @@ export default function ArtifactsStudioPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
+                  onClick={() => setIsCreateTemplateOpen(true)}
+                  className="px-3.5 py-1.5 text-xs font-medium text-ink bg-surface-2 hover:bg-surface-3 border border-hairline rounded-md transition-colors flex items-center gap-1.5 shadow-xs"
+                  title="Create a new Markdown artifact report template"
+                >
+                  <FileText size={13} className="text-linear-primary" />
+                  <span>New Template</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsUploadModalOpen(true)}
                   className="px-3.5 py-1.5 text-xs font-medium text-ink bg-surface-2 hover:bg-surface-3 border border-hairline rounded-md transition-colors flex items-center gap-1.5 shadow-xs"
                   title="Upload PDF, DOCX, PPTX, XLSX, CSV, JSON, Markdown, or Code artifacts"
@@ -460,7 +576,7 @@ export default function ArtifactsStudioPage() {
               </div>
 
               <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                {["all", "pdf", "docx", "pptx", "xlsx", "csv", "json", "py", "md"].map((t) => (
+                {["all", "template", "pdf", "docx", "pptx", "xlsx", "csv", "json", "py", "md"].map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -845,6 +961,126 @@ export default function ArtifactsStudioPage() {
                     <>
                       <Upload size={12} />
                       <span>Upload & Index</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Create Custom Template Modal */}
+      {isCreateTemplateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-2xl bg-surface-1 border border-hairline rounded-xl shadow-card overflow-hidden">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-hairline flex items-center justify-between bg-surface-2/30">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-md bg-linear-primary/10 border border-linear-primary/30 flex items-center justify-center text-linear-primary">
+                  <FileText size={15} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">
+                    Create Custom Report Template
+                  </h3>
+                  <p className="text-[11px] text-ink-subtle">
+                    Save a Markdown (.md) specification accessible in the chat /artifact picker
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateTemplateOpen(false)}
+                className="p-1.5 rounded-md text-ink-subtle hover:text-ink hover:bg-surface-2 border border-hairline transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCustomTemplate} className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2 space-y-1">
+                  <label className="text-[11px] font-medium text-ink-subtle uppercase tracking-wider block">
+                    Template Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newTemplateTitle}
+                    onChange={(e) => setNewTemplateTitle(e.target.value)}
+                    placeholder="e.g. Client Onboarding Blueprint"
+                    className="w-full px-3 py-1.5 text-xs bg-surface-2 border border-hairline rounded-md text-ink placeholder:text-ink-tertiary focus:outline-none focus:border-linear-primary"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-ink-subtle uppercase tracking-wider block">
+                    Badge Tag
+                  </label>
+                  <input
+                    type="text"
+                    value={newTemplateBadge}
+                    onChange={(e) => setNewTemplateBadge(e.target.value.toUpperCase())}
+                    placeholder="e.g. CLIENT"
+                    className="w-full px-3 py-1.5 text-xs bg-surface-2 border border-hairline rounded-md text-ink placeholder:text-ink-tertiary focus:outline-none focus:border-linear-primary font-mono uppercase"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-ink-subtle uppercase tracking-wider block">
+                  Short Description
+                </label>
+                <input
+                  type="text"
+                  value={newTemplateDescription}
+                  onChange={(e) => setNewTemplateDescription(e.target.value)}
+                  placeholder="e.g. Phased onboarding milestones, security verification, and handoff criteria"
+                  className="w-full px-3 py-1.5 text-xs bg-surface-2 border border-hairline rounded-md text-ink placeholder:text-ink-tertiary focus:outline-none focus:border-linear-primary"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-medium text-ink-subtle uppercase tracking-wider block">
+                    Markdown Instructions (.md) *
+                  </label>
+                  <span className="text-[10px] font-mono text-ink-tertiary">
+                    Tone, Construction, Data Heaviness, Sections
+                  </span>
+                </div>
+                <textarea
+                  rows={10}
+                  required
+                  value={newTemplateContent}
+                  onChange={(e) => setNewTemplateContent(e.target.value)}
+                  className="w-full p-3 text-xs font-mono bg-canvas border border-hairline rounded-md text-ink placeholder:text-ink-tertiary focus:outline-none focus:border-linear-primary resize-y leading-relaxed"
+                />
+              </div>
+
+              {/* Actions Footer */}
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-hairline">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateTemplateOpen(false)}
+                  className="px-3 py-1.5 text-xs text-ink-subtle hover:text-ink hover:bg-surface-2 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newTemplateTitle.trim() || !newTemplateContent.trim() || isSavingTemplate}
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xs inline-flex items-center gap-1.5"
+                >
+                  {isSavingTemplate ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Saving Template...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={12} />
+                      <span>Save Template Artifact</span>
                     </>
                   )}
                 </button>

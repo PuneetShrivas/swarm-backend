@@ -548,9 +548,26 @@ def generate_agent_spec(
 def requires_fresh_internet_information(prompt: str) -> bool:
     """
     Detects whether a user prompt requires real-time, current, live, or time-sensitive
-    information from the web that warrants using the Research Agent with Perplexity Sonar.
+    information from the web that warrants aggressively using the Research Agent with Perplexity Sonar.
     """
     p = prompt.lower().strip()
+
+    # Explicit web search verbs & live discovery intents
+    search_intents = [
+        "search out", "search for", "search up", "search the web", "search the internet",
+        "search online", "look up", "find out", "find me", "find online", "google",
+        "web search", "websearch", "search web", "browse the web", "browse online",
+        "crawl", "scrape", "live search", "online search", "check online", "check the web",
+        "check latest", "who is the current", "what is the current", "when did",
+        "fact check", "fact-check", "citations for", "sources for", "verify claims",
+        "verify if", "is it true that"
+    ]
+    if any(intent in p for intent in search_intents):
+        return True
+
+    # Search keyword boundaries (e.g. standalone "search", "lookup")
+    if re.search(r"\b(search|websearch|google|lookup)\b", p):
+        return True
 
     # Temporal recency cues
     temporal_cues = [
@@ -563,11 +580,16 @@ def requires_fresh_internet_information(prompt: str) -> bool:
     if any(re.search(rf"\b{re.escape(cue)}\b", p) for cue in temporal_cues):
         return True
 
-    # Real-time entities & topics
+    # Real-time entities & topics (stocks, financial performance, sports, weather, events)
     realtime_topics = [
         "weather", "forecast", "temperature", "climate today",
-        "stock price", "stock prices", "ticker", "market quote", "share price",
-        "crypto price", "btc price", "bitcoin price", "eth price", "nasdaq",
+        "stock performance", "stock performances", "stock movement", "stock movements",
+        "stock price", "stock prices", "ticker", "tickers", "market quote", "market quotes",
+        "stock quote", "stock quotes", "share price", "share prices", "equity price", "equity prices",
+        "crypto price", "crypto prices", "btc price", "bitcoin price", "eth price", "nasdaq",
+        "s&p", "dow jones", "market cap", "p/e ratio", "quarterly earnings", "earnings report",
+        "earnings call", "dividend yield", "trading volume", "52-week", "financial performance",
+        "financial metrics",
         "sports score", "sports scores", "game score", "match score", "who won",
         "game result", "match result", "tournament", "championship", "standings",
         "election", "poll results", "who won the election", "vote count",
@@ -577,16 +599,6 @@ def requires_fresh_internet_information(prompt: str) -> bool:
         "flight status", "delay status", "traffic today"
     ]
     if any(topic in p for topic in realtime_topics):
-        return True
-
-    # Explicit web search and fact verification queries
-    search_intents = [
-        "web search", "websearch", "search web", "search online", "search the internet",
-        "google", "browse", "look up", "find online", "who is the current", "what is the current",
-        "when did", "fact check", "fact-check", "citations for", "sources for", "verify claims",
-        "verify if", "is it true that"
-    ]
-    if any(intent in p for intent in search_intents):
         return True
 
     return False
@@ -919,13 +931,67 @@ def synthesize_on_the_fly_workflow(
     # A) Live Market & Financial Intelligence
     has_market_kw = any(k in prompt_lower for k in [
         "stock", "ticker", "market quote", "share price", "equity", "crypto", "btc",
-        "financial metric", "p/e ratio", "valuation", "nasdaq", "dow", "s&p"
+        "financial metric", "p/e ratio", "valuation", "nasdaq", "dow", "s&p",
+        "market performance", "stock performance", "stock performances"
     ])
     has_analysis_kw = any(k in prompt_lower for k in [
         "analysis", "analyze", "compare", "valuation", "ratio", "briefing", "summary",
         "financial", "trend", "forecast", "insight"
     ])
-    if has_market_kw and (has_analysis_kw or len(prompt_clean.split()) > 6):
+    has_file_export = any(k in prompt_lower for k in [
+        "excel", "xlsx", "spreadsheet", "csv", "sheet", "workbook", "create file", "export file", "download file", "generate file"
+    ])
+    if has_market_kw and (has_analysis_kw or has_file_export or len(prompt_clean.split()) > 6):
+        if has_file_export:
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Market Data & Spreadsheet Generation Pipeline ({slug_id})",
+                "description": "Multi-agent live market research with Perplexity Sonar, quantitative tabular normalization, and production Excel spreadsheet synthesis.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Market Data & Stock Discovery",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Search live financial sources and market quotes using Perplexity Sonar for real-time stock prices, trading volume, daily/historical performance, and valuation metrics: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Financial Data Normalization & Tabular Structuring",
+                        "step_type": "agent",
+                        "agent_id": "data_analyst",
+                        "instructions": f"Analyze discovered market data, calculate performance deltas and ratios, and format clean structured tabular rows with typed headers (Ticker, Company, Current Price, Change %, Market Cap, P/E Ratio, 52-Week Range): {{{{steps.step_1.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Production Spreadsheet & File Synthesis",
+                        "step_type": "agent",
+                        "agent_id": "file_creator",
+                        "instructions": f"Generate a formatted production Excel spreadsheet (.xlsx/CSV) with styled tables, column widths, and summary rows from the tabular data, and provide an executive summary of market performance: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+
         return {
             "id": f"ephemeral_wf_{slug_id}",
             "title": f"Live Market & Valuation Intelligence Pipeline ({slug_id})",
@@ -1095,6 +1161,56 @@ def synthesize_on_the_fly_workflow(
     has_data_kw = any(k in prompt_lower for k in ["data", "dataset", "statistics", "numbers", "sales", "metrics", "calculate"])
     has_file_kw = any(k in prompt_lower for k in ["csv", "excel", "xlsx", "pdf", "report", "spreadsheet", "file", "download"])
     if has_data_kw and has_file_kw:
+        if requires_fresh_internet_information(prompt_clean):
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Research, Analysis & File Export Pipeline ({slug_id})",
+                "description": "Multi-agent live research with Perplexity Sonar, quantitative analysis, and formatted file artifact generation.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Web Discovery & Evidence Gathering",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Conduct live web search using Perplexity Sonar to gather authoritative citations, verified facts, and recent metrics: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Statistical & Numerical Analysis",
+                        "step_type": "agent",
+                        "agent_id": "data_analyst",
+                        "instructions": f"Analyze discovered data and parameters, calculate descriptive metrics, identify patterns, and structure clean data: {{{{steps.step_1.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Formatted File & Report Generation",
+                        "step_type": "agent",
+                        "agent_id": "file_creator",
+                        "instructions": "Generate formatted downloadable file incorporating numerical analysis: {{steps.step_2.output.text}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+
         return {
             "id": f"ephemeral_wf_{slug_id}",
             "title": f"Data Analysis & File Export Pipeline ({slug_id})",
@@ -1148,7 +1264,7 @@ def synthesize_on_the_fly_workflow(
         "deep dive", "in-depth", "comprehensive", "comparative", "compare",
         "executive summary", "detailed briefing", "investigate", "explain in detail"
     ])
-    if has_deep_kw or len(prompt_clean.split()) > 14:
+    if (has_deep_kw or len(prompt_clean.split()) > 14) and not has_file_export:
         return {
             "id": f"ephemeral_wf_{slug_id}",
             "title": f"Deep Investigation & Executive Synthesis Pipeline ({slug_id})",
@@ -1194,6 +1310,56 @@ def synthesize_on_the_fly_workflow(
         "word document", "presentation", "export file"
     ])
     if has_file_gen:
+        if requires_fresh_internet_information(prompt_clean):
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Discovery & File Generation Pipeline ({slug_id})",
+                "description": "Multi-agent live web research with Perplexity Sonar, tabular normalization, and production file artifact synthesis.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Web Discovery & Evidence Gathering",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Conduct live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current metrics for: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Data Schema & Tabular Normalization",
+                        "step_type": "agent",
+                        "agent_id": "data_analyst",
+                        "instructions": f"Analyze discovered web findings, design clean column schemas, calculate metrics, and structure normalized tabular data with typed columns and headers: {{{{steps.step_1.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Production File & Spreadsheet Synthesis",
+                        "step_type": "agent",
+                        "agent_id": "file_creator",
+                        "instructions": f"Generate formatted production file artifact (native Excel spreadsheet table with openpyxl, CSV, PDF, or presentation) incorporating structured tabular data: {{{{steps.step_2.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+
         return {
             "id": f"ephemeral_wf_{slug_id}",
             "title": f"Tabular Architecture & File Generation Pipeline ({slug_id})",
@@ -1299,10 +1465,61 @@ def synthesize_on_the_fly_workflow(
     # H) Real-Time Research, Fact Verification & Synthesis Workflow (2 or 3 Steps)
     is_fresh = requires_fresh_internet_information(prompt_clean)
     has_search = any(k in prompt_lower for k in [
-        "web search", "websearch", "search", "latest", "news", "price", "who is", "when did",
-        "current", "recent", "lookup", "find", "trends", "what happened"
+        "web search", "websearch", "search", "search out", "search for", "latest", "news",
+        "price", "prices", "who is", "when did", "current", "recent", "lookup", "look up",
+        "find", "find out", "trends", "what happened"
     ])
     if has_search or is_fresh:
+        if has_file_export:
+            return {
+                "id": f"ephemeral_wf_{slug_id}",
+                "title": f"Live Web Research & File Generation Pipeline ({slug_id})",
+                "description": "Multi-agent live research with Perplexity Sonar, quantitative tabular normalization, and production file synthesis.",
+                "goal": prompt_clean,
+                "is_ephemeral": True,
+                "is_multi_step": True,
+                "steps": [
+                    {
+                        "id": "step_1",
+                        "name": "Live Web Discovery & Evidence Gathering",
+                        "step_type": "agent",
+                        "agent_id": "researcher",
+                        "model": "sonar",
+                        "instructions": f"Execute live web search using Perplexity Sonar to gather authoritative citations, real-time facts, and current developments: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": art_ids,
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "step_2",
+                        "name": "Comparative Analysis & Tabular Structuring",
+                        "step_type": "agent",
+                        "agent_id": "data_analyst",
+                        "instructions": f"Analyze research findings, extract key metrics, structure comparative facts, and format clean structured tabular data: {{{{steps.step_1.output.text}}}}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_1"],
+                    },
+                    {
+                        "id": "step_3",
+                        "name": "Production File & Spreadsheet Synthesis",
+                        "step_type": "agent",
+                        "agent_id": "file_creator",
+                        "instructions": f"Generate formatted production file artifact (.xlsx, CSV, or document) incorporating structured tabular data: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                        "tool_ids": [],
+                        "knowledge_file_ids": [],
+                        "attached_artifact_ids": [],
+                        "depends_on": ["step_2"],
+                    },
+                ],
+                "edges": [
+                    {"source": "step_1", "target": "step_2"},
+                    {"source": "step_2", "target": "step_3"},
+                ],
+            }
+
         has_metrics_or_price = any(k in prompt_lower for k in [
             "price", "gold", "market", "rate", "cost", "quote", "metrics", "data", "compare", "valuation", "p/e"
         ])

@@ -7,6 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-02
 
 ### Added
+- **Detailed Markdown Artifact Templates, Custom Templates & Aggressive Researcher Orchestration (`frontend/` & `backend/`)**:
+  - **Standalone Markdown Template Guidelines (`frontend/src/app/chat/templates/`)**:
+    - Upgraded artifact report templates from superficial section lists into dedicated, comprehensive `.md` specification files: `executive_summary.md`, `research_synthesis.md`, `technical_specification.md`, `financial_analysis.md`, `compliance_review.md`, and `meeting_minutes.md`.
+    - Included exhaustive writing directives: Tone & Voice, Construction & Narrative Framework (e.g. Inverted Pyramid, IMRAD, RFC imperative conventions), Data Heaviness & Density thresholds, Target Word Count (500 to 2000 words), and structural blueprints.
+    - Exported via central registry `BUILTIN_ARTIFACT_TEMPLATES` in `frontend/src/app/chat/templates/index.ts`.
+  - **Interactive Template Inspection Modal (`frontend/src/app/chat/components/TemplateDetailsModal.tsx`)**:
+    - Made attached template chips above the chat input box clickable to open an interactive preview modal.
+    - Added info inspection trigger icon (`Info`) to every template row in the `/artifact` template picker.
+    - Renders metadata pills (Tone, Construction, Data Heaviness, Target Length), section blueprint tags, and full scrollable markdown specifications with 1-click copy-to-clipboard action.
+    - Updated `handleSelectTemplate` in `ChatInput.tsx` to explicitly clear the input bar before inserting `"prepare a report according to /artifact [${template.title}]"`.
+  - **Custom User Template Artifacts in Artifacts Studio (`frontend/src/app/artifacts/page.tsx`)**:
+    - Added "New Template" action button in the studio header and implemented `CreateTemplateModal` to create and store custom template artifacts (`type: "template"`, `.md` extension).
+    - Added "Template" filter pill alongside PDF, image, video, code, and report filters.
+    - Updated `ChatInput.tsx` to dynamically query user artifacts from `localStorage` and `/api/artifacts`, automatically surfacing custom user templates and uploaded `.md` files in the `/artifact` popover with distinct amber badges (`bg-amber-500/15 text-amber-500 border-amber-500/30`).
+  - **Default Orchestrator Routing & Aggressive Researcher Orchestration (`backend/app/main.py` & `backend/app/ai_generator.py`)**:
+    - Refactored `route_agent` in `backend/app/main.py`: Removed premature single-agent keyword interception so that whenever `target_id` is None, empty, or `"orchestrator"`, it returns `agent_registry.get_orchestrator()`, ensuring the Orchestrator on-the-fly workflow synthesis engine is always triggered for chat turns.
+    - Enhanced `requires_fresh_internet_information` with aggressive live search triggers: search verbs (`"search out"`, `"search for"`, `"look up"`, `"find out"`), financial/stock metrics (`"stock performance"`, `"stock performances"`, `"stock movement"`, `"share price"`, `"market performance"`, `"financial metrics"`, `"quarterly earnings"`, `"market cap"`), and regex boundaries.
+    - Updated `synthesize_on_the_fly_workflow` so queries combining live search with file export (e.g. *"search out the latest stock performances of apple, amazon and microsoft and then put them in an excel sheet"*) synthesize a 3-agent pipeline: `step_1: researcher (model: sonar)` -> `step_2: data_analyst` -> `step_3: file_creator` (native Excel `.xlsx` / spreadsheet synthesis).
+    - Added automated unit test suite `backend/test_aggressive_researcher_orchestration.py` (6 tests passing). Verified regression with `backend/test_pdf_report_artifact.py` and full Next.js production build (14 routes passing).
+
 - **PDF Attachment Report Generation & Attached /artifact Template Picker (`frontend/src/app/chat/` & `backend/`)**:
   - **Attached Artifact Template Popover & Command Palette (`frontend/src/app/chat/components/ChatInput.tsx`)**:
     - Implemented `#artifact-template-container` popover docked directly above the chat input box adhering to Linear Design tokens (`#010102` canvas, `#0f1011` surface-1, `#5e6ad2` primary accent, hairline borders).

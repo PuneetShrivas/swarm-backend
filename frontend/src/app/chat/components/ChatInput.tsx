@@ -19,8 +19,11 @@ import {
   FileJson,
   Search,
   Check,
+  Info,
 } from "lucide-react";
 import { ArtifactTemplate } from "../types";
+import { BUILTIN_ARTIFACT_TEMPLATES } from "../templates";
+import TemplateDetailsModal from "./TemplateDetailsModal";
 
 interface SlashCommand {
   id: string;
@@ -38,6 +41,10 @@ export interface AttachedArtifact {
   content: string;
   size_bytes?: number;
   is_base64?: boolean;
+  source_title?: string;
+  source_type?: string;
+  mime_type?: string;
+  origin_agent?: string;
 }
 
 interface ChatInputProps {
@@ -53,56 +60,7 @@ interface ChatInputProps {
   onUploadFile?: (file: File) => Promise<void>;
 }
 
-export const ARTIFACT_TEMPLATES: ArtifactTemplate[] = [
-  {
-    id: "executive-summary",
-    title: "Executive Summary Report",
-    badge: "EXECUTIVE",
-    description: "High-level overview, key findings, strategic takeaways, and recommended action matrix",
-    sections: ["Executive Overview", "Key Findings & Data Points", "Strategic Risk Matrix", "Recommended Action Plan"],
-    defaultFormat: "pdf",
-  },
-  {
-    id: "research-report",
-    title: "Research & Deep-Dive Synthesis",
-    badge: "RESEARCH",
-    description: "In-depth analysis, methodology, comparative findings, citations, and comprehensive conclusion",
-    sections: ["Abstract & Problem Context", "Methodology & Scope", "Detailed Findings & Analysis", "Comparative Evidence", "Strategic Conclusion"],
-    defaultFormat: "pdf",
-  },
-  {
-    id: "tech-spec",
-    title: "Technical Specification & Architecture Audit",
-    badge: "TECHNICAL",
-    description: "System architecture breakdown, data schemas, security posture, and engineering roadmap",
-    sections: ["System Overview & Objectives", "Architectural Breakdown", "Security & Compliance Analysis", "Implementation Phasing & Milestones"],
-    defaultFormat: "pdf",
-  },
-  {
-    id: "financial-data",
-    title: "Financial & Quantitative Data Analysis",
-    badge: "FINANCIAL",
-    description: "Quantitative metrics, KPI performance, tabular comparisons, and forward projections",
-    sections: ["Financial & Operational Highlights", "Quantitative KPI Breakdown", "Tabular Performance Comparison", "Forward Projections & Forecast"],
-    defaultFormat: "pdf",
-  },
-  {
-    id: "compliance-review",
-    title: "Compliance & Policy Review",
-    badge: "AUDIT",
-    description: "Regulatory evaluation, policy gap analysis, audit checklist, and remediation timeline",
-    sections: ["Scope & Regulatory Baseline", "Audit Checklist & Adherence", "Identified Gaps & Discrepancies", "Remediation & Governance Roadmap"],
-    defaultFormat: "pdf",
-  },
-  {
-    id: "meeting-minutes",
-    title: "Actionable Meeting & Transcript Minutes",
-    badge: "MINUTES",
-    description: "Executive discussion points, key decisions adopted, and action item matrix with owners/deadlines",
-    sections: ["Agenda & Meeting Context", "Executive Discussion Points", "Key Decisions Adopted", "Action Items Matrix (Owner & Deadline)"],
-    defaultFormat: "pdf",
-  },
-];
+export const ARTIFACT_TEMPLATES: ArtifactTemplate[] = BUILTIN_ARTIFACT_TEMPLATES;
 
 const SLASH_COMMANDS: SlashCommand[] = [
   {
@@ -155,6 +113,8 @@ export default function ChatInput({
   const [selectedTemplate, setSelectedTemplate] = useState<ArtifactTemplate | null>(null);
   const [templateSearch, setTemplateSearch] = useState("");
   const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0);
+  const [showTemplateDetailsModal, setShowTemplateDetailsModal] = useState(false);
+  const [inspectedTemplate, setInspectedTemplate] = useState<ArtifactTemplate | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -201,17 +161,94 @@ export default function ChatInput({
   }, [showArtifactTemplatePopup]);
 
   // Filter artifact templates
+  const [customTemplates, setCustomTemplates] = useState<ArtifactTemplate[]>([]);
+
+  useEffect(() => {
+    const loadCustomTemplates = async () => {
+      try {
+        let list: AttachedArtifact[] = [];
+        try {
+          const raw = localStorage.getItem("swarm_local_artifacts");
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) list = parsed;
+          }
+        } catch {
+          // ignore
+        }
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${apiUrl}/api/artifacts`).catch(() => null);
+        if (res && res.ok) {
+          const backendList = await res.json();
+          if (Array.isArray(backendList)) {
+            const seen = new Set(list.map((a) => a.id));
+            for (const b of backendList) {
+              if (b && b.id && !seen.has(b.id)) {
+                list.push(b);
+                seen.add(b.id);
+              }
+            }
+          }
+        }
+
+        const templateArts = list.filter(
+          (a) =>
+            a.type === "template" ||
+            (a.filename && a.filename.toLowerCase().endsWith(".md")) ||
+            a.type === "md"
+        );
+
+        const mapped: ArtifactTemplate[] = templateArts.map((art) => {
+          const rawTitle = (art.name || art.filename || "Custom Template").replace(/\.md$/i, "");
+          const cleanTitle = rawTitle.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+          const headingMatches = (art.content || "").match(/^(?:#{1,3})\s+(.+)$/gm) || [];
+          const extractedSections = headingMatches
+            .map((h) => h.replace(/^#{1,3}\s+/, "").trim())
+            .filter((h) => !h.toLowerCase().includes("specification") && !h.toLowerCase().includes("overview"))
+            .slice(0, 4);
+
+          return {
+            id: `custom-${art.id}`,
+            title: cleanTitle,
+            badge: art.type === "template" ? "TEMPLATE" : "USER MD",
+            description: art.source_title || "User custom template artifact",
+            sections: extractedSections.length > 0 ? extractedSections : ["Overview", "Detailed Analysis", "Key Findings", "Action Plan"],
+            defaultFormat: "markdown",
+            markdownInstructions: art.content,
+            isCustom: true,
+            artifactId: art.id,
+          };
+        });
+
+        setCustomTemplates(mapped);
+      } catch (e) {
+        console.warn("Failed to load custom templates:", e);
+      }
+    };
+
+    if (showArtifactTemplatePopup) {
+      loadCustomTemplates();
+    }
+  }, [showArtifactTemplatePopup]);
+
+  // Combine built-in templates and user custom templates
+  const allTemplates = useMemo(() => {
+    return [...ARTIFACT_TEMPLATES, ...customTemplates];
+  }, [customTemplates]);
+
+  // Filter artifact templates
   const filteredTemplates = useMemo(() => {
-    if (!templateSearch.trim()) return ARTIFACT_TEMPLATES;
+    if (!templateSearch.trim()) return allTemplates;
     const q = templateSearch.toLowerCase().trim();
-    return ARTIFACT_TEMPLATES.filter(
+    return allTemplates.filter(
       (t) =>
         t.title.toLowerCase().includes(q) ||
         t.badge.toLowerCase().includes(q) ||
         t.description.toLowerCase().includes(q) ||
         t.sections.some((s) => s.toLowerCase().includes(q))
     );
-  }, [templateSearch]);
+  }, [templateSearch, allTemplates]);
 
   // Handle template selection
   const handleSelectTemplate = (template: ArtifactTemplate) => {
@@ -219,18 +256,8 @@ export default function ChatInput({
     setShowArtifactTemplatePopup(false);
     setTemplateSearch("");
 
-    const trimmed = input.trim();
-    if (!trimmed || trimmed === "/artifact" || trimmed === "/template") {
-      setInput(`prepare a report according to /artifact [${template.title}]`);
-    } else if (trimmed.includes("/artifact") || trimmed.includes("/template")) {
-      setInput(
-        trimmed
-          .replace(/\/artifact(?:\[[^\]]*\])?/gi, `/artifact [${template.title}]`)
-          .replace(/\/template(?:\[[^\]]*\])?/gi, `/artifact [${template.title}]`)
-      );
-    } else {
-      setInput(`${trimmed} prepare a report according to /artifact [${template.title}]`);
-    }
+    // Clear the input bar before putting the template line for the artifact
+    setInput(`prepare a report according to /artifact [${template.title}]`);
 
     if (textareaRef.current) {
       textareaRef.current.focus();
@@ -470,16 +497,38 @@ export default function ChatInput({
 
             {/* Selected Artifact Template Chip */}
             {selectedTemplate && (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-primary/15 border border-linear-primary/40 text-ink text-xs font-medium animate-fade-in shrink-0 shadow-xs group">
-                <FileText size={12} className="text-linear-primary" />
-                <span className="text-xs text-ink">{selectedTemplate.title}</span>
+              <div
+                onClick={() => {
+                  setInspectedTemplate(selectedTemplate);
+                  setShowTemplateDetailsModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-primary/15 border border-linear-primary/40 text-ink text-xs font-medium animate-fade-in shrink-0 shadow-xs group cursor-pointer hover:bg-linear-primary/20 transition-colors"
+                title="Click to view detailed template specifications"
+              >
+                <FileText size={12} className="text-linear-primary shrink-0" />
+                <span className="text-xs text-ink group-hover:underline">{selectedTemplate.title}</span>
                 <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-surface-2 text-linear-primary border border-hairline">
                   {selectedTemplate.badge}
                 </span>
                 <button
                   type="button"
-                  onClick={() => setSelectedTemplate(null)}
-                  className="p-0.5 text-ink-subtle hover:text-ink rounded transition-colors ml-0.5"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setInspectedTemplate(selectedTemplate);
+                    setShowTemplateDetailsModal(true);
+                  }}
+                  className="p-0.5 text-ink-subtle hover:text-ink rounded transition-colors"
+                  title="View specifications"
+                >
+                  <Info size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedTemplate(null);
+                  }}
+                  className="p-0.5 text-ink-subtle hover:text-destructive rounded transition-colors ml-0.5"
                   title="Remove template"
                 >
                   <X size={12} />
@@ -686,9 +735,29 @@ export default function ChatInput({
                             <Check size={12} className="text-primary shrink-0" />
                           )}
                         </div>
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded-xs bg-primary/15 text-primary border border-primary/30">
-                          {template.badge}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInspectedTemplate(template);
+                              setShowTemplateDetailsModal(true);
+                            }}
+                            className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors"
+                            title="Inspect template specifications"
+                          >
+                            <Info size={12} />
+                          </button>
+                          <span
+                            className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded-xs border ${
+                              template.isCustom
+                                ? "bg-amber-500/15 text-amber-500 border-amber-500/30"
+                                : "bg-primary/15 text-primary border-primary/30"
+                            }`}
+                          >
+                            {template.badge}
+                          </span>
+                        </div>
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug mb-1.5">
                         {template.description}
@@ -814,6 +883,14 @@ export default function ChatInput({
           </span>
         </div>
       </div>
+
+      {/* Template Details & Instructions Inspection Modal */}
+      <TemplateDetailsModal
+        isOpen={showTemplateDetailsModal}
+        onClose={() => setShowTemplateDetailsModal(false)}
+        template={inspectedTemplate}
+        onApplyTemplate={(tpl) => handleSelectTemplate(tpl)}
+      />
     </div>
   );
 }
