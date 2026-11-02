@@ -14,6 +14,7 @@ import {
   ConversationState,
   ChatSession,
   UserUsageSummary,
+  ArtifactTemplate,
   createInitialState,
   getActivePath,
   getSiblingInfo,
@@ -333,7 +334,8 @@ function ChatContent() {
     userParentNodeId?: string | null,
     workflowId?: string,
     workflowInputs?: Record<string, unknown>,
-    artsToSend?: AttachedArtifact[]
+    artsToSend?: AttachedArtifact[],
+    artifactTemplate?: ArtifactTemplate
   ) => {
     setIsLoading(true);
     setStreamStartTime(Date.now());
@@ -374,6 +376,7 @@ function ChatContent() {
         model: selectedModel || undefined,
         artifact_ids: activeArts.map((a) => a.id),
         attached_artifacts: activeArts,
+        artifact_template: artifactTemplate || undefined,
       };
 
       let finalData: { content?: string; metadata?: Record<string, unknown> } | null = null;
@@ -645,7 +648,11 @@ function ChatContent() {
   };
 
   // Handle standard user prompt submission (with lazy contextual session creation)
-  const handleSend = async (content: string, artsToSend?: AttachedArtifact[]) => {
+  const handleSend = async (
+    content: string,
+    artsToSend?: AttachedArtifact[],
+    selectedTemplate?: ArtifactTemplate
+  ) => {
     if (isLoading) return;
 
     const trimmed = content.trim();
@@ -693,13 +700,23 @@ function ChatContent() {
       {
         ...(selectedAgentId ? { target_agent_id: selectedAgentId } : {}),
         ...(currentArtifacts.length > 0 ? { attached_artifacts: currentArtifacts } : {}),
+        ...(selectedTemplate ? { artifact_template: selectedTemplate } : {}),
       }
     );
 
     setConversation(newState);
     setAttachedArtifacts([]);
     const updatedPath = getActivePath(newState.nodes, newNodeId);
-    requestSwarmResponse(updatedPath, newNodeId, targetSessionId, userParent, undefined, undefined, currentArtifacts);
+    requestSwarmResponse(
+      updatedPath,
+      newNodeId,
+      targetSessionId,
+      userParent,
+      undefined,
+      undefined,
+      currentArtifacts,
+      selectedTemplate
+    );
   };
 
   // Handle invoking an autonomous workflow inside chat
@@ -1013,7 +1030,7 @@ function ChatContent() {
 
           {/* Bottom Input Area */}
           <ChatInput
-            onSend={(content, arts) => handleSend(content, arts)}
+            onSend={(content, arts, template) => handleSend(content, arts, template)}
             isLoading={isLoading}
             onStop={handleStop}
             onOpenWorkflowPicker={() => setIsWorkflowPickerOpen(true)}

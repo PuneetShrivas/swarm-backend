@@ -1027,49 +1027,31 @@ def get_usage(current_user: AuthUser = Depends(get_current_user)):
 # Swarm Chat Endpoint (With Persistence & Usage Tracking)
 # ---------------------------------------------------------
 
-def extract_file_artifact_from_turn(content: str, agent_id: str, prompt: str = "") -> Optional[Dict[str, Any]]:
+def extract_file_artifact_from_turn(
+    content: str,
+    agent_id: str,
+    prompt: str = "",
+    attached_artifacts: Optional[List[Dict[str, Any]]] = None
+) -> Optional[Dict[str, Any]]:
     """
     Detects and extracts a downloadable file artifact from agent response.
     Supports standard code blocks with language identifiers, CRLF linebreaks,
     and automatic tabular CSV/data parsing for file_creator agents.
+    Also produces styled PDF/PPTX/DOCX documents when requested or when generating reports from context.
     """
     if not content or not content.strip():
         return None
 
     prompt_lower = prompt.lower()
+    has_attached_pdf = bool(
+        attached_artifacts and any(
+            str(a.get("type", "")).lower() == "pdf"
+            or str(a.get("filename", "")).lower().endswith(".pdf")
+            for a in attached_artifacts
+        )
+    )
 
-    # 1. Binary Document Generation detection (PDF, PPTX, DOCX, XLSX)
-    if "pdf" in prompt_lower:
-        try:
-            from app.agents.file_creator.tools import generate_pdf_document
-            clean_lines = [l.strip("# *") for l in content.splitlines() if l.strip()]
-            doc_title = clean_lines[0] if clean_lines else "Generated Document"
-            raw_secs = re.split(r"(?m)^(?=#{1,3}\s+)", content)
-            sections = []
-            for s in raw_secs:
-                s_lines = s.strip().splitlines()
-                if s_lines:
-                    h = s_lines[0].strip("# ").strip()
-                    b = "\n".join(s_lines[1:]).strip()
-                    sections.append({"heading": h, "content": b})
-            art = generate_pdf_document(
-                title=doc_title[:80],
-                subtitle="Swarm Autonomous Document",
-                sections=sections or [{"heading": "Executive Summary", "content": content[:400]}],
-                filename=f"document_{int(time.time())}.pdf"
-            )
-            return {
-                **art,
-                "id": f"art-{int(time.time()*1000)}",
-                "name": art["filename"],
-                "type": "pdf",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "origin_agent": agent_id,
-                "is_base64": True,
-            }
-        except Exception as e:
-            print(f"PDF auto-synthesis notice: {e}")
-
+    # 1. Binary Document Generation detection (Presentation, Word, PDF)
     if any(k in prompt_lower for k in ["presentation", "powerpoint", "slide deck", "pptx", "pitch deck"]):
         try:
             from app.agents.file_creator.tools import generate_presentation_deck
@@ -1131,6 +1113,75 @@ def extract_file_artifact_from_turn(content: str, agent_id: str, prompt: str = "
             }
         except Exception as e:
             print(f"DOCX auto-synthesis notice: {e}")
+
+    is_pdf_report_request = (
+        "pdf" in prompt_lower
+        or "/artifact" in prompt_lower
+        or has_attached_pdf
+        or any(k in prompt_lower for k in [
+            "executive summary", "research report", "tech spec", "technical specification",
+            "financial analysis", "compliance review", "meeting minutes",
+            "prepare a report", "generate report", "create report", "synthesize report",
+            "prepare report", "draft report"
+        ])
+    )
+    if is_pdf_report_request:
+        try:
+            from app.agents.file_creator.tools import generate_pdf_document
+            clean_lines = [l.strip("# *") for l in content.splitlines() if l.strip()]
+            doc_title = clean_lines[0] if clean_lines else "Generated Report"
+            doc_title = doc_title.rstrip(":")
+
+            raw_secs = re.split(r"(?m)^(?=#{1,3}\s+)", content)
+            sections = []
+            tables = []
+
+            # Extract markdown tables if present
+            table_pattern = re.compile(r"((?:^\|.+?\|$\n?)+)", re.MULTILINE)
+            for m in table_pattern.finditer(content):
+                tbl_block = m.group(1).strip()
+                t_lines = [l.strip() for l in tbl_block.splitlines() if l.strip()]
+                if len(t_lines) >= 2:
+                    t_headers = [c.strip() for c in t_lines[0].strip("|").split("|")]
+                    t_rows = [
+                        [c.strip() for c in rl.strip("|").split("|")]
+                        for rl in t_lines[1:]
+                        if not re.match(r"^\|?[\s\-:|]+\|?$", rl)
+                    ]
+                    if t_headers or t_rows:
+                        tables.append({"headers": t_headers, "rows": t_rows})
+
+            for s in raw_secs:
+                s_lines = s.strip().splitlines()
+                if s_lines:
+                    h = s_lines[0].strip("# ").strip()
+                    b = "\n".join(s_lines[1:]).strip()
+                    # Filter out raw markdown table lines from paragraph body
+                    b_clean = re.sub(r"(?m)^\|.+?\|$\n?", "", b).strip()
+                    if h or b_clean:
+                        sections.append({"heading": h, "content": b_clean})
+
+            clean_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", doc_title.lower()).strip("_")[:40]
+            pdf_filename = f"{clean_slug or 'report'}_{int(time.time())}.pdf"
+
+            art = generate_pdf_document(
+                title=doc_title[:80],
+                subtitle="Swarm Autonomous Document & Synthesis",
+                sections=sections or [{"heading": "Executive Summary", "content": content[:400]}],
+                tables=tables if tables else None,
+                filename=pdf_filename,
+            )
+            return {
+                **art,
+                "id": f"art-{int(time.time()*1000)}",
+                "name": art["filename"],
+                "type": "pdf",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "origin_agent": agent_id,
+                "is_base64": True,
+            }
+        except Exception as e:
+            print(f"PDF auto-synthesis notice: {e}")
 
     if any(k in prompt_lower for k in ["excel", "xlsx", "workbook", "spreadsheet", "spreadsheet table"]):
         try:
@@ -1514,7 +1565,7 @@ def _execute_chat_turn(
         final_res = run_res.get("output_data", {}).get("final_result") or "Workflow execution completed."
         wf_artifacts = list(run_res.get("output_data", {}).get("artifacts", []))
 
-        auto_art = extract_file_artifact_from_turn(final_res, "orchestrator", last_user_message.content)
+        auto_art = extract_file_artifact_from_turn(final_res, "orchestrator", last_user_message.content, attached_arts)
         if auto_art:
             wf_artifacts.append(auto_art)
             memory_store.save_artifact({
@@ -1705,7 +1756,7 @@ def _execute_chat_turn(
                     ]
 
                 # Extract and catalog any generated file artifacts
-                turn_artifact = extract_file_artifact_from_turn(perp_content, agent_id, last_user_message.content)
+                turn_artifact = extract_file_artifact_from_turn(perp_content, agent_id, last_user_message.content, attached_arts)
                 if turn_artifact:
                     agent_metadata["file_artifact"] = turn_artifact
                     agent_metadata["artifacts"] = [turn_artifact]
@@ -1825,7 +1876,7 @@ def _execute_chat_turn(
                     for a in attached_arts
                 ]
 
-            turn_artifact = extract_file_artifact_from_turn(groq_content, agent_id, last_user_message.content)
+            turn_artifact = extract_file_artifact_from_turn(groq_content, agent_id, last_user_message.content, attached_arts)
             if turn_artifact:
                 agent_metadata["file_artifact"] = turn_artifact
                 agent_metadata["artifacts"] = [turn_artifact]
@@ -1970,7 +2021,7 @@ def _execute_chat_turn(
                 ]
 
             # Detect and catalog generated file artifacts
-            turn_artifact = extract_file_artifact_from_turn(agent_response_content, agent_id, last_user_message.content)
+            turn_artifact = extract_file_artifact_from_turn(agent_response_content, agent_id, last_user_message.content, attached_arts)
             if turn_artifact:
                 agent_metadata["file_artifact"] = turn_artifact
                 agent_metadata["artifacts"] = [turn_artifact]
@@ -2188,7 +2239,7 @@ def _execute_chat_turn(
         ]
 
     # Detect and catalog generated file artifacts in demo mode
-    turn_artifact = extract_file_artifact_from_turn(fallback_content, agent_id, last_user_message.content)
+    turn_artifact = extract_file_artifact_from_turn(fallback_content, agent_id, last_user_message.content, attached_arts)
     if turn_artifact:
         demo_metadata["file_artifact"] = turn_artifact
         demo_metadata["artifacts"] = [turn_artifact]

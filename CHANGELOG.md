@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-02
 
 ### Added
+- **PDF Attachment Report Generation & Attached /artifact Template Picker (`frontend/src/app/chat/` & `backend/`)**:
+  - **Attached Artifact Template Popover & Command Palette (`frontend/src/app/chat/components/ChatInput.tsx`)**:
+    - Implemented `#artifact-template-container` popover docked directly above the chat input box adhering to Linear Design tokens (`#010102` canvas, `#0f1011` surface-1, `#5e6ad2` primary accent, hairline borders).
+    - Registered 6 industry-standard report templates (Executive Summary, Research Synthesis, Technical Spec, Financial Analysis, Compliance Review, Meeting Minutes) with category badges, descriptions, and section pill tags.
+    - Added keyboard navigation (`ArrowUp`, `ArrowDown`, `Enter`, `Escape`), real-time search filter, click-outside dismissal, and active template indicator.
+    - Integrated with attachment menu (`#attach-menu-container`) and slash command `/artifact` to prefill prompt `"prepare a report according to /artifact [Template Title]"` and chip active template badge alongside attached PDF files.
+  - **On-The-Fly Autonomous Workflow Synthesis (`backend/app/ai_generator.py`)**:
+    - Extended `synthesize_on_the_fly_workflow` to recognize PDF attachments, report prompts, and `/artifact` commands, generating a 3-agent autonomous pipeline: `file_parser` (extracts text schemas, structured tables, and metrics) -> `writer` (drafts comprehensive sections adhering to template schema) -> `synthesizer` (finalizes executive markdown and compiles clean sections for PDF generation).
+  - **Dual Chat Response & Styled PDF Artifact Compilation (`backend/app/main.py` & `backend/app/agents/file_creator/tools.py`)**:
+    - Updated `extract_file_artifact_from_turn` to accept `attached_artifacts` context, parse markdown tables with alternating rows and headers via multiline regex, and compile a Base64 downloadable PDF artifact.
+    - Added XML character sanitization via `html.escape` to `generate_pdf_document` for titles, subtitles, headings, paragraphs, and bullet points, preventing ReportLab parser crashes on `<`, `>`, and `&`.
+    - Returns dual output: rich formatted Markdown directly inside the chat message bubble and an attached downloadable PDF file artifact card with 1-click download button and file metadata.
+  - **Automated Tests**: Added `backend/test_pdf_report_artifact.py` verifying workflow synthesis, special character escaping, table parsing, and dual output artifact generation. All test suites pass. Next.js build passes with 0 errors across 14 routes.
+
 - **DAG Editor Attached Toolbar & Diagram Controls (`frontend/src/app/workflows/components/`)**:
   - Implemented `DAGToolbar.tsx` docked directly to the top of the workflow DAG editor frame adhering to Linear Design tokens (`#010102` canvas, `#0f1011` surface-1, `#5e6ad2` primary accent, hairline borders).
   - Designed 5 rich block thumbnail cards (`agent`, `condition`, `python_code`, `loop`, `artifact`) with micro-schematic previews, colored badges, and dual support for click-to-add and HTML5 drag-and-drop placement on the canvas.

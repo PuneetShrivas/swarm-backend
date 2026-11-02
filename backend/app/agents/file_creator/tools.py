@@ -2,6 +2,7 @@ import json
 import base64
 import io
 import re
+import html
 from typing import Dict, Any, List, Optional
 
 # ReportLab imports for PDF generation
@@ -100,10 +101,10 @@ def generate_pdf_document(
     )
 
     story = [
-        Paragraph(title, title_style),
+        Paragraph(html.escape(title), title_style),
     ]
     if subtitle:
-        story.append(Paragraph(subtitle, subtitle_style))
+        story.append(Paragraph(html.escape(subtitle), subtitle_style))
     story.append(Spacer(1, 10))
 
     # Add document sections
@@ -112,16 +113,17 @@ def generate_pdf_document(
             if isinstance(sec, dict):
                 heading = sec.get("heading") or sec.get("title")
                 if heading:
-                    story.append(Paragraph(str(heading), heading_style))
+                    story.append(Paragraph(html.escape(str(heading)), heading_style))
 
                 content = sec.get("content") or sec.get("body") or sec.get("text")
                 if content:
-                    story.append(Paragraph(str(content).replace("\n", "<br/>"), body_style))
+                    clean_content = html.escape(str(content)).replace("\n", "<br/>")
+                    story.append(Paragraph(clean_content, body_style))
 
                 bullets = sec.get("bullets") or sec.get("points") or []
                 if isinstance(bullets, list):
                     for b in bullets:
-                        story.append(Paragraph(f"&bull; {str(b)}", bullet_style))
+                        story.append(Paragraph(f"&bull; {html.escape(str(b))}", bullet_style))
 
                 sec_table = sec.get("table")
                 if isinstance(sec_table, dict) and sec_table.get("rows"):

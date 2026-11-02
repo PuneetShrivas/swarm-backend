@@ -640,7 +640,97 @@ def synthesize_on_the_fly_workflow(
             "edges": [],
         }
 
-    # 2. Optimized Deterministic Non-Agent Blocks (Python Code / Math Execution)
+    # 2. PDF Attachment & /artifact Report Generation Pipeline
+    has_artifact_command = "/artifact" in prompt_lower
+    has_pdf_or_doc = bool(attached_artifacts) or "pdf" in prompt_lower or ".pdf" in prompt_lower
+    has_report_request = any(k in prompt_lower for k in [
+        "prepare a report", "prepare report", "generate a report", "generate report",
+        "create a report", "create report", "executive summary", "research synthesis",
+        "technical specification", "tech spec", "financial analysis", "compliance review",
+        "meeting minutes", "artifact report", "synthesize report", "draft report"
+    ])
+
+    if has_artifact_command or (has_report_request and has_pdf_or_doc):
+        if has_pdf_or_doc and attached_artifacts:
+            step_1_def = {
+                "id": "step_1",
+                "name": "PDF Document Extraction & Analysis",
+                "step_type": "agent",
+                "agent_id": "file_parser",
+                "instructions": f"Extract all critical text schemas, tabular data, metrics, key findings, and structure from the attached PDF document(s) relevant to: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+            step_2_input = "{{steps.step_1.output.text}}"
+        elif requires_fresh_internet_information(prompt_clean):
+            step_1_def = {
+                "id": "step_1",
+                "name": "Live Grounded Fact & Market Research",
+                "step_type": "agent",
+                "agent_id": "researcher",
+                "model": "sonar",
+                "instructions": f"Gather verified facts, recent developments, metrics, and citations for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+            step_2_input = "{{steps.step_1.output.text}}"
+        else:
+            step_1_def = {
+                "id": "step_1",
+                "name": "Topic Research & Strategic Structuring",
+                "step_type": "agent",
+                "agent_id": "planner",
+                "instructions": f"Analyze core principles, outline section requirements, and establish evidence points for: {prompt_clean}",
+                "tool_ids": [],
+                "knowledge_file_ids": [],
+                "attached_artifact_ids": art_ids,
+                "depends_on": [],
+            }
+            step_2_input = "{{steps.step_1.output.text}}"
+
+        return {
+            "id": f"ephemeral_wf_{slug_id}",
+            "title": f"Artifact Report Synthesis Pipeline ({slug_id})",
+            "description": "Multi-agent PDF extraction, structured template drafting, and dual markdown/downloadable PDF compilation.",
+            "goal": prompt_clean,
+            "is_ephemeral": True,
+            "is_multi_step": True,
+            "steps": [
+                step_1_def,
+                {
+                    "id": "step_2",
+                    "name": "Template-Guided Report Drafting",
+                    "step_type": "agent",
+                    "agent_id": "writer",
+                    "instructions": f"Using the extracted context, draft a thorough, comprehensive report structured into clear sections (Executive Summary, Key Findings, In-Depth Analysis, Data/Metrics Table, and Recommendations) directly adhering to the requested artifact template for: {prompt_clean}\n\nContext:\n{step_2_input}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_1"],
+                },
+                {
+                    "id": "step_3",
+                    "name": "Final Report & PDF Artifact Compilation",
+                    "step_type": "agent",
+                    "agent_id": "synthesizer",
+                    "instructions": f"Finalize the report into a polished, professional markdown document with clean headings, formatted tables, bullet points, and an executive sign-off ready for dual display and automated PDF generation: {{{{steps.step_2.output.text}}}} Goal: {prompt_clean}",
+                    "tool_ids": [],
+                    "knowledge_file_ids": [],
+                    "attached_artifact_ids": [],
+                    "depends_on": ["step_2"],
+                },
+            ],
+            "edges": [
+                {"source": "step_1", "target": "step_2"},
+                {"source": "step_2", "target": "step_3"},
+            ],
+        }
+
+    # 3. Optimized Deterministic Non-Agent Blocks (Python Code / Math Execution)
     has_code_calc = any(k in prompt_lower for k in [
         "python code block", "non agent", "non-agent", "compute with python",
         "calculate with python", "deterministic code", "python runner", "python script block"

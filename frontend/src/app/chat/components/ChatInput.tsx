@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   Send,
   Square,
@@ -17,7 +17,10 @@ import {
   Presentation,
   FileCode,
   FileJson,
+  Search,
+  Check,
 } from "lucide-react";
+import { ArtifactTemplate } from "../types";
 
 interface SlashCommand {
   id: string;
@@ -38,7 +41,7 @@ export interface AttachedArtifact {
 }
 
 interface ChatInputProps {
-  onSend: (content: string, attachedArtifacts?: AttachedArtifact[]) => void;
+  onSend: (content: string, attachedArtifacts?: AttachedArtifact[], selectedTemplate?: ArtifactTemplate) => void;
   isLoading: boolean;
   onStop?: () => void;
   placeholder?: string;
@@ -50,7 +53,65 @@ interface ChatInputProps {
   onUploadFile?: (file: File) => Promise<void>;
 }
 
+export const ARTIFACT_TEMPLATES: ArtifactTemplate[] = [
+  {
+    id: "executive-summary",
+    title: "Executive Summary Report",
+    badge: "EXECUTIVE",
+    description: "High-level overview, key findings, strategic takeaways, and recommended action matrix",
+    sections: ["Executive Overview", "Key Findings & Data Points", "Strategic Risk Matrix", "Recommended Action Plan"],
+    defaultFormat: "pdf",
+  },
+  {
+    id: "research-report",
+    title: "Research & Deep-Dive Synthesis",
+    badge: "RESEARCH",
+    description: "In-depth analysis, methodology, comparative findings, citations, and comprehensive conclusion",
+    sections: ["Abstract & Problem Context", "Methodology & Scope", "Detailed Findings & Analysis", "Comparative Evidence", "Strategic Conclusion"],
+    defaultFormat: "pdf",
+  },
+  {
+    id: "tech-spec",
+    title: "Technical Specification & Architecture Audit",
+    badge: "TECHNICAL",
+    description: "System architecture breakdown, data schemas, security posture, and engineering roadmap",
+    sections: ["System Overview & Objectives", "Architectural Breakdown", "Security & Compliance Analysis", "Implementation Phasing & Milestones"],
+    defaultFormat: "pdf",
+  },
+  {
+    id: "financial-data",
+    title: "Financial & Quantitative Data Analysis",
+    badge: "FINANCIAL",
+    description: "Quantitative metrics, KPI performance, tabular comparisons, and forward projections",
+    sections: ["Financial & Operational Highlights", "Quantitative KPI Breakdown", "Tabular Performance Comparison", "Forward Projections & Forecast"],
+    defaultFormat: "pdf",
+  },
+  {
+    id: "compliance-review",
+    title: "Compliance & Policy Review",
+    badge: "AUDIT",
+    description: "Regulatory evaluation, policy gap analysis, audit checklist, and remediation timeline",
+    sections: ["Scope & Regulatory Baseline", "Audit Checklist & Adherence", "Identified Gaps & Discrepancies", "Remediation & Governance Roadmap"],
+    defaultFormat: "pdf",
+  },
+  {
+    id: "meeting-minutes",
+    title: "Actionable Meeting & Transcript Minutes",
+    badge: "MINUTES",
+    description: "Executive discussion points, key decisions adopted, and action item matrix with owners/deadlines",
+    sections: ["Agenda & Meeting Context", "Executive Discussion Points", "Key Decisions Adopted", "Action Items Matrix (Owner & Deadline)"],
+    defaultFormat: "pdf",
+  },
+];
+
 const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: "artifact",
+    command: "/artifact",
+    label: "Artifact Report Template",
+    description: "Select an executive report template to synthesize attached PDF / document",
+    icon: FileText,
+  },
   {
     id: "workflows",
     command: "/workflows",
@@ -90,6 +151,10 @@ export default function ChatInput({
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [isDismissed, setIsDismissed] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showArtifactTemplatePopup, setShowArtifactTemplatePopup] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<ArtifactTemplate | null>(null);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -119,8 +184,61 @@ export default function ChatInput({
     };
   }, [showAttachMenu]);
 
+  // Close artifact template menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("#artifact-template-container")) {
+        setShowArtifactTemplatePopup(false);
+      }
+    };
+    if (showArtifactTemplatePopup) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showArtifactTemplatePopup]);
+
+  // Filter artifact templates
+  const filteredTemplates = useMemo(() => {
+    if (!templateSearch.trim()) return ARTIFACT_TEMPLATES;
+    const q = templateSearch.toLowerCase().trim();
+    return ARTIFACT_TEMPLATES.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.badge.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        t.sections.some((s) => s.toLowerCase().includes(q))
+    );
+  }, [templateSearch]);
+
+  // Handle template selection
+  const handleSelectTemplate = (template: ArtifactTemplate) => {
+    setSelectedTemplate(template);
+    setShowArtifactTemplatePopup(false);
+    setTemplateSearch("");
+
+    const trimmed = input.trim();
+    if (!trimmed || trimmed === "/artifact" || trimmed === "/template") {
+      setInput(`prepare a report according to /artifact [${template.title}]`);
+    } else if (trimmed.includes("/artifact") || trimmed.includes("/template")) {
+      setInput(
+        trimmed
+          .replace(/\/artifact(?:\[[^\]]*\])?/gi, `/artifact [${template.title}]`)
+          .replace(/\/template(?:\[[^\]]*\])?/gi, `/artifact [${template.title}]`)
+      );
+    } else {
+      setInput(`${trimmed} prepare a report according to /artifact [${template.title}]`);
+    }
+
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
   // Determine active slash command suggestions
-  const isSlashActive = input.startsWith("/") && !isDismissed;
+  const isSlashActive = input.startsWith("/") && !isDismissed && !showArtifactTemplatePopup;
   const slashQuery = input.startsWith("/") ? input.slice(1).toLowerCase().trim() : "";
   const matchingCommands = SLASH_COMMANDS.filter(
     (c) =>
@@ -130,8 +248,12 @@ export default function ChatInput({
   );
 
   const executeCommand = (cmd: SlashCommand) => {
-    setInput("");
     setIsDismissed(true);
+    if (cmd.id === "artifact" || cmd.command === "/artifact") {
+      setShowArtifactTemplatePopup(true);
+      return;
+    }
+    setInput("");
     if (cmd.id === "workflows" || cmd.command === "/workflows" || cmd.command === "/workflow") {
       if (onOpenWorkflowPicker) onOpenWorkflowPicker();
     } else if (cmd.id === "clear") {
@@ -164,9 +286,16 @@ export default function ChatInput({
       return;
     }
 
-    onSend(trimmed, attachedArtifacts);
+    if (lower === "/artifact" || lower === "/template") {
+      setShowArtifactTemplatePopup(true);
+      return;
+    }
+
+    onSend(trimmed, attachedArtifacts, selectedTemplate || undefined);
     setInput("");
+    setSelectedTemplate(null);
     setIsDismissed(false);
+    setShowArtifactTemplatePopup(false);
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -174,6 +303,34 @@ export default function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Keyboard navigation in Artifact Templates popup
+    if (showArtifactTemplatePopup && filteredTemplates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedTemplateIdx((prev) => (prev + 1) % filteredTemplates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedTemplateIdx((prev) => (prev - 1 + filteredTemplates.length) % filteredTemplates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const selected = filteredTemplates[selectedTemplateIdx] || filteredTemplates[0];
+        if (selected) {
+          handleSelectTemplate(selected);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowArtifactTemplatePopup(false);
+        return;
+      }
+    }
+
+    // Standard Slash Command keyboard navigation
     if (isSlashActive && matchingCommands.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -212,6 +369,10 @@ export default function ChatInput({
     setSelectedIdx(0);
     if (isDismissed && val.startsWith("/")) {
       setIsDismissed(false);
+    }
+    const lower = val.toLowerCase().trim();
+    if (lower === "/artifact" || lower === "/template" || lower.startsWith("/artifact ") || lower.startsWith("/template ")) {
+      setShowArtifactTemplatePopup(true);
     }
   };
 
@@ -272,12 +433,14 @@ export default function ChatInput({
           className="hidden"
         />
 
-        {/* Attached Artifacts Chips Bar */}
-        {attachedArtifacts.length > 0 && (
+        {/* Attached Artifacts & Selected Template Chips Bar */}
+        {(attachedArtifacts.length > 0 || selectedTemplate) && (
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-2.5 animate-fade-in">
-            <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider shrink-0 flex items-center gap-1">
-              <Paperclip size={11} className="text-primary" /> Context:
-            </span>
+            {attachedArtifacts.length > 0 && (
+              <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider shrink-0 flex items-center gap-1">
+                <Paperclip size={11} className="text-primary" /> Context:
+              </span>
+            )}
             {attachedArtifacts.map((art) => {
               const fname = art.filename || art.name || "artifact";
               const ext = (art.type || fname.split(".").pop() || "txt").toLowerCase();
@@ -304,6 +467,25 @@ export default function ChatInput({
                 </div>
               );
             })}
+
+            {/* Selected Artifact Template Chip */}
+            {selectedTemplate && (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-primary/15 border border-linear-primary/40 text-ink text-xs font-medium animate-fade-in shrink-0 shadow-xs group">
+                <FileText size={12} className="text-linear-primary" />
+                <span className="text-xs text-ink">{selectedTemplate.title}</span>
+                <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-surface-2 text-linear-primary border border-hairline">
+                  {selectedTemplate.badge}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTemplate(null)}
+                  className="p-0.5 text-ink-subtle hover:text-ink rounded transition-colors ml-0.5"
+                  title="Remove template"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -407,6 +589,144 @@ export default function ChatInput({
                   <p className="text-[10px] text-muted-foreground">Select previously synthesized files</p>
                 </div>
               </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowAttachMenu(false);
+                setShowArtifactTemplatePopup(true);
+              }}
+              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs text-foreground hover:bg-muted/70 rounded-lg text-left transition border-t border-border/50 mt-0.5"
+            >
+              <FileText size={14} className="text-primary shrink-0" />
+              <div>
+                <p className="font-medium">Report Template (/artifact)</p>
+                <p className="text-[10px] text-muted-foreground">Executive Summary, Tech Spec, Audit, etc.</p>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {/* Attached Artifact Template Picker Popover */}
+        {showArtifactTemplatePopup && (
+          <div
+            id="artifact-template-container"
+            className="absolute bottom-full mb-2 left-0 right-0 sm:right-auto sm:min-w-[420px] max-w-xl bg-card border border-border/80 rounded-xl shadow-card overflow-hidden z-30 animate-fade-in backdrop-blur-xl"
+          >
+            {/* Header */}
+            <div className="px-3.5 py-2.5 border-b border-border/60 bg-muted/40 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-md bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
+                  <FileText size={12} />
+                </div>
+                <div>
+                  <span className="text-xs font-semibold text-foreground tracking-tight block">
+                    Artifact Report Templates
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    Command /artifact &middot; Select schema to synthesize document
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowArtifactTemplatePopup(false)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Close template picker (ESC)"
+              >
+                <X size={13} />
+              </button>
+            </div>
+
+            {/* Search Filter */}
+            <div className="p-2 border-b border-border/50 bg-card">
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-2.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={templateSearch}
+                  onChange={(e) => {
+                    setTemplateSearch(e.target.value);
+                    setSelectedTemplateIdx(0);
+                  }}
+                  placeholder="Filter templates (e.g. Executive, Research, Technical)..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted/50 border border-border/60 rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-sans"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Templates List */}
+            <div className="max-h-72 overflow-y-auto p-1.5 space-y-1 no-scrollbar">
+              {filteredTemplates.length === 0 ? (
+                <div className="p-4 text-center text-xs text-muted-foreground font-mono">
+                  No matching artifact templates found.
+                </div>
+              ) : (
+                filteredTemplates.map((template, idx) => {
+                  const isSelected = idx === selectedTemplateIdx;
+                  return (
+                    <div
+                      key={template.id}
+                      onClick={() => handleSelectTemplate(template)}
+                      onMouseEnter={() => setSelectedTemplateIdx(idx)}
+                      className={`p-2.5 rounded-lg border transition-all cursor-pointer text-left ${
+                        isSelected
+                          ? "bg-primary/10 border-primary/60 shadow-xs"
+                          : "bg-card border-border/60 hover:border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-foreground">
+                            {template.title}
+                          </span>
+                          {selectedTemplate?.id === template.id && (
+                            <Check size={12} className="text-primary shrink-0" />
+                          )}
+                        </div>
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded-xs bg-primary/15 text-primary border border-primary/30">
+                          {template.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug mb-1.5">
+                        {template.description}
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {template.sections.map((sec, sIdx) => (
+                          <span
+                            key={sIdx}
+                            className="text-[9px] font-mono text-muted-foreground px-1 py-0.2 rounded-xs bg-background/80 border border-border/60"
+                          >
+                            #{sec}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer with Option to Attach Existing Workspace Artifact */}
+            {onOpenArtifactSelector && (
+              <div className="p-2 border-t border-border/50 bg-muted/30 flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground font-mono">
+                  Want to ground from past outputs?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowArtifactTemplatePopup(false);
+                    onOpenArtifactSelector();
+                  }}
+                  className="text-primary hover:underline font-medium flex items-center gap-1 transition-colors"
+                >
+                  <FolderArchive size={12} />
+                  <span>Attach from Artifacts Studio</span>
+                </button>
+              </div>
             )}
           </div>
         )}

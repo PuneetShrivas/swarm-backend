@@ -1,3 +1,12 @@
+export interface ArtifactTemplate {
+  id: string;
+  title: string;
+  badge: string;
+  description: string;
+  sections: string[];
+  defaultFormat: "pdf" | "markdown" | "docx";
+}
+
 export interface ToolCall {
   tool: string;
   args?: Record<string, unknown>;
