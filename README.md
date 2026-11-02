@@ -7,6 +7,8 @@ A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Googl
 ## 🚀 Key Features
 
 ### Frontend (Next.js 14 + Tailwind CSS + Framer Motion)
+- **Workflow Studio & Visual Editor**:
+  - **Live System Test Debugger & File Attachments**: Attach test files (PDF, XLSX, CSV, DOCX, TXT, MD, JSON) via local upload or from the workspace Artifact Studio directly into the system test modal. Watch live animated progress bars with active step tickers, stream real-time execution logs in the Debug Console, and deeply inspect rendered prompts, tool invocations, injected knowledge, and step outputs.
 - **Interactive Chat Interface**:
   - **Judicious Step Resource Inspection**: Displays assigned step resources with role chips (`template`, `source`, `reference`) under individual execution step cards in collapsed and expanded views.
   - **Save Workflow Resource Persistence**: Seamlessly includes step-level resources and artifact references when persisting synthesized pipelines to the permanent workflow library via `SaveWorkflowModal.tsx`.
@@ -23,6 +25,7 @@ A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Googl
   - **Chat Management**: Real-time agent status badge, target agent routing selector, Markdown transcript export, and session reset.
 
 ### Backend (FastAPI + Google Gemini API)
+- **Real-Time Workflow Streaming Engine (`/run-stream`)**: Streams real-time Server-Sent Events (`text/event-stream`) during workflow DAG execution, emitting step lifecycle events (`pipeline_start`, `step_start`, `step_progress`, `step_completed`, `step_failed`, `pipeline_complete`), and ingesting test file attachments directly into step knowledge contexts.
 - **Judicious Workflow Step Artifact Assignment**: Automatically classifies attached files (from device uploads or Artifact Studio) into `template`, `source`, and `reference`, maps them to matching steps (`writer` for templates, `data_analyst` for spreadsheets, `researcher` for reference docs), enriches step instructions with compliance rules, and injects step resources into `kb_text` at runtime.
 - **Batch Multi-File Workflow Execution**: Automatically isolates and executes workflows $n$ times across all attached files upon detecting batch queries (e.g. `"execute it for all attached files"`).
 - **In-Memory ZIP Package Compilation**: Bundles individual file outputs (`outputs/`), execution traces (`logs/`), and an aggregate summary table (`batch_execution_summary.md`) into a downloadable `.zip` artifact.
@@ -174,6 +177,14 @@ Configured for serverless deployment on Vercel:
 ---
 
 ## 📝 Changelog
+
+### [2026-11-02] System Test Process UI, Real-Time SSE Debugger, and Test File Attachments
+- **Test File Attachments**: Added direct file upload (PDF, XLSX, CSV, DOCX, TXT, MD, JSON) and workspace Artifact Studio integration to `WorkflowSystemTestModal.tsx`, mapping test attachments into `WorkflowRunRequest.attached_artifacts` and auto-parsing them into step knowledge contexts.
+- **Real-Time SSE Streaming Endpoint**: Implemented `POST /api/workflows/{workflow_id}/run-stream` in `backend/app/main.py` using FastAPI `StreamingResponse` (`text/event-stream`), streaming real-time pipeline events (`pipeline_start`, `step_start`, `step_completed`, `step_failed`, `pipeline_complete`).
+- **Live Progress & Dynamic Step Sequence**: Added visual progress percentage bar, active step status ticker, elapsed time stopwatch counter, and dynamic interactive status chips (Pending, Running with spinning loader, Completed with latency/tokens, Failed).
+- **Streaming Debug Console**: Added real-time auto-scrolling log terminal tab displaying timestamped execution telemetry, tool invocations, and output previews with quick-copy.
+- **Deep Step Inspector**: Tabbed inspector allowing users to deeply audit any step's rendered prompt, injected knowledge/resources, tool calls with arguments/results, outputs, and diagnostic error traces.
+- **Verification**: Created automated test suite `backend/test_system_test_debugger.py` (3/3 passed), verified regression test suites, and validated clean Next.js production build (`14/14 static pages generated`).
 
 ### [2026-11-02] Judicious Workflow Step Artifact Assignment & Resource Persistence
 - **Judicious Artifact Classification**: Implemented `classify_artifact_purpose` in `backend/app/ai_generator.py` to identify whether attached files (from disk or Artifact Studio) serve as `template`, `source` data, or `reference` documentation based on filename heuristics and content cues.

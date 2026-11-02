@@ -601,6 +601,23 @@ class WorkflowExecutionEngine:
                         "content_text": r_content,
                     })
 
+        # Ad-hoc test attached artifacts from test inputs
+        test_artifacts = inputs.get("attached_artifacts") or []
+        for art in test_artifacts:
+            if isinstance(art, dict):
+                art_name = art.get("filename") or art.get("name") or "test_file"
+                art_role = art.get("role", "test_resource")
+                if not any(f.get("file_name", "").startswith(art_name) for f in relevant_files):
+                    try:
+                        from app.agents.file_parser.tools import extract_text_from_artifact
+                        art_content = extract_text_from_artifact(art)
+                    except Exception:
+                        art_content = str(art.get("content", ""))
+                    relevant_files.append({
+                        "file_name": f"{art_name} ({art_role})",
+                        "content_text": art_content,
+                    })
+
         kb_text = format_knowledge_context(relevant_files)
 
         # 4. Resolve agent
@@ -652,12 +669,15 @@ class WorkflowExecutionEngine:
         return {
             "status": "completed",
             "step_id": step_id,
+            "step_name": step.get("name", step_id),
             "agent_id": agent_id,
             "prompt_rendered": rendered_prompt,
+            "system_instructions": full_system_instructions,
             "output_data": output_data,
             "tool_calls": tool_calls,
             "tokens_used": tokens,
             "duration_ms": duration_ms,
+            "resources": step_resources,
             "error": None,
         }
 
@@ -835,15 +855,18 @@ class WorkflowExecutionEngine:
                     "id": str(uuid.uuid4()),
                     "run_id": run_id,
                     "step_id": step_id,
+                    "step_name": step.get("name", step_id),
                     "step_index": idx,
                     "agent_id": res["agent_id"],
                     "status": "completed",
                     "prompt_rendered": res["prompt_rendered"],
+                    "system_instructions": res.get("system_instructions", ""),
                     "input_data": inputs,
                     "output_data": res["output_data"],
                     "tool_calls": res["tool_calls"],
                     "tokens_used": res["tokens_used"],
                     "duration_ms": res["duration_ms"],
+                    "resources": res.get("resources") or step.get("resources") or [],
                     "error": None,
                     "created_at": current_iso_time(),
                     "completed_at": current_iso_time(),
@@ -856,6 +879,7 @@ class WorkflowExecutionEngine:
                         step_callback({
                             "event": "step_completed",
                             "step_id": step_id,
+                            "step_name": step.get("name", step_id),
                             "step_index": idx,
                             "agent_id": res["agent_id"],
                             "duration_ms": res["duration_ms"],

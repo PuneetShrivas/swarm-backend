@@ -33,6 +33,7 @@ export interface WorkflowStep {
   artifact_title?: string;
   artifact_type?: string;
   model?: string;
+  resources?: Array<Record<string, unknown>>;
 }
 
 export interface WorkflowEdge {
@@ -99,14 +100,29 @@ export interface CustomAgent {
   updated_at?: string;
 }
 
+export interface TestAttachedArtifact {
+  id: string;
+  name?: string;
+  filename: string;
+  type?: string;
+  content: string;
+  is_base64?: boolean;
+  mime_type?: string;
+  role?: "template" | "source" | "reference" | "auto" | string;
+  size_bytes?: number;
+  source_title?: string;
+}
+
 export interface WorkflowStepRun {
   id: string;
   run_id: string;
   step_id: string;
+  step_name?: string;
   step_index: number;
   agent_id: string;
   status: "pending" | "running" | "completed" | "failed" | "skipped";
   prompt_rendered?: string;
+  system_instructions?: string;
   input_data: Record<string, unknown>;
   output_data: Record<string, unknown>;
   tool_calls: Array<{
@@ -120,6 +136,7 @@ export interface WorkflowStepRun {
   }>;
   tokens_used: number;
   duration_ms: number;
+  resources?: Array<Record<string, unknown>>;
   error?: string | null;
   created_at?: string;
   completed_at?: string | null;

@@ -3641,9 +3641,13 @@ def run_workflow(
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
+    merged_inputs = dict(payload.inputs or {})
+    if payload.attached_artifacts and "attached_artifacts" not in merged_inputs:
+        merged_inputs["attached_artifacts"] = payload.attached_artifacts
+
     run_record = workflow_engine.execute_workflow(
         workflow_data=wf,
-        inputs=payload.inputs,
+        inputs=merged_inputs,
         user_id=user_id,
         trigger_type="system_test",
         session_id=payload.session_id,
@@ -3658,6 +3662,117 @@ def run_workflow(
                 print(f"Supabase persist workflow_run error: {e}")
 
     return run_record
+
+
+@app.post("/api/workflows/{workflow_id}/run-stream")
+async def run_workflow_stream(
+    workflow_id: str,
+    payload: WorkflowRunRequest,
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
+):
+    """
+    Executes the entire workflow DAG with real-time Server-Sent Events (SSE) telemetry.
+    Streams pipeline_start, step_start, step_progress, step_completed, step_failed, and pipeline_complete events.
+    """
+    user_id = current_user.id if current_user else "anonymous"
+    wf = _get_workflow_record(workflow_id, current_user)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+
+    merged_inputs = dict(payload.inputs or {})
+    if payload.attached_artifacts and "attached_artifacts" not in merged_inputs:
+        merged_inputs["attached_artifacts"] = payload.attached_artifacts
+
+    event_queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    SENTINEL = object()
+
+    def sync_step_callback(evt: Dict[str, Any]):
+        evt_type = evt.get("event") or evt.get("type", "step_progress")
+        payload_data = {
+            "type": evt_type,
+            **evt
+        }
+        loop.call_soon_threadsafe(event_queue.put_nowait, payload_data)
+
+    def worker():
+        try:
+            from app.workflows.engine import topological_sort_steps
+            raw_steps = wf.get("steps") or []
+            edges = wf.get("edges") or []
+            ordered = topological_sort_steps(raw_steps, edges)
+
+            loop.call_soon_threadsafe(event_queue.put_nowait, {
+                "type": "pipeline_start",
+                "workflow_id": workflow_id,
+                "workflow_title": wf.get("title", "Workflow"),
+                "total_steps": len(ordered),
+                "steps": [
+                    {
+                        "id": s.get("id"),
+                        "name": s.get("name", s.get("id")),
+                        "agent_id": s.get("agent_id", "orchestrator"),
+                        "step_type": s.get("step_type", "agent"),
+                    }
+                    for s in ordered
+                ],
+                "attached_artifacts_count": len(payload.attached_artifacts or []),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+
+            run_record = workflow_engine.execute_workflow(
+                workflow_data=wf,
+                inputs=merged_inputs,
+                user_id=user_id,
+                trigger_type="system_test",
+                session_id=payload.session_id,
+                step_callback=sync_step_callback,
+            )
+
+            if current_user and is_supabase_configured() and not current_user.id.startswith("test-"):
+                client = get_user_supabase_client(current_user.token)
+                if client:
+                    try:
+                        client.table("workflow_runs").insert(run_record).execute()
+                    except Exception as e:
+                        print(f"Supabase persist workflow_run error: {e}")
+
+            loop.call_soon_threadsafe(event_queue.put_nowait, {
+                "type": "pipeline_complete",
+                "workflow_id": workflow_id,
+                "run": run_record,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception as exc:
+            loop.call_soon_threadsafe(event_queue.put_nowait, {
+                "type": "error",
+                "error": str(exc),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        finally:
+            loop.call_soon_threadsafe(event_queue.put_nowait, SENTINEL)
+
+    worker_task = asyncio.create_task(asyncio.to_thread(worker))
+
+    async def event_generator():
+        try:
+            while True:
+                item = await event_queue.get()
+                if item is SENTINEL:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            await worker_task
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/api/workflows/{workflow_id}/runs", response_model=List[WorkflowRun])

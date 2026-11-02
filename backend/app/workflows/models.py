@@ -146,21 +146,25 @@ class StepUnitTestResponse(BaseModel):
 class WorkflowRunRequest(BaseModel):
     inputs: Dict[str, Any] = Field(default_factory=dict)
     session_id: Optional[str] = None
+    attached_artifacts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkflowStepRun(BaseModel):
     id: Optional[str] = None
     run_id: str
     step_id: str
+    step_name: Optional[str] = None
     step_index: int = 0
     agent_id: str
     status: str = "pending"  # pending, running, completed, failed, skipped
     prompt_rendered: Optional[str] = None
+    system_instructions: Optional[str] = None
     input_data: Dict[str, Any] = Field(default_factory=dict)
     output_data: Dict[str, Any] = Field(default_factory=dict)
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     tokens_used: int = 0
     duration_ms: float = 0.0
+    resources: List[Dict[str, Any]] = Field(default_factory=list)
     error: Optional[str] = None
     created_at: Optional[str] = Field(default_factory=current_iso_time)
     completed_at: Optional[str] = None
