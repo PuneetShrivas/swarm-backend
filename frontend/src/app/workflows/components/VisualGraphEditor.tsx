@@ -3,6 +3,8 @@
 import React, { useMemo, useCallback, useState } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   MiniMap,
   Controls,
   Background,
@@ -15,19 +17,19 @@ import {
   Position,
   NodeProps,
   BackgroundVariant,
+  OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { WorkflowStep, ScriptTool, KnowledgeFile, WorkflowStepType } from "../types";
 import DataFlowEdge from "./DataFlowEdge";
+import DAGToolbar from "./DAGToolbar";
 import { useAppTheme } from "@/components/ThemeProvider";
 import {
   Bot,
   Zap,
   Play,
   Flag,
-  Plus,
   Trash2,
-  Sparkles,
   FolderOpen,
   GitBranch,
   Terminal,
@@ -708,7 +710,7 @@ function calculateDAGLayout(
   agents: Array<{ id: string; name: string; role?: string }>,
   tools: ScriptTool[],
   knowledgeFiles: KnowledgeFile[],
-  expandedNodeId: string | null,
+  expandedNodeIds: Set<string> | string | null,
   onUnitTestStep?: (step: WorkflowStep) => void,
   onDeleteStep?: (stepId: string) => void,
   onUpdateStep?: (updated: WorkflowStep) => void,
@@ -780,7 +782,7 @@ function calculateDAGLayout(
           agentsList: agents,
           toolsList: tools,
           filesList: knowledgeFiles,
-          isExpanded: expandedNodeId === st.id,
+          isExpanded: expandedNodeIds instanceof Set ? expandedNodeIds.has(st.id) : expandedNodeIds === st.id,
           onUnitTest: onUnitTestStep,
           onDeleteStep: onDeleteStep,
           onUpdateStep: onUpdateStep,
@@ -793,8 +795,8 @@ function calculateDAGLayout(
   return nodeList;
 }
 
-// ----------------- Main VisualGraphEditor Component -----------------
-export default function VisualGraphEditor({
+// ----------------- Inner VisualGraphEditor with ReactFlow Context -----------------
+function VisualGraphEditorInner({
   goal,
   steps,
   edges,
@@ -807,16 +809,42 @@ export default function VisualGraphEditor({
   onRunSystemTest,
   readOnly = false,
 }: VisualGraphEditorProps) {
-  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
-  const [showBlockPalette, setShowBlockPalette] = useState(false);
+  const { fitView, zoomIn, zoomOut, screenToFlowPosition } = useReactFlow();
+
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [backgroundVariant, setBackgroundVariant] = useState<BackgroundVariant | "none">(
+    BackgroundVariant.Dots
+  );
+  const [showMiniMap, setShowMiniMap] = useState(true);
+
   const { resolvedTheme } = useAppTheme();
   const isDark = resolvedTheme === "dark";
   const canvasDotColor = isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.15)";
 
-  // Toggle node expansion
+  // Toggle single node expansion
   const handleToggleExpand = useCallback((stepId: string) => {
-    setExpandedNodeId((prev) => (prev === stepId ? null : stepId));
+    setExpandedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(stepId)) {
+        next.delete(stepId);
+      } else {
+        next.add(stepId);
+      }
+      return next;
+    });
   }, []);
+
+  // Expand / collapse all nodes
+  const handleToggleExpandAll = useCallback(() => {
+    setExpandedNodeIds((prev) => {
+      if (prev.size === steps.length) {
+        return new Set();
+      } else {
+        return new Set(steps.map((s) => s.id));
+      }
+    });
+  }, [steps]);
 
   // Update a single step
   const handleUpdateStep = useCallback(
@@ -872,9 +900,83 @@ export default function VisualGraphEditor({
 
       onChangeSteps(nextSteps);
       onChangeEdges(nextEdges);
+      if (selectedNodeId === stepId) {
+        setSelectedNodeId(null);
+      }
     },
-    [readOnly, steps, edges, onChangeSteps, onChangeEdges]
+    [readOnly, steps, edges, selectedNodeId, onChangeSteps, onChangeEdges]
   );
+
+  // Track selection from ReactFlow
+  const handleSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
+    if (selectedNodes && selectedNodes.length > 0) {
+      setSelectedNodeId(selectedNodes[0].id);
+    } else {
+      setSelectedNodeId(null);
+    }
+  }, []);
+
+  const selectedStep = useMemo(() => {
+    if (!selectedNodeId || selectedNodeId === "goal_root") return null;
+    return steps.find((s) => s.id === selectedNodeId) || null;
+  }, [selectedNodeId, steps]);
+
+  const selectedNodeName = useMemo(() => {
+    if (!selectedNodeId) return null;
+    if (selectedNodeId === "goal_root") return "Workflow Objective";
+    return selectedStep ? selectedStep.name : selectedNodeId;
+  }, [selectedNodeId, selectedStep]);
+
+  // Duplicate currently selected step
+  const handleDuplicateSelected = useCallback(() => {
+    if (readOnly || !selectedNodeId || selectedNodeId === "goal_root") return;
+    const stepToCopy = steps.find((s) => s.id === selectedNodeId);
+    if (!stepToCopy) return;
+
+    const nextIdx = steps.length + 1;
+    const newStepId = `step_${nextIdx}_${Date.now().toString(36).slice(-3)}`;
+    const clonedStep: WorkflowStep = {
+      ...stepToCopy,
+      id: newStepId,
+      name: `${stepToCopy.name} (Copy)`,
+      depends_on: [...stepToCopy.depends_on],
+    };
+
+    const nextSteps = [...steps, clonedStep];
+    const newEdges = stepToCopy.depends_on.map((depId) => ({
+      id: `${depId}->${newStepId}`,
+      source: depId,
+      target: newStepId,
+    }));
+
+    onChangeSteps(nextSteps);
+    onChangeEdges([...edges, ...newEdges]);
+    setExpandedNodeIds((prev) => {
+      const next = new Set(prev);
+      next.add(newStepId);
+      return next;
+    });
+    setSelectedNodeId(newStepId);
+  }, [readOnly, selectedNodeId, steps, edges, onChangeSteps, onChangeEdges]);
+
+  // Delete currently selected step
+  const handleDeleteSelected = useCallback(() => {
+    if (readOnly || !selectedNodeId || selectedNodeId === "goal_root") return;
+    handleDeleteStep(selectedNodeId);
+  }, [readOnly, selectedNodeId, handleDeleteStep]);
+
+  // Viewport action handlers
+  const handleFitView = useCallback(() => {
+    fitView({ padding: 0.2, duration: 400 });
+  }, [fitView]);
+
+  const handleZoomIn = useCallback(() => {
+    zoomIn({ duration: 250 });
+  }, [zoomIn]);
+
+  const handleZoomOut = useCallback(() => {
+    zoomOut({ duration: 250 });
+  }, [zoomOut]);
 
   // Memoize custom node and edge types
   const nodeTypes = useMemo(
@@ -901,7 +1003,7 @@ export default function VisualGraphEditor({
       agents,
       tools,
       knowledgeFiles,
-      expandedNodeId,
+      expandedNodeIds,
       onUnitTestStep,
       handleDeleteStep,
       handleUpdateStep,
@@ -914,7 +1016,7 @@ export default function VisualGraphEditor({
     agents,
     tools,
     knowledgeFiles,
-    expandedNodeId,
+    expandedNodeIds,
     onUnitTestStep,
     handleDeleteStep,
     handleUpdateStep,
@@ -1144,111 +1246,121 @@ export default function VisualGraphEditor({
     [readOnly, steps, edges, onChangeSteps, onChangeEdges]
   );
 
-  // Add specific block type
-  const handleAddBlock = (blockType: WorkflowStepType) => {
-    if (readOnly) return;
-    const nextIdx = steps.length + 1;
-    const newStepId = `step_${nextIdx}_${Date.now().toString(36).slice(-3)}`;
-    const previousStepId = steps.length > 0 ? steps[steps.length - 1].id : "goal_root";
+  // Add specific block type (via click or drag-and-drop dropPosition)
+  const handleAddBlock = useCallback(
+    (blockType: WorkflowStepType, dropPosition?: { x: number; y: number }) => {
+      if (readOnly) return;
+      if (dropPosition) {
+        void dropPosition;
+      }
+      const nextIdx = steps.length + 1;
+      const newStepId = `step_${nextIdx}_${Date.now().toString(36).slice(-3)}`;
+      const previousStepId = steps.length > 0 ? steps[steps.length - 1].id : "goal_root";
 
-    let newStep: WorkflowStep;
+      let newStep: WorkflowStep;
 
-    switch (blockType) {
-      case "condition":
-        newStep = {
-          id: newStepId,
-          name: `Step ${nextIdx}: Condition Check`,
-          step_type: "condition",
-          agent_id: "orchestrator",
-          condition_expr: "len(inputs.get('query', '')) > 0",
-          instructions: "Evaluate condition expression",
-          tool_ids: [],
-          knowledge_file_ids: [],
-          depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
-        };
-        break;
+      switch (blockType) {
+        case "condition":
+          newStep = {
+            id: newStepId,
+            name: `Step ${nextIdx}: Condition Check`,
+            step_type: "condition",
+            agent_id: "orchestrator",
+            condition_expr: "len(inputs.get('query', '')) > 0",
+            instructions: "Evaluate condition expression",
+            tool_ids: [],
+            knowledge_file_ids: [],
+            depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
+          };
+          break;
 
-      case "python_code":
-        newStep = {
-          id: newStepId,
-          name: `Step ${nextIdx}: Python Processing`,
-          step_type: "python_code",
-          agent_id: "coder",
-          code: "def execute(inputs, previous_outputs, context):\n    # Process data with Python\n    text = inputs.get('query', '')\n    return {'status': 'processed', 'length': len(text)}",
-          instructions: "Execute sandboxed Python script",
-          tool_ids: [],
-          knowledge_file_ids: [],
-          depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
-        };
-        break;
+        case "python_code":
+          newStep = {
+            id: newStepId,
+            name: `Step ${nextIdx}: Python Processing`,
+            step_type: "python_code",
+            agent_id: "coder",
+            code: "def execute(inputs, previous_outputs, context):\n    # Process data with Python\n    text = inputs.get('query', '')\n    return {'status': 'processed', 'length': len(text)}",
+            instructions: "Execute sandboxed Python script",
+            tool_ids: [],
+            knowledge_file_ids: [],
+            depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
+          };
+          break;
 
-      case "loop":
-        newStep = {
-          id: newStepId,
-          name: `Step ${nextIdx}: Iteration Loop`,
-          step_type: "loop",
-          agent_id: "orchestrator",
-          loop_target_step_id: previousStepId !== "goal_root" ? previousStepId : undefined,
-          max_loop_iterations: 3,
-          condition_expr: "context.get('loop_count', 0) < 3",
-          instructions: "Loop back to target step until iteration limit",
-          tool_ids: [],
-          knowledge_file_ids: [],
-          depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
-        };
-        break;
+        case "loop":
+          newStep = {
+            id: newStepId,
+            name: `Step ${nextIdx}: Iteration Loop`,
+            step_type: "loop",
+            agent_id: "orchestrator",
+            loop_target_step_id: previousStepId !== "goal_root" ? previousStepId : undefined,
+            max_loop_iterations: 3,
+            condition_expr: "context.get('loop_count', 0) < 3",
+            instructions: "Loop back to target step until iteration limit",
+            tool_ids: [],
+            knowledge_file_ids: [],
+            depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
+          };
+          break;
 
-      case "artifact":
-        newStep = {
-          id: newStepId,
-          name: `Step ${nextIdx}: Generate Artifact`,
-          step_type: "artifact",
-          agent_id: "synthesizer",
-          artifact_title: `Generated Report ${nextIdx}`,
-          artifact_type: "markdown",
-          instructions: "# Final Report\n\nGenerated automatically by Swarm Backend Pipeline.",
-          tool_ids: [],
-          knowledge_file_ids: [],
-          depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
-        };
-        break;
+        case "artifact":
+          newStep = {
+            id: newStepId,
+            name: `Step ${nextIdx}: Generate Artifact`,
+            step_type: "artifact",
+            agent_id: "synthesizer",
+            artifact_title: `Generated Report ${nextIdx}`,
+            artifact_type: "markdown",
+            instructions: "# Final Report\n\nGenerated automatically by Swarm Backend Pipeline.",
+            tool_ids: [],
+            knowledge_file_ids: [],
+            depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
+          };
+          break;
 
-      default: // agent
-        newStep = {
-          id: newStepId,
-          name: `Step ${nextIdx}: Specialist Action`,
-          step_type: "agent",
-          agent_id: agents.length > 1 ? agents[1].id : "researcher",
-          model: "qwen-3.8",
-          instructions:
-            previousStepId === "goal_root"
-              ? "Process input objective: {{inputs.query}}"
-              : `Synthesize input from predecessor: {{steps.${previousStepId}.output.text}}`,
-          tool_ids: [],
-          knowledge_file_ids: [],
-          depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
-        };
-        break;
-    }
+        default: // agent
+          newStep = {
+            id: newStepId,
+            name: `Step ${nextIdx}: Specialist Action`,
+            step_type: "agent",
+            agent_id: agents.length > 1 ? agents[1].id : "researcher",
+            model: "qwen-3.8",
+            instructions:
+              previousStepId === "goal_root"
+                ? "Process input objective: {{inputs.query}}"
+                : `Synthesize input from predecessor: {{steps.${previousStepId}.output.text}}`,
+            tool_ids: [],
+            knowledge_file_ids: [],
+            depends_on: previousStepId === "goal_root" ? [] : [previousStepId],
+          };
+          break;
+      }
 
-    const nextSteps = [...steps, newStep];
-    const nextEdges = [
-      ...edges,
-      {
-        id: `${previousStepId}->${newStepId}`,
-        source: previousStepId,
-        target: newStepId,
-      },
-    ];
+      const nextSteps = [...steps, newStep];
+      const nextEdges = [
+        ...edges,
+        {
+          id: `${previousStepId}->${newStepId}`,
+          source: previousStepId,
+          target: newStepId,
+        },
+      ];
 
-    onChangeSteps(nextSteps);
-    onChangeEdges(nextEdges);
-    setShowBlockPalette(false);
-    setExpandedNodeId(newStepId);
-  };
+      onChangeSteps(nextSteps);
+      onChangeEdges(nextEdges);
+      setExpandedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.add(newStepId);
+        return next;
+      });
+      setSelectedNodeId(newStepId);
+    },
+    [readOnly, steps, edges, agents, onChangeSteps, onChangeEdges]
+  );
 
   // Quick Action: Tidy Up (Recalculate auto-layout)
-  const handleTidyUp = () => {
+  const handleTidyUp = useCallback(() => {
     const laidOut = calculateDAGLayout(
       goal,
       steps,
@@ -1256,167 +1368,145 @@ export default function VisualGraphEditor({
       agents,
       tools,
       knowledgeFiles,
-      expandedNodeId,
+      expandedNodeIds,
       onUnitTestStep,
       handleDeleteStep,
       handleUpdateStep,
       handleToggleExpand
     );
     setNodes(laidOut);
-  };
+  }, [
+    goal,
+    steps,
+    edges,
+    agents,
+    tools,
+    knowledgeFiles,
+    expandedNodeIds,
+    onUnitTestStep,
+    handleDeleteStep,
+    handleUpdateStep,
+    handleToggleExpand,
+    setNodes,
+  ]);
+
+  // Drag-and-drop canvas drop handling
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      if (readOnly) return;
+      const type = event.dataTransfer.getData("application/reactflow-type") as WorkflowStepType;
+      if (!type) return;
+
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      handleAddBlock(type, position);
+    },
+    [readOnly, screenToFlowPosition, handleAddBlock]
+  );
 
   return (
-    <div className="w-full h-[680px] rounded-lg border border-hairline bg-canvas overflow-hidden relative shadow-card select-none font-sans">
-      {/* Floating Canvas Action Toolbar */}
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 p-1 rounded-md bg-surface-1/90 backdrop-blur-md border border-hairline shadow-card">
-        <button
-          type="button"
-          onClick={handleTidyUp}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-ink hover:bg-surface-2 rounded-md transition-colors"
-          title="Auto-organize DAG into clean hierarchical layers"
-        >
-          <Sparkles size={12} className="text-linear-primary" />
-          <span>Tidy Up</span>
-        </button>
+    <div className="w-full h-[720px] rounded-lg border border-hairline bg-canvas overflow-hidden flex flex-col shadow-card select-none font-sans relative">
+      {/* Attached Top DAG Toolbar */}
+      <DAGToolbar
+        onAddBlock={handleAddBlock}
+        onTidyUp={handleTidyUp}
+        onFitView={handleFitView}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        isMiniMapOpen={showMiniMap}
+        onToggleMiniMap={() => setShowMiniMap((prev) => !prev)}
+        backgroundVariant={backgroundVariant}
+        onChangeBackgroundVariant={setBackgroundVariant}
+        isAllExpanded={steps.length > 0 && expandedNodeIds.size === steps.length}
+        onToggleExpandAll={handleToggleExpandAll}
+        selectedNodeId={selectedNodeId}
+        selectedNodeName={selectedNodeName}
+        onDuplicateSelected={handleDuplicateSelected}
+        onDeleteSelected={handleDeleteSelected}
+        onUnitTestSelected={
+          onUnitTestStep && selectedStep ? () => onUnitTestStep(selectedStep) : undefined
+        }
+        onRunSystemTest={onRunSystemTest}
+        stepCount={steps.length}
+        edgeCount={edges.length}
+        readOnly={readOnly}
+      />
 
-        {/* Add Block Palette Dropdown */}
-        {!readOnly && (
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowBlockPalette(!showBlockPalette)}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-linear-primary hover:bg-linear-hover rounded-md transition-colors"
-              title="Add a block to the workflow DAG"
-            >
-              <Plus size={12} />
-              <span>Add Block</span>
-              <ChevronDown size={11} className={`transition-transform ${showBlockPalette ? "rotate-180" : ""}`} />
-            </button>
-
-            {showBlockPalette && (
-              <div className="absolute left-0 top-full mt-1.5 w-52 p-1 rounded-md bg-surface-1 border border-hairline shadow-card z-50 space-y-0.5">
-                <button
-                  type="button"
-                  onClick={() => handleAddBlock("agent")}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-ink hover:bg-surface-2 flex items-center gap-2"
-                >
-                  <Bot size={13} className="text-linear-primary" />
-                  <div>
-                    <div className="font-medium">Agent Step</div>
-                    <div className="text-[10px] text-ink-subtle">Specialist LLM agent</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleAddBlock("condition")}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-ink hover:bg-surface-2 flex items-center gap-2"
-                >
-                  <GitBranch size={13} className="text-amber-400" />
-                  <div>
-                    <div className="font-medium">Condition Branch</div>
-                    <div className="text-[10px] text-ink-subtle">If / Else routing</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleAddBlock("python_code")}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-ink hover:bg-surface-2 flex items-center gap-2"
-                >
-                  <Terminal size={13} className="text-emerald-400" />
-                  <div>
-                    <div className="font-medium">Python Processor</div>
-                    <div className="text-[10px] text-ink-subtle">Sandboxed data compute</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleAddBlock("loop")}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-ink hover:bg-surface-2 flex items-center gap-2"
-                >
-                  <RotateCcw size={13} className="text-cyan-400" />
-                  <div>
-                    <div className="font-medium">Loop Block</div>
-                    <div className="text-[10px] text-ink-subtle">Iterate to step (max 10x)</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleAddBlock("artifact")}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-ink hover:bg-surface-2 flex items-center gap-2"
-                >
-                  <FileOutput size={13} className="text-purple-400" />
-                  <div>
-                    <div className="font-medium">Artifact Generator</div>
-                    <div className="text-[10px] text-ink-subtle">Reports & structured files</div>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {onRunSystemTest && (
-          <button
-            type="button"
-            onClick={onRunSystemTest}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-ink hover:bg-surface-2 rounded-md transition-colors border-l border-hairline pl-2"
-            title="Run end-to-end system test with custom inputs"
-          >
-            <Play size={11} className="fill-current text-semantic-success" />
-            <span>Test DAG</span>
-          </button>
-        )}
-      </div>
-
-      {/* Floating Canvas Legend */}
-      <div className="absolute bottom-3 right-3 z-10 hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-md bg-surface-1/90 backdrop-blur-md border border-hairline text-[10px] font-mono text-ink-subtle shadow-card">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-0.5 bg-linear-primary" />
-          <span>Linear Flow</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-0.5 bg-emerald-500" />
-          <span>True Branch</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-0.5 bg-rose-500" />
-          <span>False Branch</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-0.5 bg-cyan-400" />
-          <span>Loop Back</span>
-        </div>
-      </div>
-
-      <ReactFlow
-        nodes={nodes}
-        edges={rfEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodesDraggable={!readOnly}
-        nodesConnectable={!readOnly}
-        fitView
+      {/* Main Canvas Area */}
+      <div
+        className="flex-1 w-full h-full relative"
+        onDragOver={onDragOver}
+        onDrop={onDrop}
       >
-        <Controls className="!bg-surface-1 !border !border-hairline !rounded-md !shadow-card !text-ink" />
-        <MiniMap
-          className="!bg-surface-1 !border !border-hairline !rounded-md !shadow-card"
-          nodeColor={() => "#5e6ad2"}
-          maskColor="rgba(1, 1, 2, 0.7)"
-        />
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={20}
-          size={1.5}
-          color={canvasDotColor}
-        />
-      </ReactFlow>
+        {/* Floating Canvas Legend */}
+        <div className="absolute bottom-3 right-3 z-10 hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-md bg-surface-1/90 backdrop-blur-md border border-hairline text-[10px] font-mono text-ink-subtle shadow-card pointer-events-none">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-0.5 bg-linear-primary" />
+            <span>Linear Flow</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-0.5 bg-emerald-500" />
+            <span>True Branch</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-0.5 bg-rose-500" />
+            <span>False Branch</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-0.5 bg-cyan-400" />
+            <span>Loop Back</span>
+          </div>
+        </div>
+
+        <ReactFlow
+          nodes={nodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onSelectionChange={handleSelectionChange}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          fitView
+        >
+          <Controls className="!bg-surface-1 !border !border-hairline !rounded-md !shadow-card !text-ink" />
+          {showMiniMap && (
+            <MiniMap
+              className="!bg-surface-1 !border !border-hairline !rounded-md !shadow-card"
+              nodeColor={() => "#5e6ad2"}
+              maskColor="rgba(1, 1, 2, 0.7)"
+            />
+          )}
+          {backgroundVariant !== "none" && (
+            <Background
+              variant={backgroundVariant}
+              gap={20}
+              size={1.5}
+              color={canvasDotColor}
+            />
+          )}
+        </ReactFlow>
+      </div>
     </div>
+  );
+}
+
+// ----------------- Exported VisualGraphEditor (Wrapped with ReactFlowProvider) -----------------
+export default function VisualGraphEditor(props: VisualGraphEditorProps) {
+  return (
+    <ReactFlowProvider>
+      <VisualGraphEditorInner {...props} />
+    </ReactFlowProvider>
   );
 }
