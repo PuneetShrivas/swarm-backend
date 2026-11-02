@@ -8,6 +8,8 @@ A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Googl
 
 ### Frontend (Next.js 14 + Tailwind CSS + Framer Motion)
 - **Interactive Chat Interface**:
+  - **Judicious Step Resource Inspection**: Displays assigned step resources with role chips (`template`, `source`, `reference`) under individual execution step cards in collapsed and expanded views.
+  - **Save Workflow Resource Persistence**: Seamlessly includes step-level resources and artifact references when persisting synthesized pipelines to the permanent workflow library via `SaveWorkflowModal.tsx`.
   - **Mid-Sentence `/workflow` Autocomplete & Pointing**: Type `/workflow` or `/wf` anywhere mid-sentence (e.g. `"follow the /workflow ABC and execute it for all attached files"`) to trigger a floating suggestions popover, insert `/workflow [Title]`, and render a persistent workflow pill badge.
   - **Batch Workflow Trace Carousel (`< File X of N >`)**: Interactively cycle through per-file runtime execution traces, tool calls, status pills, and outputs when executing a batch workflow across attached files.
   - **1-Click ZIP Artifact Download**: Instantly download compiled `.zip` archives bundling per-file outputs, JSON execution logs, and markdown summaries.
@@ -21,6 +23,7 @@ A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Googl
   - **Chat Management**: Real-time agent status badge, target agent routing selector, Markdown transcript export, and session reset.
 
 ### Backend (FastAPI + Google Gemini API)
+- **Judicious Workflow Step Artifact Assignment**: Automatically classifies attached files (from device uploads or Artifact Studio) into `template`, `source`, and `reference`, maps them to matching steps (`writer` for templates, `data_analyst` for spreadsheets, `researcher` for reference docs), enriches step instructions with compliance rules, and injects step resources into `kb_text` at runtime.
 - **Batch Multi-File Workflow Execution**: Automatically isolates and executes workflows $n$ times across all attached files upon detecting batch queries (e.g. `"execute it for all attached files"`).
 - **In-Memory ZIP Package Compilation**: Bundles individual file outputs (`outputs/`), execution traces (`logs/`), and an aggregate summary table (`batch_execution_summary.md`) into a downloadable `.zip` artifact.
 - **Mid-Sentence Workflow Resolution**: Resolves workflow references mid-sentence using bracketed (`/workflow [Title]`) and unbracketed syntax across Supabase, memory store, and preloaded defaults.
@@ -171,6 +174,13 @@ Configured for serverless deployment on Vercel:
 ---
 
 ## 📝 Changelog
+
+### [2026-11-02] Judicious Workflow Step Artifact Assignment & Resource Persistence
+- **Judicious Artifact Classification**: Implemented `classify_artifact_purpose` in `backend/app/ai_generator.py` to identify whether attached files (from disk or Artifact Studio) serve as `template`, `source` data, or `reference` documentation based on filename heuristics and content cues.
+- **Goal & Role-Aware Step Assignment**: Implemented `assign_artifacts_to_steps` to distribute classified artifacts to appropriate workflow steps (templates to writer/synthesizer, tabular datasets to data analyst/excel specialist, reference research to researcher/parser), prioritizing explicit prompt bindings when specific filenames are referenced.
+- **Step Resource Schema & Execution Injection**: Extended `WorkflowStep` in `backend/app/workflows/models.py` with `resources: List[Dict[str, Any]]` and updated `WorkflowExecutionEngine.execute_single_step` in `backend/app/workflows/engine.py` to inject step resources into the agent's knowledge context (`kb_text`).
+- **UI Trace Badges & Save Persistence**: Updated `GranularStepTrace.tsx` to display step resource counts and badges with role chips (`template`, `source`, `reference`), and updated `SaveWorkflowModal.tsx` to preview assigned step resources and preserve them in `POST /api/workflows` payloads.
+- **Verification**: Created test suite `backend/test_workflow_step_resource_assignment.py` (5/5 passed), confirmed regression test pass across batch workflows and intent orchestration, and validated clean Next.js production build.
 
 ### [2026-11-02] Batch Workflow Execution, Mid-Sentence Autocomplete, and Zip Output
 - **Mid-Sentence Autocomplete & Pointing**: Enhanced `ChatInput.tsx` to detect `/workflow` or `/wf` typed mid-sentence, open an inline floating suggestions popover, insert `/workflow [Title]`, and render a removable target workflow badge pill.

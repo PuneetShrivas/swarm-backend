@@ -93,6 +93,7 @@ class WorkflowStep(BaseModel):
     tool_ids: List[str] = Field(default_factory=list, description="IDs of script tools attached to this step")
     knowledge_file_ids: List[str] = Field(default_factory=list, description="IDs of knowledge files attached to this step")
     attached_artifact_ids: List[str] = Field(default_factory=list, description="IDs of artifacts attached to this step")
+    resources: List[Dict[str, Any]] = Field(default_factory=list, description="Artifact resources and file attachments assigned to this step")
     depends_on: List[str] = Field(default_factory=list, description="Step IDs this step depends upon")
     input_mapping: Dict[str, str] = Field(default_factory=dict, description="Variable mappings")
     position: Optional[Dict[str, float]] = Field(default=None, description="Position coordinates in React Flow graph")

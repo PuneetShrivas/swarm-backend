@@ -581,6 +581,26 @@ class WorkflowExecutionEngine:
                     })
                     seen_aids.add(art["id"])
 
+        # Step-level persistent resources (templates, source datasets, reference briefs)
+        step_resources = step.get("resources") or []
+        for res in step_resources:
+            if isinstance(res, dict):
+                r_name = res.get("filename") or res.get("name") or "step_resource"
+                r_role = res.get("role", "resource")
+                r_content = res.get("content") or ""
+                if not r_content:
+                    try:
+                        from app.agents.file_parser.tools import extract_text_from_artifact
+                        r_content = extract_text_from_artifact(res)
+                    except Exception:
+                        r_content = str(res.get("content", ""))
+
+                if not any(f.get("file_name", "").startswith(r_name) for f in relevant_files):
+                    relevant_files.append({
+                        "file_name": f"{r_name} ({r_role})",
+                        "content_text": r_content,
+                    })
+
         kb_text = format_knowledge_context(relevant_files)
 
         # 4. Resolve agent

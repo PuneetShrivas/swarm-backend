@@ -13,6 +13,7 @@ import {
   Workflow,
   Sparkles,
   Bot,
+  Paperclip,
 } from "lucide-react";
 
 export interface StepRunItem {
@@ -41,6 +42,19 @@ export interface GranularTraceItem {
   status?: string;
 }
 
+export interface WorkflowStepResource {
+  id?: string;
+  name?: string;
+  filename?: string;
+  type?: string;
+  content?: string;
+  is_base64?: boolean;
+  mime_type?: string;
+  role?: string;
+  size_bytes?: number;
+  source_title?: string;
+}
+
 export interface WorkflowSpec {
   id?: string;
   title?: string;
@@ -54,6 +68,10 @@ export interface WorkflowSpec {
     model?: string;
     instructions?: string;
     step_type?: string;
+    tool_ids?: string[];
+    knowledge_file_ids?: string[];
+    attached_artifact_ids?: string[];
+    resources?: WorkflowStepResource[];
   }>;
   edges?: Array<{ id?: string; source: string; target: string }>;
 }
@@ -229,6 +247,8 @@ export function GranularStepTrace({
                 const isStepExpanded = expandedStepId === sId;
                 const toolCalls = step.tool_calls || [];
                 const previewText = step.output_data?.text || "";
+                const specStep = workflowSpec?.steps?.find((s) => s.id === sId) || workflowSpec?.steps?.[idx];
+                const stepResources = specStep?.resources || [];
 
                 return (
                   <div
@@ -257,6 +277,15 @@ export function GranularStepTrace({
                           <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono text-ink-subtle px-1.5 py-0.2 rounded bg-surface-2 border border-hairline shrink-0">
                             <Wrench size={9} />
                             {toolCalls.length} tool{toolCalls.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {stepResources.length > 0 && (
+                          <span
+                            className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono text-ink-subtle px-1.5 py-0.2 rounded bg-surface-2 border border-hairline shrink-0"
+                            title={`${stepResources.length} assigned resource(s)`}
+                          >
+                            <Paperclip size={9} className="text-linear-primary" />
+                            {stepResources.length} res
                           </span>
                         )}
                       </div>
@@ -289,6 +318,34 @@ export function GranularStepTrace({
                           transition={{ duration: 0.15 }}
                           className="px-3 py-2.5 bg-surface-2/40 border-t border-hairline space-y-2 font-mono text-[11px]"
                         >
+                          {/* Step Resources */}
+                          {stepResources.length > 0 && (
+                            <div className="space-y-1">
+                              <span className="text-[10px] uppercase text-ink-subtle font-semibold flex items-center gap-1">
+                                <Paperclip size={10} className="text-linear-primary" />
+                                Assigned Step Resources ({stepResources.length}):
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {stepResources.map((res, rIdx) => (
+                                  <div
+                                    key={rIdx}
+                                    className="px-2 py-1 rounded bg-surface-3 border border-hairline flex items-center gap-1.5 text-[10px]"
+                                  >
+                                    <Paperclip size={9} className="text-ink-subtle" />
+                                    <span className="font-medium text-ink truncate max-w-[150px]">
+                                      {res.filename || res.name || "Resource"}
+                                    </span>
+                                    {res.role && (
+                                      <span className="px-1 py-0.2 rounded bg-linear-primary/10 text-linear-primary text-[8px] uppercase font-bold tracking-wider">
+                                        {res.role}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Tool Calls */}
                           {toolCalls.length > 0 && (
                             <div className="space-y-1">

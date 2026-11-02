@@ -8,6 +8,7 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Paperclip,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { WorkflowSpec } from "./GranularStepTrace";
@@ -71,7 +72,11 @@ export function SaveWorkflowModal({
         title: title.trim(),
         description: description.trim(),
         goal: goal.trim() || undefined,
-        steps: workflowSpec.steps || [],
+        steps: (workflowSpec.steps || []).map((s) => ({
+          ...s,
+          resources: s.resources || [],
+          attached_artifact_ids: s.attached_artifact_ids || (s.resources || []).map((r) => r.id).filter(Boolean),
+        })),
         edges: workflowSpec.edges || [],
         is_published: false,
       };
@@ -204,16 +209,38 @@ export function SaveWorkflowModal({
                     {stepsList.map((step, idx) => (
                       <div
                         key={step.id || idx}
-                        className="p-2 rounded-md bg-surface-2/60 border border-hairline flex items-center justify-between text-xs font-mono"
+                        className="p-2 rounded-md bg-surface-2/60 border border-hairline flex flex-col gap-1 text-xs font-mono"
                       >
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="text-linear-primary text-[10px]">{idx + 1}.</span>
-                          <span className="text-ink truncate">{step.name || step.id}</span>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-linear-primary text-[10px]">{idx + 1}.</span>
+                            <span className="text-ink truncate">{step.name || step.id}</span>
+                          </div>
+                          {step.agent_id && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3 text-ink-subtle border border-hairline shrink-0">
+                              @{step.agent_id}
+                            </span>
+                          )}
                         </div>
-                        {step.agent_id && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3 text-ink-subtle border border-hairline shrink-0">
-                            @{step.agent_id}
-                          </span>
+                        {step.resources && step.resources.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                            <span className="text-[9px] text-ink-subtle flex items-center gap-0.5">
+                              <Paperclip size={9} className="text-linear-primary" />
+                            </span>
+                            {step.resources.map((res, rIdx) => (
+                              <span
+                                key={rIdx}
+                                className="px-1.5 py-0.2 rounded bg-surface-3 border border-hairline text-[9px] text-ink font-mono flex items-center gap-1"
+                              >
+                                <span className="truncate max-w-[120px]">{res.filename || res.name}</span>
+                                {res.role && (
+                                  <span className="text-[8px] text-linear-primary uppercase font-semibold">
+                                    {res.role}
+                                  </span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     ))}

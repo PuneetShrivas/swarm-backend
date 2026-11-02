@@ -907,11 +907,194 @@ def requires_fresh_internet_information(prompt: str) -> bool:
     return False
 
 
+def classify_artifact_purpose(art: Dict[str, Any], prompt: str = "") -> str:
+    """
+    Classifies an attached artifact into its semantic operational role:
+    - 'template': Formatting templates, report format specifications, markdown layouts, style guides
+    - 'source': Tabular data, computational metrics, spreadsheets, structured figures
+    - 'reference': Research briefings, background documents, PDFs, contextual references
+    """
+    if not isinstance(art, dict):
+        return "reference"
+
+    fname = str(art.get("filename") or art.get("name") or "").lower()
+    ftype = str(art.get("type") or (fname.split(".")[-1] if "." in fname else "")).lower()
+    source_type = str(art.get("source_type") or "").lower()
+    content = str(art.get("content") or "")[:2000].lower()
+    p_lower = prompt.lower()
+
+    # 1. Template Classification
+    template_cues = ["template", "format", "specification", "spec", "style_guide", "guideline", "outline", "layout", "executive_summary"]
+    if art.get("type") == "template" or source_type == "template":
+        return "template"
+    if any(cue in fname for cue in template_cues):
+        return "template"
+    if ftype in ["md", "markdown"]:
+        if any(cue in p_lower for cue in ["template", "format", "according to", "following the"]):
+            return "template"
+        if any(h in content for h in ["# template", "## executive summary", "## section", "## overview", "# format"]):
+            return "template"
+
+    # 2. Source Data Classification (Spreadsheets & Calculations)
+    if ftype in ["xlsx", "xls", "csv", "tsv", "json", "parquet"]:
+        return "source"
+    source_cues = ["data", "metrics", "financials", "sales", "revenue", "calculation", "balance", "ledger", "dataset"]
+    if any(cue in fname for cue in source_cues):
+        return "source"
+
+    # 3. Reference Classification (PDFs, Research, Contextual Docs)
+    if ftype in ["pdf", "docx", "doc", "txt", "pptx", "ppt", "html"]:
+        return "reference"
+
+    # Default based on extension
+    if ftype in ["md", "markdown"]:
+        return "template"
+    return "reference"
+
+
+def assign_artifacts_to_steps(
+    steps: List[Dict[str, Any]],
+    attached_artifacts: Optional[List[Dict[str, Any]]],
+    prompt: str = ""
+) -> List[Dict[str, Any]]:
+    """
+    Judiciously assigns attached artifacts to specific workflow steps according to:
+    1. Explicit prompt references (e.g. 'follow report_template.md', 'analyze data.xlsx')
+    2. Semantic purpose matching (templates -> writer/synthesizer; sources -> analyst/excel; references -> researcher/parser)
+    """
+    if not attached_artifacts or not steps:
+        for s in steps:
+            if "resources" not in s:
+                s["resources"] = []
+        return steps
+
+    p_lower = prompt.lower()
+
+    # Prepared resource items with classified roles
+    resources_by_role: Dict[str, List[Dict[str, Any]]] = {
+        "template": [],
+        "source": [],
+        "reference": [],
+    }
+    all_prepared_resources: List[Dict[str, Any]] = []
+
+    for art in attached_artifacts:
+        if not isinstance(art, dict):
+            continue
+        role = classify_artifact_purpose(art, prompt)
+        res_item = {
+            "id": art.get("id"),
+            "name": art.get("name") or art.get("filename"),
+            "filename": art.get("filename") or art.get("name"),
+            "type": art.get("type") or (art.get("filename", "").split(".")[-1] if "." in art.get("filename", "") else "file"),
+            "content": art.get("content", ""),
+            "size_bytes": art.get("size_bytes") or len(str(art.get("content", ""))),
+            "is_base64": bool(art.get("is_base64")),
+            "mime_type": art.get("mime_type"),
+            "role": role,
+            "source_title": art.get("source_title"),
+        }
+        resources_by_role[role].append(res_item)
+        all_prepared_resources.append(res_item)
+
+    # Initialize each step
+    for s in steps:
+        s["resources"] = []
+        s["attached_artifact_ids"] = []
+
+    assigned_resource_ids = set()
+
+    # Phase 1: Explicit Prompt Mentions
+    for res in all_prepared_resources:
+        fname = (res.get("filename") or "").lower()
+        if fname and fname in p_lower:
+            best_step = None
+            if res["role"] == "template":
+                best_step = next(
+                    (s for s in steps if s.get("agent_id") in ["writer", "synthesizer", "file_creator"] or "report" in s.get("name", "").lower()),
+                    steps[-1]
+                )
+            elif res["role"] == "source":
+                best_step = next(
+                    (s for s in steps if s.get("agent_id") in ["data_analyst", "excel_specialist", "file_parser"] or "data" in s.get("name", "").lower() or "calculat" in s.get("name", "").lower()),
+                    steps[0]
+                )
+            else:
+                best_step = next(
+                    (s for s in steps if s.get("agent_id") in ["researcher", "file_parser", "general_assistant"] or "research" in s.get("name", "").lower()),
+                    steps[0]
+                )
+
+            if best_step:
+                best_step["resources"].append(res)
+                if res.get("id"):
+                    best_step["attached_artifact_ids"].append(res["id"])
+                assigned_resource_ids.add(res["id"] or res["filename"])
+
+    # Phase 2: Role-Based Semantic Assignment for unassigned files
+    for role, items in resources_by_role.items():
+        unassigned = [i for i in items if (i["id"] or i["filename"]) not in assigned_resource_ids]
+        if not unassigned:
+            continue
+
+        if role == "template":
+            # Assign templates to writing/synthesis/delivery steps
+            target_step = next(
+                (s for s in reversed(steps) if s.get("agent_id") in ["writer", "synthesizer", "file_creator"] or any(k in s.get("name", "").lower() for k in ["synthesis", "briefing", "report", "authoring"])),
+                steps[-1]
+            )
+            for itm in unassigned:
+                target_step["resources"].append(itm)
+                if itm.get("id"):
+                    target_step["attached_artifact_ids"].append(itm["id"])
+                assigned_resource_ids.add(itm["id"] or itm["filename"])
+
+        elif role == "source":
+            # Assign source data to analysis/computation/excel steps
+            target_step = next(
+                (s for s in steps if s.get("agent_id") in ["data_analyst", "excel_specialist", "file_parser"] or any(k in s.get("name", "").lower() for k in ["data", "computation", "statistical", "analytics", "cell"])),
+                steps[0]
+            )
+            for itm in unassigned:
+                target_step["resources"].append(itm)
+                if itm.get("id"):
+                    target_step["attached_artifact_ids"].append(itm["id"])
+                assigned_resource_ids.add(itm["id"] or itm["filename"])
+
+        elif role == "reference":
+            # Assign research/reference documents to research/parsing/discovery steps
+            target_step = next(
+                (s for s in steps if s.get("agent_id") in ["researcher", "file_parser", "general_assistant"] or any(k in s.get("name", "").lower() for k in ["research", "discovery", "parsing", "extraction", "evidence"])),
+                steps[0]
+            )
+            for itm in unassigned:
+                target_step["resources"].append(itm)
+                if itm.get("id"):
+                    target_step["attached_artifact_ids"].append(itm["id"])
+                assigned_resource_ids.add(itm["id"] or itm["filename"])
+
+    # Phase 3: Fallback safety - if any item is still unassigned, attach to step 1
+    for itm in all_prepared_resources:
+        if (itm["id"] or itm["filename"]) not in assigned_resource_ids:
+            steps[0]["resources"].append(itm)
+            if itm.get("id"):
+                steps[0]["attached_artifact_ids"].append(itm["id"])
+
+    # Phase 4: Enrich step instructions with references to assigned resources
+    for s in steps:
+        if s.get("resources"):
+            res_names = ", ".join([f"'{r.get('filename')}' ({r.get('role')})" for r in s["resources"]])
+            s["instructions"] = f"{s.get('instructions', '').rstrip()}\n\n[Assigned Step Resources: {res_names}]\nCarefully utilize the provided resource contents attached to this step to fulfill your assigned operational objective."
+
+    return steps
+
+
 def build_workflow_from_intent(
     intent: QueryIntentClassification,
     prompt_clean: str,
     slug_id: str,
     art_ids: List[str],
+    attached_artifacts: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Declarative workflow factory mapping an evaluated QueryIntentClassification
@@ -1576,6 +1759,8 @@ def build_workflow_from_intent(
             {"source": "step_1", "target": "step_2"},
         ]
 
+    steps = assign_artifacts_to_steps(steps, attached_artifacts, prompt_clean)
+
     return {
         "id": f"ephemeral_wf_{slug_id}",
         "title": f"{wf_title} ({slug_id})",
@@ -1619,6 +1804,20 @@ def synthesize_on_the_fly_workflow(
     if target_agent_id and target_agent_id != "orchestrator":
         model_override = "sonar" if target_agent_id == "researcher" else None
         agent_name = target_agent_id.replace("_", " ").title()
+        single_step = {
+            "id": "step_1",
+            "name": f"{agent_name} Task",
+            "step_type": "agent",
+            "agent_id": target_agent_id,
+            "model": model_override,
+            "instructions": prompt_clean,
+            "tool_ids": [],
+            "knowledge_file_ids": [],
+            "attached_artifact_ids": art_ids,
+            "resources": [],
+            "depends_on": [],
+        }
+        steps = assign_artifacts_to_steps([single_step], attached_artifacts, prompt_clean)
         return {
             "id": f"ephemeral_wf_{slug_id}",
             "title": f"{agent_name} Execution Plan ({slug_id})",
@@ -1626,23 +1825,10 @@ def synthesize_on_the_fly_workflow(
             "goal": prompt_clean,
             "is_ephemeral": True,
             "is_multi_step": False,
-            "steps": [
-                {
-                    "id": "step_1",
-                    "name": f"{agent_name} Task",
-                    "step_type": "agent",
-                    "agent_id": target_agent_id,
-                    "model": model_override,
-                    "instructions": prompt_clean,
-                    "tool_ids": [],
-                    "knowledge_file_ids": [],
-                    "attached_artifact_ids": art_ids,
-                    "depends_on": [],
-                }
-            ],
+            "steps": steps,
             "edges": [],
         }
 
     # 2. LLM-Driven Intent Analysis (Single-Pass Semantic Evaluation)
     intent = analyze_query_intent(prompt_clean, attached_artifacts)
-    return build_workflow_from_intent(intent, prompt_clean, slug_id, art_ids)
+    return build_workflow_from_intent(intent, prompt_clean, slug_id, art_ids, attached_artifacts=attached_artifacts)
