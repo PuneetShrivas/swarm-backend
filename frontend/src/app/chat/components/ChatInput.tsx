@@ -25,6 +25,14 @@ import { ArtifactTemplate } from "../types";
 import { BUILTIN_ARTIFACT_TEMPLATES } from "../templates";
 import TemplateDetailsModal from "./TemplateDetailsModal";
 
+export interface ChatWorkflowItem {
+  id: string;
+  title: string;
+  goal?: string;
+  steps?: Array<{ id: string; name: string; agent_id?: string }>;
+  share_slug?: string;
+}
+
 interface SlashCommand {
   id: string;
   command: string;
@@ -115,9 +123,48 @@ export default function ChatInput({
   const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0);
   const [showTemplateDetailsModal, setShowTemplateDetailsModal] = useState(false);
   const [inspectedTemplate, setInspectedTemplate] = useState<ArtifactTemplate | null>(null);
+  const [availableWorkflows, setAvailableWorkflows] = useState<ChatWorkflowItem[]>([]);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<ChatWorkflowItem | null>(null);
+  const [workflowSearchMatch, setWorkflowSearchMatch] = useState<{ query: string; startIndex: number; endIndex: number } | null>(null);
+  const [selectedWfIdx, setSelectedWfIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch available workflows on mount for mid-sentence autocomplete
+  useEffect(() => {
+    const fetchWorkflows = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${apiUrl}/api/workflows`).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setAvailableWorkflows(data);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load workflows for ChatInput:", err);
+      }
+    };
+    fetchWorkflows();
+  }, []);
+
+  // Close workflow suggestions menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("#workflow-autocomplete-container")) {
+        setWorkflowSearchMatch(null);
+      }
+    };
+    if (workflowSearchMatch) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [workflowSearchMatch]);
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -250,6 +297,53 @@ export default function ChatInput({
     );
   }, [templateSearch, allTemplates]);
 
+  // Filter available workflows for mid-sentence autocomplete
+  const filteredWorkflows = useMemo(() => {
+    if (!workflowSearchMatch) return [];
+    const q = workflowSearchMatch.query;
+    if (!q) return availableWorkflows;
+    return availableWorkflows.filter(
+      (w) =>
+        w.title.toLowerCase().includes(q) ||
+        (w.goal && w.goal.toLowerCase().includes(q)) ||
+        w.id.toLowerCase().includes(q)
+    );
+  }, [workflowSearchMatch, availableWorkflows]);
+
+  const checkWorkflowTrigger = (text: string, cursorPos?: number) => {
+    const pos = cursorPos !== undefined ? cursorPos : text.length;
+    const textBefore = text.slice(0, pos);
+    const match = textBefore.match(/(?:^|\s)\/(?:workflow|wf)(?:\s+([a-zA-Z0-9_\-\s]*))?$/i);
+    if (match) {
+      const query = (match[1] || "").toLowerCase().trim();
+      const matchFull = match[0];
+      const matchStart = textBefore.length - matchFull.trimStart().length;
+      setWorkflowSearchMatch({ query, startIndex: matchStart, endIndex: pos });
+      setSelectedWfIdx(0);
+      return;
+    }
+    setWorkflowSearchMatch(null);
+  };
+
+  const handleSelectWorkflow = (wf: ChatWorkflowItem) => {
+    setSelectedWorkflow(wf);
+    if (workflowSearchMatch) {
+      const before = input.slice(0, workflowSearchMatch.startIndex);
+      const after = input.slice(workflowSearchMatch.endIndex);
+      const cleanBefore = before.endsWith(" ") || before.length === 0 ? before : `${before} `;
+      const cleanAfter = after.startsWith(" ") || after.length === 0 ? after : ` ${after}`;
+      const replacement = `/workflow [${wf.title}]`;
+      const newInput = `${cleanBefore}${replacement}${cleanAfter}`;
+      setInput(newInput);
+    } else {
+      setInput((prev) => `${prev} /workflow [${wf.title}] `);
+    }
+    setWorkflowSearchMatch(null);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
   // Handle template selection
   const handleSelectTemplate = (template: ArtifactTemplate) => {
     setSelectedTemplate(template);
@@ -265,7 +359,7 @@ export default function ChatInput({
   };
 
   // Determine active slash command suggestions
-  const isSlashActive = input.startsWith("/") && !isDismissed && !showArtifactTemplatePopup;
+  const isSlashActive = input.startsWith("/") && !isDismissed && !showArtifactTemplatePopup && !workflowSearchMatch;
   const slashQuery = input.startsWith("/") ? input.slice(1).toLowerCase().trim() : "";
   const matchingCommands = SLASH_COMMANDS.filter(
     (c) =>
@@ -280,10 +374,16 @@ export default function ChatInput({
       setShowArtifactTemplatePopup(true);
       return;
     }
-    setInput("");
     if (cmd.id === "workflows" || cmd.command === "/workflows" || cmd.command === "/workflow") {
-      if (onOpenWorkflowPicker) onOpenWorkflowPicker();
-    } else if (cmd.id === "clear") {
+      setInput("/workflow ");
+      checkWorkflowTrigger("/workflow ");
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+      return;
+    }
+    setInput("");
+    if (cmd.id === "clear") {
       if (onClearChat) onClearChat();
     } else if (cmd.id === "agents") {
       onSend("Show me the active swarm agents and their capabilities.", attachedArtifacts);
@@ -300,8 +400,8 @@ export default function ChatInput({
     const trimmed = input.trim();
     const lower = trimmed.toLowerCase();
 
-    // Direct slash command intercept
-    if (lower === "/workflow" || lower === "/workflows" || lower.startsWith("/workflow ")) {
+    // Direct slash command intercept strictly when command alone is entered
+    if (lower === "/workflow" || lower === "/workflows") {
       setInput("");
       if (onOpenWorkflowPicker) onOpenWorkflowPicker();
       return;
@@ -321,6 +421,8 @@ export default function ChatInput({
     onSend(trimmed, attachedArtifacts, selectedTemplate || undefined);
     setInput("");
     setSelectedTemplate(null);
+    setSelectedWorkflow(null);
+    setWorkflowSearchMatch(null);
     setIsDismissed(false);
     setShowArtifactTemplatePopup(false);
 
@@ -330,6 +432,33 @@ export default function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Keyboard navigation in Mid-Sentence Workflow Autocomplete
+    if (workflowSearchMatch && filteredWorkflows.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedWfIdx((prev) => (prev + 1) % filteredWorkflows.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedWfIdx((prev) => (prev - 1 + filteredWorkflows.length) % filteredWorkflows.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const selected = filteredWorkflows[selectedWfIdx] || filteredWorkflows[0];
+        if (selected) {
+          handleSelectWorkflow(selected);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setWorkflowSearchMatch(null);
+        return;
+      }
+    }
+
     // Keyboard navigation in Artifact Templates popup
     if (showArtifactTemplatePopup && filteredTemplates.length > 0) {
       if (e.key === "ArrowDown") {
@@ -394,6 +523,7 @@ export default function ChatInput({
     const val = e.target.value;
     setInput(val);
     setSelectedIdx(0);
+    checkWorkflowTrigger(val, e.target.selectionStart || val.length);
     if (isDismissed && val.startsWith("/")) {
       setIsDismissed(false);
     }
@@ -461,7 +591,7 @@ export default function ChatInput({
         />
 
         {/* Attached Artifacts & Selected Template Chips Bar */}
-        {(attachedArtifacts.length > 0 || selectedTemplate) && (
+        {(attachedArtifacts.length > 0 || selectedTemplate || selectedWorkflow) && (
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-2.5 animate-fade-in">
             {attachedArtifacts.length > 0 && (
               <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider shrink-0 flex items-center gap-1">
@@ -535,6 +665,31 @@ export default function ChatInput({
                 </button>
               </div>
             )}
+
+            {/* Selected Target Workflow Chip */}
+            {selectedWorkflow && (
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-primary/15 border border-linear-primary/40 text-ink text-xs font-medium animate-fade-in shrink-0 shadow-xs group"
+                title={`Target Workflow: ${selectedWorkflow.title}`}
+              >
+                <Layers size={12} className="text-linear-primary shrink-0" />
+                <span className="text-xs text-ink font-mono">{selectedWorkflow.title}</span>
+                <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-surface-2 text-linear-primary border border-hairline">
+                  WORKFLOW
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedWorkflow(null);
+                  }}
+                  className="p-0.5 text-ink-subtle hover:text-destructive rounded transition-colors ml-0.5"
+                  title="Remove target workflow"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -592,6 +747,74 @@ export default function ChatInput({
                       >
                         {cmd.description}
                       </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Mid-Sentence Autonomous Workflow Suggestion Popover */}
+        {workflowSearchMatch && filteredWorkflows.length > 0 && (
+          <div
+            id="workflow-autocomplete-container"
+            className="absolute bottom-full mb-2 left-0 right-0 sm:right-auto sm:min-w-[380px] sm:max-w-[460px] bg-card border border-border/80 rounded-xl shadow-card overflow-hidden z-25 animate-fade-in backdrop-blur-xl"
+          >
+            <div className="px-3 py-1.5 border-b border-border/60 bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-primary">
+                <Layers size={11} /> Select Target Workflow
+              </span>
+              <span>Use ↑ ↓ Enter</span>
+            </div>
+            <div className="p-1 space-y-0.5 max-h-[220px] overflow-y-auto">
+              {filteredWorkflows.map((wf, idx) => {
+                const isSelected = idx === selectedWfIdx;
+                return (
+                  <button
+                    key={wf.id || idx}
+                    type="button"
+                    onClick={() => handleSelectWorkflow(wf)}
+                    onMouseEnter={() => setSelectedWfIdx(idx)}
+                    className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition text-xs ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    <div
+                      className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 border mt-0.5 ${
+                        isSelected
+                          ? "bg-primary-foreground/15 border-primary-foreground/30 text-primary-foreground"
+                          : "bg-muted/50 border-border/60 text-primary"
+                      }`}
+                    >
+                      <Layers size={13} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-semibold truncate">{wf.title}</span>
+                        {Array.isArray(wf.steps) && (
+                          <span
+                            className={`text-[9px] font-mono px-1 py-0.2 rounded shrink-0 ${
+                              isSelected
+                                ? "bg-primary-foreground/20 text-primary-foreground"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {wf.steps.length} steps
+                          </span>
+                        )}
+                      </div>
+                      {wf.goal && (
+                        <p
+                          className={`text-[11px] truncate mt-0.5 ${
+                            isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
+                          }`}
+                        >
+                          {wf.goal}
+                        </p>
+                      )}
                     </div>
                   </button>
                 );
@@ -826,6 +1049,12 @@ export default function ChatInput({
             placeholder={placeholder}
             value={input}
             onChange={handleInputChange}
+            onClick={(e) => {
+              checkWorkflowTrigger(input, (e.target as HTMLTextAreaElement).selectionStart || input.length);
+            }}
+            onKeyUp={(e) => {
+              checkWorkflowTrigger(input, (e.target as HTMLTextAreaElement).selectionStart || input.length);
+            }}
             onKeyDown={handleKeyDown}
             disabled={isLoading}
           />

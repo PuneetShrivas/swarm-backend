@@ -8,6 +8,9 @@ A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Googl
 
 ### Frontend (Next.js 14 + Tailwind CSS + Framer Motion)
 - **Interactive Chat Interface**:
+  - **Mid-Sentence `/workflow` Autocomplete & Pointing**: Type `/workflow` or `/wf` anywhere mid-sentence (e.g. `"follow the /workflow ABC and execute it for all attached files"`) to trigger a floating suggestions popover, insert `/workflow [Title]`, and render a persistent workflow pill badge.
+  - **Batch Workflow Trace Carousel (`< File X of N >`)**: Interactively cycle through per-file runtime execution traces, tool calls, status pills, and outputs when executing a batch workflow across attached files.
+  - **1-Click ZIP Artifact Download**: Instantly download compiled `.zip` archives bundling per-file outputs, JSON execution logs, and markdown summaries.
   - **Inline Message Editing**: Edit previous prompts in place with "Cancel" and "Save & Submit".
   - **Conversation Tree Branching (`< 1 / 2 >`)**: Seamlessly navigate alternative branches and responses without losing conversation history.
   - **Rating & Feedback**: Quick Thumbs Up 👍 / Thumbs Down 👎 toggles with visual accent states.
@@ -18,6 +21,9 @@ A modern, full-stack monorepo featuring a **FastAPI** backend powered by **Googl
   - **Chat Management**: Real-time agent status badge, target agent routing selector, Markdown transcript export, and session reset.
 
 ### Backend (FastAPI + Google Gemini API)
+- **Batch Multi-File Workflow Execution**: Automatically isolates and executes workflows $n$ times across all attached files upon detecting batch queries (e.g. `"execute it for all attached files"`).
+- **In-Memory ZIP Package Compilation**: Bundles individual file outputs (`outputs/`), execution traces (`logs/`), and an aggregate summary table (`batch_execution_summary.md`) into a downloadable `.zip` artifact.
+- **Mid-Sentence Workflow Resolution**: Resolves workflow references mid-sentence using bracketed (`/workflow [Title]`) and unbracketed syntax across Supabase, memory store, and preloaded defaults.
 - **Google Gemini Integration**: Uses the official `google-genai` SDK for multi-turn conversational intelligence, agent-specific system instructions, and token usage tracking.
 - **Pre-populated Swarm Agents**:
   - `researcher` (**Research Agent**): In-depth analytical investigation, structured syntheses, and factual reporting.
@@ -165,6 +171,13 @@ Configured for serverless deployment on Vercel:
 ---
 
 ## 📝 Changelog
+
+### [2026-11-02] Batch Workflow Execution, Mid-Sentence Autocomplete, and Zip Output
+- **Mid-Sentence Autocomplete & Pointing**: Enhanced `ChatInput.tsx` to detect `/workflow` or `/wf` typed mid-sentence, open an inline floating suggestions popover, insert `/workflow [Title]`, and render a removable target workflow badge pill.
+- **Batch Multi-File Execution Engine**: Enhanced `_execute_chat_turn` in `backend/app/main.py` to identify batch execution intent across attached files, isolate inputs per file, and execute the referenced pipeline $n$ times with granular telemetry.
+- **In-Memory ZIP Package Compilation**: Automatically compiles per-file outputs (`outputs/`), execution traces (`logs/`), and an aggregate summary table (`batch_execution_summary.md`) into a downloadable base64 `.zip` file artifact.
+- **Interactive File Trace Carousel**: Added `<` and `>` carousel controls in `MessageItem.tsx` enabling users to navigate between files (`File X of N`), inspecting per-file execution status, duration, tokens, tool calls, and outputs.
+- **Automated Verification**: Created comprehensive test suite in `backend/test_batch_workflow_execution.py` verifying mid-sentence regex extraction, workflow resolution, multi-file batch execution, and ZIP archive validation. 100% test pass and frontend production build pass.
 
 ### [2026-10-28] Supabase Chat Sessions, History, and Usage Telemetry
 - **Database**: Created SQL migration `supabase/migrations/20261028_chat_sessions_history_usage.sql` establishing `chat_sessions`, `chat_messages` (with adjacency-list tree branching), and `user_usage` tables with complete RLS policies and performance indexes.

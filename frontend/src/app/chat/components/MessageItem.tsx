@@ -29,10 +29,32 @@ import {
   BookOpen,
   ExternalLink,
   Paperclip,
+  FolderArchive,
 } from "lucide-react";
 import { ChatNode } from "../types";
 import { GranularStepTrace, WorkflowSpec } from "./GranularStepTrace";
 import { SaveWorkflowModal } from "./SaveWorkflowModal";
+
+export interface BatchFileRun {
+  file_index: number;
+  file_id?: string;
+  file_name: string;
+  status: "completed" | "failed" | string;
+  duration_ms: number;
+  tokens_used: number;
+  output_text: string;
+  step_runs?: Array<{
+    step_id?: string;
+    step_index?: number;
+    agent_id?: string;
+    status?: string;
+    duration_ms?: number;
+    tokens_used?: number;
+    output_data?: { text?: string };
+    tool_calls?: Array<{ tool: string; args?: Record<string, unknown> }>;
+  }>;
+  artifacts?: unknown[];
+}
 
 interface MessageItemProps {
   node: ChatNode;
@@ -60,6 +82,17 @@ export default function MessageItem({
   const [showAllCitations, setShowAllCitations] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [workflowToSave, setWorkflowToSave] = useState<WorkflowSpec | null>(null);
+  const [currentBatchFileIdx, setCurrentBatchFileIdx] = useState(0);
+
+  const isBatchWorkflow = Boolean(node.metadata?.is_batch_workflow || node.metadata?.batch_file_runs);
+  const batchFileRuns = useMemo(() => {
+    if (Array.isArray(node.metadata?.batch_file_runs)) {
+      return node.metadata.batch_file_runs as BatchFileRun[];
+    }
+    return [];
+  }, [node.metadata?.batch_file_runs]);
+
+  const activeBatchRun = batchFileRuns[currentBatchFileIdx] || batchFileRuns[0] || null;
 
   const handleOpenSaveModal = (spec: WorkflowSpec) => {
     setWorkflowToSave(spec);
@@ -168,6 +201,8 @@ export default function MessageItem({
           ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           : ext === "xlsx"
           ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : ext === "zip"
+          ? "application/zip"
           : "text/plain;charset=utf-8");
 
       let blob: Blob;
@@ -780,12 +815,117 @@ export default function MessageItem({
                 </div>
               )}
 
-              {/* Granular Step Execution Trace & Ephemeral Workflow Banner */}
-              {!isUser && (
+              {/* Granular Step Execution Trace (for standard non-batch workflows) */}
+              {!isUser && !isBatchWorkflow && (
                 <GranularStepTrace
                   metadata={node.metadata}
                   onOpenSaveModal={handleOpenSaveModal}
                 />
+              )}
+
+              {/* Batch Multi-File Execution Carousel (< >) */}
+              {!isUser && isBatchWorkflow && batchFileRuns.length > 0 && activeBatchRun && (
+                <div className="mt-3.5 rounded-lg border border-hairline bg-surface-2/95 shadow-sm overflow-hidden select-none">
+                  {/* Carousel Control Bar */}
+                  <div className="px-3.5 py-2.5 bg-surface-3/80 border-b border-hairline flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-md bg-linear-primary/15 border border-linear-primary/30 flex items-center justify-center text-linear-primary shrink-0">
+                        <Layers size={13} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-ink truncate flex items-center gap-1.5">
+                          <span>Batch Execution Trace</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-1 text-ink-subtle border border-hairline">
+                            {batchFileRuns.length} {batchFileRuns.length === 1 ? "file" : "files"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Navigation Buttons < and > */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={currentBatchFileIdx <= 0}
+                        onClick={() => setCurrentBatchFileIdx((prev) => Math.max(0, prev - 1))}
+                        className="p-1 rounded-md bg-surface-1 border border-hairline text-ink hover:bg-surface-3 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                        title="Previous file log (<)"
+                        aria-label="Previous file"
+                      >
+                        <ChevronLeft size={15} />
+                      </button>
+
+                      <span className="text-xs font-mono font-medium text-ink px-2 py-0.5 rounded bg-surface-1 border border-hairline">
+                        File {currentBatchFileIdx + 1} of {batchFileRuns.length}
+                      </span>
+
+                      <button
+                        type="button"
+                        disabled={currentBatchFileIdx >= batchFileRuns.length - 1}
+                        onClick={() => setCurrentBatchFileIdx((prev) => Math.min(batchFileRuns.length - 1, prev + 1))}
+                        className="p-1 rounded-md bg-surface-1 border border-hairline text-ink hover:bg-surface-3 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                        title="Next file log (>)"
+                        aria-label="Next file"
+                      >
+                        <ChevronRight size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Active File Details & Telemetry */}
+                  <div className="p-3 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText size={14} className="text-linear-primary shrink-0" />
+                        <span className="font-semibold text-ink font-mono truncate max-w-[280px]" title={activeBatchRun.file_name}>
+                          {activeBatchRun.file_name}
+                        </span>
+                        <span
+                          className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded-pill border ${
+                            activeBatchRun.status === "completed"
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : "bg-red-500/10 text-red-400 border-red-500/20"
+                          }`}
+                        >
+                          {activeBatchRun.status}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-[11px] text-ink-subtle font-mono">
+                        <span>{activeBatchRun.duration_ms}ms</span>
+                        <span>&middot;</span>
+                        <span>{activeBatchRun.tokens_used} tokens</span>
+                      </div>
+                    </div>
+
+                    {/* Active File Granular Step Trace */}
+                    {Array.isArray(activeBatchRun.step_runs) && activeBatchRun.step_runs.length > 0 && (
+                      <div className="pt-2 border-t border-hairline/60">
+                        <GranularStepTrace
+                          metadata={{
+                            step_runs: activeBatchRun.step_runs,
+                            duration_ms: activeBatchRun.duration_ms,
+                            tokens_used: activeBatchRun.tokens_used,
+                            workflow_title: String(node.metadata?.workflow_title || "Batch File Pipeline"),
+                            workflow_goal: `Processing for file: ${activeBatchRun.file_name}`,
+                            is_ephemeral_workflow: true,
+                            is_multi_step: activeBatchRun.step_runs.length > 1,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Output preview for this specific file */}
+                    {activeBatchRun.output_text && (
+                      <div className="mt-2 p-2.5 rounded-md bg-canvas/80 border border-hairline text-xs font-mono text-ink-muted leading-relaxed max-h-[160px] overflow-y-auto">
+                        <div className="text-[10px] uppercase font-semibold text-ink-subtle mb-1">
+                          File Result Output:
+                        </div>
+                        <p className="whitespace-pre-wrap">{activeBatchRun.output_text}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
 
               {/* Downloadable File Artifact Banner */}
@@ -801,6 +941,7 @@ export default function MessageItem({
                     const ext = (fname.includes(".") ? fname.split(".").pop() : "file")?.toLowerCase() || "file";
 
                     const renderIcon = () => {
+                      if (ext === "zip") return <FolderArchive size={16} className="text-amber-400" />;
                       if (ext === "pdf") return <FileText size={16} className="text-red-400" />;
                       if (ext === "pptx" || ext === "ppt") return <Presentation size={16} className="text-orange-400" />;
                       if (ext === "docx" || ext === "doc") return <FileText size={16} className="text-blue-400" />;

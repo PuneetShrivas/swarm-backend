@@ -4,6 +4,8 @@ import json
 import time
 import uuid
 import base64
+import io
+import zipfile
 import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple, Callable
@@ -1224,6 +1226,94 @@ def extract_file_artifact_from_turn(
     }
 
 
+def extract_workflow_candidate_from_prompt(content: str) -> Optional[str]:
+    """
+    Extracts workflow name or identifier from user prompt, supporting:
+    - Bracketed syntax: /workflow [Workflow Name] or /wf [Workflow Name]
+    - Inline syntax: /workflow Workflow Name or /wf Workflow Name
+    """
+    if not content:
+        return None
+    # 1. Bracketed syntax (e.g. /workflow [Data Cleaner])
+    bracket_m = re.search(r"/(?:workflow|wf)\s*\[([^\]\n]+)\]", content, re.IGNORECASE)
+    if bracket_m:
+        return bracket_m.group(1).strip()
+
+    # 2. Unbracketed syntax (e.g. /workflow Data Cleaner and execute it for all attached files)
+    unbracket_m = re.search(r"/(?:workflow|wf)\s+([^\n]+)", content, re.IGNORECASE)
+    if unbracket_m:
+        after_kw = unbracket_m.group(1).strip()
+        trailing_split = re.split(
+            r"\s+(?:and\s+execute|and\s+run|for\s+all|on\s+all|across\s+all|for\s+each)\b",
+            after_kw,
+            flags=re.IGNORECASE,
+        )
+        if trailing_split and trailing_split[0].strip():
+            return trailing_split[0].strip()
+        return after_kw
+
+    return None
+
+
+def resolve_workflow_reference(
+    candidate: str,
+    user_uid: str,
+    token: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Resolves workflow dictionary from candidate ID, title, or share_slug
+    across Supabase, memory store, and preloaded default workflows.
+    """
+    if not candidate:
+        return None
+    candidate_clean = candidate.strip().strip("[]").strip()
+    if not candidate_clean:
+        return None
+
+    # 1. Supabase database lookup
+    if is_supabase_configured() and not user_uid.startswith("test-"):
+        db_client = get_user_supabase_client(token)
+        if db_client:
+            try:
+                res = db_client.table("workflows").select("*").eq("id", candidate_clean).single().execute()
+                if res.data:
+                    return res.data
+            except Exception:
+                pass
+            try:
+                res = db_client.table("workflows").select("*").ilike("title", candidate_clean).execute()
+                if res.data and len(res.data) > 0:
+                    return res.data[0]
+            except Exception:
+                pass
+
+    # 2. Memory store & default workflows
+    all_workflows: List[Dict[str, Any]] = list(memory_store.workflows.values()) + get_default_workflows()
+
+    # Exact ID / share_slug match
+    for w in all_workflows:
+        if w.get("id") == candidate_clean or w.get("share_slug") == candidate_clean:
+            return w
+
+    # Exact title match (case-insensitive)
+    cand_lower = candidate_clean.lower()
+    for w in all_workflows:
+        if w.get("title", "").strip().lower() == cand_lower:
+            return w
+
+    # Substring / prefix match (longest matching title first)
+    sorted_by_len = sorted(all_workflows, key=lambda w: len(w.get("title", "")), reverse=True)
+    for w in sorted_by_len:
+        title = w.get("title", "").strip()
+        if not title:
+            continue
+        title_lower = title.lower()
+        if title_lower in cand_lower or cand_lower in title_lower:
+            return w
+
+    return None
+
+
 def _execute_chat_turn(
     request: ChatRequest,
     current_user: Optional[AuthUser],
@@ -1333,44 +1423,259 @@ def _execute_chat_turn(
     if current_user and request.session_id:
         renamed_session_title = auto_rename_session_if_needed(request.session_id, last_user_message.content, current_user)
 
-    # Check if this chat turn invokes an autonomous workflow
+    # Check if this chat turn invokes an autonomous workflow (single or batch)
     invoked_workflow_id = request.workflow_id
-    if not invoked_workflow_id and last_user_message.content.strip().startswith("/workflow"):
-        parts = last_user_message.content.strip().split(maxsplit=1)
-        if len(parts) > 1:
-            invoked_workflow_id = parts[1].strip()
+    if not invoked_workflow_id:
+        extracted_cand = extract_workflow_candidate_from_prompt(last_user_message.content)
+        if extracted_cand:
+            invoked_workflow_id = extracted_cand
 
     if invoked_workflow_id:
         user_uid = current_user.id if current_user else "guest-user"
-        wf_data = None
-        if is_supabase_configured() and not user_uid.startswith("test-"):
-            db_client = get_user_supabase_client(current_user.token if current_user else None)
-            if db_client:
-                try:
-                    res = db_client.table("workflows").select("*").eq("id", invoked_workflow_id).single().execute()
-                    wf_data = res.data
-                except Exception:
-                    pass
-        if not wf_data:
-            wf_data = memory_store.get_workflow(invoked_workflow_id, user_uid)
-            if not wf_data:
-                for w in memory_store.workflows.values():
-                    if (
-                        w.get("title", "").lower() == invoked_workflow_id.lower()
-                        or w.get("share_slug") == invoked_workflow_id
-                        or w.get("id") == invoked_workflow_id
-                    ):
-                        wf_data = w
-                        break
+        wf_data = resolve_workflow_reference(
+            invoked_workflow_id,
+            user_uid=user_uid,
+            token=current_user.token if current_user else None,
+        )
 
         if wf_data:
+            # Check for batch multi-file execution across attached artifacts
+            batch_keywords = [
+                "for all attached files",
+                "all attached files",
+                "each file",
+                "each attached file",
+                "for each file",
+                "all files",
+                "every file",
+                "for all",
+                "batch",
+                "execute it for all",
+            ]
+            has_batch_phrase = any(phrase in last_user_message.content.lower() for phrase in batch_keywords)
+            is_batch_workflow = bool(attached_arts and (has_batch_phrase or len(attached_arts) > 1))
+
+            if is_batch_workflow:
+                batch_file_runs: List[Dict[str, Any]] = []
+                zip_buffer = io.BytesIO()
+
+                with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    summary_rows: List[str] = []
+
+                    for idx, art in enumerate(attached_arts):
+                        file_name = art.get("filename") or art.get("name") or f"file_{idx+1}.txt"
+                        file_content = art.get("content") or ""
+                        file_id = art.get("id") or f"art-{idx+1}"
+                        file_stem = os.path.splitext(file_name)[0]
+
+                        if step_callback:
+                            try:
+                                step_callback({
+                                    "type": "phase",
+                                    "phase": "batch_execution",
+                                    "label": f"Processing file {idx+1}/{len(attached_arts)}: {file_name} via {wf_data.get('title')}",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                })
+                            except Exception:
+                                pass
+
+                        file_wf_inputs = {
+                            "prompt": f"{last_user_message.content}\n\n[Batch Execution Target: File {idx+1}/{len(attached_arts)}: {file_name}]",
+                            "file": art,
+                            "filename": file_name,
+                            "content": file_content,
+                            "attached_artifacts": [art],
+                            "file_index": idx,
+                            "total_files": len(attached_arts),
+                        }
+
+                        def file_step_cb(evt: Dict[str, Any]):
+                            if step_callback:
+                                try:
+                                    step_callback({
+                                        **evt,
+                                        "batch_file_index": idx,
+                                        "batch_file_name": file_name,
+                                        "batch_total_files": len(attached_arts),
+                                    })
+                                except Exception:
+                                    pass
+
+                        try:
+                            run_res = workflow_engine.execute_workflow(
+                                workflow_data=wf_data,
+                                inputs=file_wf_inputs,
+                                user_id=user_uid,
+                                trigger_type="chat_batch",
+                                session_id=request.session_id,
+                                step_callback=file_step_cb if step_callback else None,
+                                is_ephemeral=True,
+                            )
+                            file_status = run_res.get("status", "completed")
+                            file_duration = run_res.get("duration_ms", 0.0)
+                            file_tokens = run_res.get("total_tokens", 0)
+                            file_output_text = run_res.get("output_data", {}).get("final_result") or f"Workflow execution for {file_name} completed."
+                            file_step_runs = run_res.get("step_runs", [])
+                            file_artifacts = run_res.get("artifacts", [])
+                        except Exception as file_err:
+                            file_status = "failed"
+                            file_duration = 0.0
+                            file_tokens = 0
+                            file_output_text = f"Error processing {file_name}: {str(file_err)}"
+                            file_step_runs = []
+                            file_artifacts = []
+
+                        batch_file_runs.append({
+                            "file_index": idx,
+                            "file_id": file_id,
+                            "file_name": file_name,
+                            "status": file_status,
+                            "duration_ms": file_duration,
+                            "tokens_used": file_tokens,
+                            "output_text": file_output_text,
+                            "step_runs": file_step_runs,
+                            "artifacts": file_artifacts,
+                        })
+
+                        # 1. Output file in zip: outputs/{file_stem}_result.md
+                        out_path = f"outputs/{file_stem}_result.md"
+                        zf.writestr(out_path, file_output_text.encode("utf-8"))
+
+                        # Any additional file artifacts produced during this run
+                        for fa in file_artifacts:
+                            if isinstance(fa, dict):
+                                fa_name = fa.get("filename") or fa.get("name")
+                                if fa_name:
+                                    fa_content = fa.get("content", "")
+                                    if fa.get("is_base64"):
+                                        try:
+                                            clean_b64 = re.sub(r"^data:[^;]+;base64,", "", str(fa_content))
+                                            raw_bytes = base64.b64decode(clean_b64)
+                                            zf.writestr(f"outputs/{fa_name}", raw_bytes)
+                                        except Exception:
+                                            zf.writestr(f"outputs/{fa_name}", str(fa_content).encode("utf-8"))
+                                    else:
+                                        zf.writestr(f"outputs/{fa_name}", str(fa_content).encode("utf-8"))
+
+                        # 2. Execution log in zip: logs/{file_stem}_execution_log.json
+                        log_path = f"logs/{file_stem}_execution_log.json"
+                        log_payload = {
+                            "file_index": idx,
+                            "file_name": file_name,
+                            "workflow_id": wf_data.get("id"),
+                            "workflow_title": wf_data.get("title"),
+                            "status": file_status,
+                            "duration_ms": file_duration,
+                            "tokens_used": file_tokens,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "step_runs": file_step_runs,
+                        }
+                        zf.writestr(log_path, json.dumps(log_payload, indent=2).encode("utf-8"))
+
+                        summary_rows.append(
+                            f"| `{file_name}` | **{file_status.upper()}** | {file_duration}ms | {file_tokens} | {file_output_text[:140].replace(chr(10), ' ')}... |"
+                        )
+
+                    # 3. Root batch execution summary: batch_execution_summary.md
+                    summary_md = f"""# Batch Workflow Execution Summary
+
+- **Workflow**: {wf_data.get('title', 'Autonomous Workflow')}
+- **Goal**: {wf_data.get('goal', 'Batch execution across attached files')}
+- **Executed At**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+- **Total Files**: {len(attached_arts)}
+- **Successful Runs**: {sum(1 for r in batch_file_runs if r['status'] == 'completed')}
+- **Failed Runs**: {sum(1 for r in batch_file_runs if r['status'] == 'failed')}
+- **Total Duration**: {sum(r['duration_ms'] for r in batch_file_runs):.1f}ms
+- **Total Tokens**: {sum(r['tokens_used'] for r in batch_file_runs)}
+
+## File Execution Breakdown
+
+| File Name | Status | Duration | Tokens | Summary |
+| :--- | :---: | :---: | :---: | :--- |
+""" + "\n".join(summary_rows) + "\n"
+                    zf.writestr("batch_execution_summary.md", summary_md.encode("utf-8"))
+
+                zip_bytes = zip_buffer.getvalue()
+                zip_base64 = base64.b64encode(zip_bytes).decode("utf-8")
+                clean_title_slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", wf_data.get("title", "workflow")).lower().strip("_")
+                zip_filename = f"batch_{clean_title_slug}_{int(time.time())}.zip"
+
+                file_artifact = {
+                    "id": f"batch-zip-{uuid.uuid4().hex[:8]}",
+                    "filename": zip_filename,
+                    "name": zip_filename,
+                    "type": "zip",
+                    "mime_type": "application/zip",
+                    "is_base64": True,
+                    "content": zip_base64,
+                    "size_bytes": len(zip_bytes),
+                    "downloadable": True,
+                }
+
+                # Construct response message
+                final_res = f"""### Batch Workflow Execution Completed
+
+Successfully executed workflow **`{wf_data.get('title')}`** across **{len(attached_arts)} attached file(s)**.
+
+| File Name | Status | Duration | Tokens |
+| :--- | :---: | :---: | :---: |
+"""
+                for r in batch_file_runs:
+                    final_res += f"| `{r['file_name']}` | **{r['status'].upper()}** | {r['duration_ms']}ms | {r['tokens_used']} |\n"
+
+                final_res += f"\nAll outputs and execution logs have been compiled into **`{zip_filename}`** (available for download below). Use the `<` and `>` buttons in the carousel below to view the runtime logs and step-by-step trace for each file."
+
+                agent_node_id = f"agent-wf-batch-{int(time.time()*1000)}"
+                wf_metadata = {
+                    "agent_state": "completed",
+                    "agent_id": "orchestrator",
+                    "agent_name": f"Workflow: {wf_data.get('title', 'Autonomous Workflow')}",
+                    "workflow_id": wf_data.get("id"),
+                    "workflow_title": wf_data.get("title"),
+                    "workflow_goal": wf_data.get("goal"),
+                    "mode": "batch_workflow_execution",
+                    "is_batch_workflow": True,
+                    "total_files": len(attached_arts),
+                    "batch_file_runs": batch_file_runs,
+                    "step_runs": batch_file_runs[0]["step_runs"] if batch_file_runs else [],
+                    "tokens_used": sum(r["tokens_used"] for r in batch_file_runs),
+                    "duration_ms": sum(r["duration_ms"] for r in batch_file_runs),
+                    "file_artifact": file_artifact,
+                    "node_id": agent_node_id,
+                }
+                if renamed_session_title:
+                    wf_metadata["session_title"] = renamed_session_title
+                if current_user and request.session_id:
+                    db_save_message(
+                        user_id=current_user.id,
+                        session_id=request.session_id,
+                        msg_id=agent_node_id,
+                        parent_id=user_node_id,
+                        role="agent",
+                        content=final_res,
+                        metadata=wf_metadata,
+                        token=current_user.token,
+                    )
+                return Message(
+                    role="agent",
+                    content=final_res,
+                    metadata=wf_metadata,
+                )
+
+            # Single Workflow Execution (0 files or non-batch)
             wf_inputs = request.workflow_inputs or {"prompt": last_user_message.content}
+            if attached_arts:
+                wf_inputs["attached_artifacts"] = attached_arts
+                wf_inputs["file"] = attached_arts[0]
+                wf_inputs["filename"] = attached_arts[0].get("filename")
+                wf_inputs["content"] = attached_arts[0].get("content", "")
             run_result = workflow_engine.execute_workflow(
                 workflow_data=wf_data,
                 inputs=wf_inputs,
                 user_id=user_uid,
                 trigger_type="chat",
                 session_id=request.session_id,
+                step_callback=step_callback,
             )
             final_res = run_result.get("output_data", {}).get("final_result") or "Workflow execution completed."
             agent_node_id = f"agent-wf-{int(time.time()*1000)}"
