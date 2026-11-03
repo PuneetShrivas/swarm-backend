@@ -292,9 +292,9 @@ Examples:
     parser.add_argument(
         "--provider", "--llm-provider", "--model-family",
         dest="provider",
-        choices=["gpt-oss", "qwen", "gemini", "iteracompute"],
+        choices=["gpt-oss", "qwen", "gemini", "iteracompute", "azure"],
         default=os.environ.get("LLM_PROVIDER", "gpt-oss").lower(),
-        help="LLM provider family for non-Perplexity tasks: 'gpt-oss', 'qwen', 'gemini', or 'iteracompute'. Default: gpt-oss"
+        help="LLM provider family for non-Perplexity tasks: 'gpt-oss', 'qwen', 'gemini', 'iteracompute', or 'azure'. Default: gpt-oss"
     )
     parser.add_argument(
         "--format",

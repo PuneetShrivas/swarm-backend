@@ -995,6 +995,15 @@ class TestPerplexitySearchAPI(unittest.TestCase):
             set_active_provider("itera")
             self.assertEqual(get_active_provider(), "iteracompute")
 
+            # azure
+            set_active_provider("azure")
+            self.assertEqual(get_active_provider(), "azure")
+            self.assertEqual(PROVIDER_MODELS["azure"]["reasoning"], "claude-opus-4-8")
+
+            # azure-foundry alias
+            set_active_provider("azure-foundry")
+            self.assertEqual(get_active_provider(), "azure")
+
             # invalid provider raises ValueError
             with self.assertRaises(ValueError):
                 set_active_provider("unsupported-llm")
@@ -1015,8 +1024,11 @@ class TestPerplexitySearchAPI(unittest.TestCase):
         args3 = parser.parse_args(["NVDA", "--provider", "iteracompute"])
         self.assertEqual(args3.provider, "iteracompute")
 
-        args4 = parser.parse_args(["NVDA", "--llm-provider", "gpt-oss"])
-        self.assertEqual(args4.provider, "gpt-oss")
+        args4 = parser.parse_args(["NVDA", "--provider", "azure"])
+        self.assertEqual(args4.provider, "azure")
+
+        args5 = parser.parse_args(["NVDA", "--llm-provider", "gpt-oss"])
+        self.assertEqual(args5.provider, "gpt-oss")
 
     def test_run_role_timings_provider_meta(self):
         import asyncio

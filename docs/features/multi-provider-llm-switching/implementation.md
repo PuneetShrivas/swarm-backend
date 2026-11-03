@@ -19,6 +19,7 @@ This implementation introduces dynamic multi-provider routing across all non-ret
 | **`qwen`** | Groq LPUs | `qwen/qwen3.8-27b` | `qwen/qwen3.8-27b` | `qwen/qwen3.8-27b` | `GROQ_API_KEY` |
 | **`gemini`** | Google GenAI SDK | `gemini-3.5-flash` | `gemini-3.5-flash` | `gemini-3.5-flash` | `GEMINI_API_KEY` (override: `GEMINI_MODEL`) |
 | **`iteracompute`** (alias: `itera`) | IteraCompute OpenAI-compatible API (`https://api.iteracompute.com/v1`) | `qwen/qwen3.8-27b` | `qwen/qwen3.8-27b` | `qwen/qwen3.8-27b` | `ITERACOMPUTE_API_KEY` (override: `ITERACOMPUTE_MODEL`, `ITERACOMPUTE_BASE_URL`) |
+| **`azure`** (aliases: `azure-foundry`, `foundry`) | Azure AI Foundry Anthropic Endpoint (`https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages`) | `claude-opus-4-8` | `claude-opus-4-8` | `claude-opus-4-8` | `AZURE_API_KEY` (override: `AZURE_MODEL`, `AZURE_FOUNDRY_ENDPOINT`) |
 
 ---
 

@@ -46,6 +46,21 @@ PROVIDER_MODELS: Dict[str, Dict[str, str]] = {
         "medium": os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b"),
         "reasoning": os.environ.get("ITERACOMPUTE_REASONING_MODEL", os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b")),
     },
+    "azure": {
+        "fast": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "medium": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "reasoning": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+    },
+    "azure-foundry": {
+        "fast": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "medium": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "reasoning": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+    },
+    "foundry": {
+        "fast": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "medium": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "reasoning": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+    },
 }
 
 ROLE_TIER_MAPPING: Dict[str, str] = {
@@ -63,15 +78,65 @@ def set_active_provider(provider: str) -> None:
     """Sets the active LLM provider for all non-Perplexity workflow tasks."""
     global ACTIVE_PROVIDER
     p = provider.lower().strip()
-    if p in ["gpt-oss", "qwen", "gemini", "iteracompute", "itera"]:
-        ACTIVE_PROVIDER = "iteracompute" if p == "itera" else p
+    if p in ["gpt-oss", "qwen", "gemini", "iteracompute", "itera", "azure", "azure-foundry", "foundry"]:
+        if p == "itera":
+            ACTIVE_PROVIDER = "iteracompute"
+        elif p in ["azure-foundry", "foundry"]:
+            ACTIVE_PROVIDER = "azure"
+        else:
+            ACTIVE_PROVIDER = p
     else:
-        raise ValueError(f"Unknown LLM provider '{provider}'. Valid choices: 'gpt-oss', 'qwen', 'gemini', 'iteracompute'")
+        raise ValueError(f"Unknown LLM provider '{provider}'. Valid choices: 'gpt-oss', 'qwen', 'gemini', 'iteracompute', 'azure'")
 
 
 def get_active_provider() -> str:
     """Returns the currently active LLM provider name."""
     return ACTIVE_PROVIDER
+
+
+async def _execute_azure_chat(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temp: float,
+    max_tokens: int,
+) -> str:
+    """Executes a chat generation with Azure Foundry Anthropic endpoint."""
+    api_key = os.environ.get("AZURE_API_KEY")
+    if not api_key:
+        raise RuntimeError("AZURE_API_KEY is not configured.")
+
+    endpoint = os.environ.get(
+        "AZURE_FOUNDRY_ENDPOINT",
+        "https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"
+    ).strip()
+    if not endpoint.endswith("/v1/messages"):
+        endpoint = f"{endpoint.rstrip('/')}/v1/messages"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key.strip()}",
+        "anthropic-version": "2023-06-01",
+    }
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system_prompt + "\n\nCRITICAL: Respond ONLY with a valid JSON object matching the requested schema. Do not wrap in backticks or markdown fences.",
+        "messages": [
+            {"role": "user", "content": user_prompt}
+        ],
+    }
+
+    import httpx
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        r = await client.post(endpoint, headers=headers, json=payload)
+        if r.status_code != 200:
+            raise RuntimeError(f"Azure Foundry error {r.status_code}: {r.text}")
+        data = r.json()
+        content_items = data.get("content", [])
+        if content_items and isinstance(content_items, list):
+            return content_items[0].get("text", "")
+        return ""
 
 
 async def _execute_iteracompute_chat(
@@ -345,6 +410,35 @@ async def run_role(
                     await asyncio.sleep(2.0 * (attempt + 1))
                     continue
                 print(f"Role '{role}' IteraCompute execution note ({selected_model}): {e}")
+                break
+        return _generate_mock_role_output(role, user_input)
+
+    # Dispatch to Azure Foundry (Anthropic claude-opus-4-8)
+    if active_prov in ["azure", "azure-foundry", "foundry"]:
+        azure_key = os.environ.get("AZURE_API_KEY")
+        if not azure_key or azure_key.startswith("your-") or azure_key.startswith("test-"):
+            return _generate_mock_role_output(role, user_input)
+
+        system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
+        for attempt in range(3):
+            try:
+                content = await _execute_azure_chat(
+                    model=selected_model,
+                    system_prompt=system_p,
+                    user_prompt=user_input,
+                    temp=cfg["temp"],
+                    max_tokens=cfg["max_tokens"],
+                )
+                parsed = _extract_json_from_llm_response(content)
+                if parsed:
+                    return parsed
+                break
+            except Exception as e:
+                err_msg = str(e).lower()
+                if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < 2:
+                    await asyncio.sleep(2.0 * (attempt + 1))
+                    continue
+                print(f"Role '{role}' Azure Foundry execution note ({selected_model}): {e}")
                 break
         return _generate_mock_role_output(role, user_input)
 
