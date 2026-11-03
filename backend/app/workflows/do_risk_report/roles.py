@@ -9,6 +9,7 @@ import os
 import time
 import json
 import re
+import asyncio
 from typing import Dict, Any, Optional, List, Tuple
 from dotenv import load_dotenv
 load_dotenv()
@@ -17,8 +18,8 @@ from app.groq_client import get_groq_client, execute_groq_chat, is_groq_configur
 from app.workflows.do_risk_report.models import Evidence, EntityCard
 
 # Active model tiers available on Groq LPUs
-GROQ_FAST_TIER = "qwen/qwen3.8-27b"
-GROQ_MEDIUM_TIER = "qwen/qwen3.8-27b"
+GROQ_FAST_TIER = "openai/gpt-oss-20b"
+GROQ_MEDIUM_TIER = "openai/gpt-oss-20b"
 GROQ_REASONING_TIER = "openai/gpt-oss-120b"
 
 # System prompts for roles
@@ -149,21 +150,28 @@ async def run_role(
     if not groq_client or is_testing or not is_groq_configured():
         return _generate_mock_role_output(role, user_input)
 
-    # Live Groq API Execution
-    try:
-        content, _, _, _, _ = execute_groq_chat(
-            client=groq_client,
-            messages=[{"role": "user", "content": user_input}],
-            system_prompt=cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema.",
-            requested_model=selected_model,
-            temperature=cfg["temp"],
-            max_completion_tokens=cfg["max_tokens"],
-        )
-        parsed = _extract_json_from_llm_response(content)
-        if parsed:
-            return parsed
-    except Exception as e:
-        print(f"Role '{role}' Groq execution note: {e}")
+    # Live Groq API Execution with retry for transient rate limits
+    for attempt in range(3):
+        try:
+            content, _, _, _, _ = execute_groq_chat(
+                client=groq_client,
+                messages=[{"role": "user", "content": user_input}],
+                system_prompt=cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema.",
+                requested_model=selected_model,
+                temperature=cfg["temp"],
+                max_completion_tokens=cfg["max_tokens"],
+            )
+            parsed = _extract_json_from_llm_response(content)
+            if parsed:
+                return parsed
+            break
+        except Exception as e:
+            err_msg = str(e).lower()
+            if ("rate limit" in err_msg or "429" in err_msg) and attempt < 2:
+                await asyncio.sleep(2.0 * (attempt + 1))
+                continue
+            print(f"Role '{role}' Groq execution note: {e}")
+            break
 
     # Fallback to deterministic mock
     return _generate_mock_role_output(role, user_input)

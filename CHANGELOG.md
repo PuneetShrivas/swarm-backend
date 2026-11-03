@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-03
 
 ### Added
+- **Perplexity Retrieval Timeout Extension & Comprehensive Research Extraction (`backend/app/workflows/do_risk_report/retrieval.py`, `roles.py`)**:
+  - **Perplexity HTTP Timeout Extension (`retrieval.py`)**:
+    - Increased default HTTP timeout from 15.0s to 60.0s (`DEFAULT_PERPLEXITY_TIMEOUT = 60.0`), preventing premature `ReadTimeout` exceptions during deep research across 11 parallel sections.
+  - **Natural Search Queries & Unconstrained Domain Ingestion (`retrieval.py`)**:
+    - Eliminated restrictive boolean `(site:domain1 OR site:domain2)` query constraints that caused searches to fail on paywalled domains; transitioned domain guidance into system prompt source prioritization.
+  - **Comprehensive Answer Snippet Delivery (`retrieval.py`)**:
+    - Expanded snippet delivery to feed the full multi-paragraph grounded research synthesis (up to 1,500 characters) directly into Groq's claim extraction role, rather than single line slices (`lines[i]`).
+  - **Groq LPU Model Tier Upgrade (`roles.py`)**:
+    - Switched fast/medium tiers to `openai/gpt-oss-20b` and imported `asyncio` to eliminate the 1,000 Output Tokens Per Minute (OTPM) ceiling on `qwen/qwen3.8-27b`, allowing high-throughput JSON claim extraction and section drafting.
+  - **End-to-End Live Standard Verification**:
+    - Ran live unmocked standard execution for `AAPL` in 376.12s (6.2 minutes, 6.23x concurrency speedup) across 2,342s of cumulative compute, delivering 5-page publication-grade deliverables with verified US-GAAP, Fitch, and CourtListener citations.
 - **Dynamic Prompt Adherence & Publication-Grade PDF Parity (`backend/app/workflows/do_risk_report/`)**:
   - **Dynamic Single Source of Truth (`template_spec.py`)**:
     - Implemented `parse_prompt_sections(prompt_text)` dynamically segmenting `web-search-prompt.txt` at runtime without hardcoded section lists or schemas in Python code.

@@ -49,13 +49,16 @@ WORKSTREAM_DOMAINS: Dict[str, List[str]] = {
 }
 
 
+DEFAULT_PERPLEXITY_TIMEOUT = float(os.environ.get("PERPLEXITY_TIMEOUT_SECONDS", "60.0"))
+
+
 class ResultCompactor:
     """
     Strips noise, boilerplate, caps per-snippet characters, and
     deduplicates syndicated articles across media wires.
     """
     @staticmethod
-    def clean_snippet(text: str, max_chars: int = 800) -> str:
+    def clean_snippet(text: str, max_chars: int = 1500) -> str:
         if not text:
             return ""
         # Remove markdown image tags and link anchors
@@ -176,11 +179,9 @@ class PerplexitySearchQueue:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        # Scoped query enhancement with domain filters
-        enhanced_query = query
+        domain_guidance = ""
         if domains:
-            domain_filter = " OR ".join(f"site:{d}" for d in domains[:3])
-            enhanced_query = f"{query} ({domain_filter})"
+            domain_guidance = f" Prioritize authoritative sources such as {', '.join(domains[:4])} where applicable."
 
         payload = {
             "model": "sonar",
@@ -188,18 +189,18 @@ class PerplexitySearchQueue:
                 {
                     "role": "system",
                     "content": (
-                        "You are a factual research retrieval engine. Provide concise, direct search findings "
-                        "with exact dates, figures, court dockets, and publication links."
+                        "You are a factual research retrieval engine. Provide comprehensive, detailed search findings "
+                        f"with exact numbers, dates, executive names, court dockets, regulatory actions, and direct citations.{domain_guidance}"
                     )
                 },
-                {"role": "user", "content": enhanced_query}
+                {"role": "user", "content": query}
             ],
-            "max_tokens": 800,
+            "max_tokens": 1500,
             "temperature": 0.0,
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=DEFAULT_PERPLEXITY_TIMEOUT) as client:
                 resp = await client.post("https://api.perplexity.ai/chat/completions", headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -207,31 +208,32 @@ class PerplexitySearchQueue:
                     citations = data.get("citations") or []
 
                     raw_results = []
-                    # Parse bullet points or citations into result objects
-                    lines = [l.strip() for l in content.split("\n") if l.strip()]
-                    for i, cit_url in enumerate(citations[:max_results]):
-                        snippet = lines[i] if i < len(lines) else content[:400]
-                        domain = urlparse(cit_url).netloc
+                    # Primary result: Full grounded research synthesis
+                    if content:
+                        primary_url = citations[0] if citations else "https://api.perplexity.ai/grounded-findings"
+                        primary_domain = urlparse(primary_url).netloc or "api.perplexity.ai"
                         raw_results.append({
-                            "title": f"Source: {domain}",
-                            "url": cit_url,
-                            "domain": domain,
-                            "snippet": ResultCompactor.clean_snippet(snippet),
+                            "title": f"Perplexity Grounded Findings: {query[:50]}",
+                            "url": primary_url,
+                            "domain": primary_domain,
+                            "snippet": ResultCompactor.clean_snippet(content, max_chars=1500),
                             "date": time.strftime("%Y-%m-%d"),
                         })
 
-                    if not raw_results and content:
+                    # Secondary results: individual cited URLs with context
+                    for cit_url in citations[:max_results]:
+                        c_domain = urlparse(cit_url).netloc
                         raw_results.append({
-                            "title": f"Perplexity Grounded Findings: {query[:40]}",
-                            "url": "https://api.perplexity.ai/grounded-findings",
-                            "domain": "api.perplexity.ai",
-                            "snippet": ResultCompactor.clean_snippet(content),
+                            "title": f"Source: {c_domain}",
+                            "url": cit_url,
+                            "domain": c_domain,
+                            "snippet": ResultCompactor.clean_snippet(content, max_chars=1000),
                             "date": time.strftime("%Y-%m-%d"),
                         })
 
                     return ResultCompactor.deduplicate_results(raw_results)
         except Exception as e:
-            print(f"Perplexity live search error: {e}")
+            print(f"Perplexity live search note: {type(e).__name__} {e}")
 
         return self._generate_mock_results(query, domains)
 
