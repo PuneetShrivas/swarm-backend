@@ -4126,3 +4126,68 @@ def delete_document_api(document_id: str, current_user: Optional[AuthUser] = Dep
     return {"status": "deleted", "document_id": document_id}
 
 
+# ---------------------------------------------------------
+# D&O Public Risk Report Endpoints
+# ---------------------------------------------------------
+
+class DORiskReportRequest(BaseModel):
+    ticker: str = Field(..., description="Target company ticker, e.g. AAPL")
+    mode: str = Field("standard", description="'fast', 'standard', 'thorough'")
+    current_date: Optional[str] = Field(None, description="Optional override for validation cutoff date (YYYY-MM-DD)")
+
+
+class DORiskReportValidationRequest(BaseModel):
+    report_text: str = Field(..., description="Full report markdown to validate and correct")
+    current_date: Optional[str] = Field(None, description="Optional current date override")
+
+
+@app.post("/api/do-risk-report/generate", response_model=Dict[str, Any])
+async def generate_do_risk_report_api(
+    payload: DORiskReportRequest,
+    current_user: Optional[AuthUser] = Depends(get_optional_user)
+):
+    """
+    Executes the complete D&O Public Risk Report pipeline end-to-end for a given ticker:
+    SEC EDGAR extraction -> Perplexity search queues -> Evidence Ledger -> Drafting ->
+    Executive Synthesis -> Validation Agent (zero web access) -> PDF/DOCX/MD Artifacts.
+    """
+    from app.workflows.do_risk_report.orchestrator import DORiskReportOrchestrator
+    user_id = current_user.id if current_user else None
+    orch = DORiskReportOrchestrator()
+    result = await orch.run(
+        ticker=payload.ticker,
+        mode=payload.mode,
+        current_date=payload.current_date,
+        user_id=user_id,
+    )
+    return result.model_dump()
+
+
+@app.get("/api/do-risk-report/templates", response_model=Dict[str, Any])
+def get_do_risk_report_templates_api():
+    """Returns the compiled D&O Underwriter template specification and section rules."""
+    from app.workflows.do_risk_report.template_spec import TemplateCompiler
+    spec = TemplateCompiler.get_template_spec()
+    return spec.model_dump()
+
+
+@app.post("/api/do-risk-report/validate", response_model=Dict[str, Any])
+async def validate_do_risk_report_api(
+    payload: DORiskReportValidationRequest,
+    current_user: Optional[AuthUser] = Depends(get_optional_user)
+):
+    """
+    Executes the post-generation Validation Agent on report text with zero web access,
+    enforcing 12-month news cutoffs, date sorting, and cross-section harmonization.
+    """
+    from app.workflows.do_risk_report.validator import ValidationAgent
+    agent = ValidationAgent(current_date=payload.current_date)
+    corrected_text = await agent.run(payload.report_text)
+    return {
+        "status": "validated",
+        "current_date": agent.current_date,
+        "validated_report": corrected_text,
+    }
+
+
+

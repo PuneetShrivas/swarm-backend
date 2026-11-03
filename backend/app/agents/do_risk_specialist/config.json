@@ -1,0 +1,11 @@
+{
+  "id": "do_risk_specialist",
+  "name": "D&O Risk Underwriting Specialist",
+  "role": "Forensic D&O liability analysis, SEC filings audit, litigation exposure and underwriting assessment",
+  "status": "active",
+  "model": "qwen-3.8",
+  "temperature": 0.1,
+  "is_orchestrator": false,
+  "icon": "shield-alert",
+  "description": "Specialized 0.01%-tier senior D&O underwriter agent for corporate litigation, regulatory investigations, financial reporting quality, and executive liability assessment."
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "report_audit_and_correction",
+    "name": "Report Audit & Correction Pass",
+    "description": "Performs zero-web-access text audit correcting report text strictly according to validation rules without dropping sections.",
+    "triggers": ["validate", "validation", "correction", "audit report", "review report"]
+  },
+  {
+    "id": "news_cutoff_and_deduplication",
+    "name": "12-Month News Window & Deduplication",
+    "description": "Filters news items strictly within the 12-month calendar window, eliminates duplicates, and sorts newest-first.",
+    "triggers": ["news cutoff", "12 months", "news sort", "deduplicate news"]
+  },
+  {
+    "id": "cross_section_reconciliation",
+    "name": "Cross-Section Fact Reconciliation",
+    "description": "Reconciles dates, officer names, and numbers across sections, ensuring agreement with cited sources.",
+    "triggers": ["cross section", "conflict", "harmonize", "reconcile"]
+  }
+]

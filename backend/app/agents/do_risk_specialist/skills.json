@@ -1,0 +1,26 @@
+[
+  {
+    "id": "sec_filings_forensics",
+    "name": "SEC Filings & XBRL Forensics",
+    "description": "Extracts financial facts, debt maturity profiles, auditor assessments, and restatements directly from 10-K, 10-Q, 8-K, and US-GAAP XBRL filings.",
+    "triggers": ["sec", "10-k", "edgar", "xbrl", "filings", "financials", "auditor"]
+  },
+  {
+    "id": "securities_litigation_audit",
+    "name": "Securities Litigation Exposure Audit",
+    "description": "Analyzes class action filings, derivative lawsuits, SEC formal orders, and regulatory enforcement exposure.",
+    "triggers": ["litigation", "class action", "lawsuit", "settlement", "docket", "investigation"]
+  },
+  {
+    "id": "internal_controls_review",
+    "name": "Accounting Quality & Internal Controls Review",
+    "description": "Identifies material weaknesses in internal controls over financial reporting, restatements, and auditor turnover.",
+    "triggers": ["restatement", "material weakness", "internal controls", "accounting"]
+  },
+  {
+    "id": "do_risk_tiering",
+    "name": "D&O Underwriting Risk Tier Assessment",
+    "description": "Synthesizes multi-stream corporate risk into standardized D&O bands (Contained, Elevated, High-Volatility, Severe Tail Exposure).",
+    "triggers": ["underwriting", "risk tier", "band", "verdict", "side a", "side c"]
+  }
+]

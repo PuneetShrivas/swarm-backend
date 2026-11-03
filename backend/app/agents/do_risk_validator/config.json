@@ -1,0 +1,11 @@
+{
+  "id": "do_risk_validator",
+  "name": "D&O Report Validation Agent",
+  "role": "Post-generation report validation, date window filtering, news deduplication, and cross-section harmonization",
+  "status": "active",
+  "model": "qwen-3.8",
+  "temperature": 0.0,
+  "is_orchestrator": false,
+  "icon": "check-circle-2",
+  "description": "Strict validation-and-correction pass for completed D&O underwriting reports with zero web access, enforcing calendar cutoffs, share price date recency, revenue-trend order, and cross-section reconciliation."
+}

@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-11-03
+
+### Added
+- **D&O Public Risk Report System & Underwriting Pipeline (`backend/app/workflows/do_risk_report/`, `backend/app/agents/do_risk_*`)**:
+  - **Comprehensive Risk Assessment Architecture**:
+    - Implemented end-to-end multi-agent D&O underwriting report workflow with SEC EDGAR financial facts ingestion, batched Perplexity real-time research, parallel Groq LPU inference, two-layer validation, and multi-format deliverable rendering (Markdown, PDF, DOCX).
+  - **SEC EDGAR US-GAAP Extractor (`edgar.py`)**:
+    - Direct integration with SEC Submissions and US-GAAP Company Facts APIs with SEC-compliant User-Agent header and ticker-to-CIK mapping.
+    - Automated financial facts extraction (Revenues across ASC 606 candidate concepts, Net Income, Operating Cash Flow, Total Assets, Total Liabilities, Stockholders' Equity) and Item 1A / Item 3 disclosure discovery.
+  - **Perplexity Search Queue & Result Compactor (`retrieval.py`)**:
+    - High-throughput search queue with multi-query batching, domain-tier weighting (Tier 1 SEC/Courts/Regulators to Tier 4 Aggregators), 800-character snippet compaction, news syndication deduplication, and 24-hour disk query-hash caching.
+  - **Evidence Ledger & Auditable Provenance (`ledger.py`, `models.py`)**:
+    - Thread-safe, deduplicating Evidence Ledger tracking content hashes, deterministic `[E###]` IDs, and cross-section citations with JSONL checkpoint persistence.
+  - **Groq LPU High-Speed Role Workers (`roles.py`)**:
+    - Specialized analytical roles mapped to Groq models (`qwen/qwen3.8-27b` and `openai/gpt-oss-120b`) for entity card extraction, section drafting, adversarial auditing, and executive synthesis with structured JSON parsing.
+  - **Deterministic & Zero-Web-Access Validation Agent (`validator.py`, `prompts/validation_prompt.txt`)**:
+    - Layer 1 deterministic validation enforcing citation format, entity card conformity, required financial metrics, and ban on speculative adjectives.
+    - Layer 2 `ValidationAgent` operating with zero web access, enforcing `{{currentDate}}` temporal interpolation, 12-month news cutoff, newest-first chronological sorting, share price date recency relabeling, and empty heading placeholder insertion.
+  - **Deliverable Renderers & Citation Footnote Transformer (`renderer.py`)**:
+    - Footnote transformer converting internal `[E###]` tokens into clean publication superscript citations `[1]`, `[2]` with bibliography rendering.
+    - Multi-format artifact generation for Markdown, Word (`.docx` via `python-docx`), and PDF (`.pdf` via `reportlab` with flowable headings, tables, and callout boxes).
+  - **Default Workflow Seed & Dynamic Agents (`default_workflows.py`, `backend/app/agents/`)**:
+    - Registered `DEFAULT_DO_RISK_REPORT_WORKFLOW_ID` (`0193e500-1111-7000-8000-000000000001`) with a 7-step connected DAG in default workflow templates.
+    - Created `do_risk_specialist` and `do_risk_validator` agent packages discovered dynamically by the Swarm agent registry.
+  - **API Endpoints (`backend/app/main.py`)**:
+    - Exposed `POST /api/do-risk-report/generate`, `GET /api/do-risk-report/templates`, and `POST /api/do-risk-report/validate`.
+  - **Automated Verification**:
+    - Added unit and end-to-end integration test suite `backend/test_do_risk_report.py` (28 tests covering models, ledger, EDGAR, Perplexity, template specs, Groq roles, validation, renderers, orchestrator DAG, and API endpoints).
+
 ## [Unreleased] - 2026-11-02
 
 ### Fixed
