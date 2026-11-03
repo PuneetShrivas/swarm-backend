@@ -174,6 +174,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
     date_override = args.date
     output_dir = args.output_dir
     provider = getattr(args, "provider", "gpt-oss").lower()
+    fallback_model = getattr(args, "fallback_model", None)
 
     if not args.quiet:
         print("=" * 80, flush=True)
@@ -182,6 +183,8 @@ async def execute_cli(args: argparse.Namespace) -> int:
         print(f"Target Ticker:  {ticker}", flush=True)
         print(f"Execution Mode: {mode} ({'1 search round' if mode == 'fast' else '2 search rounds + gap check'})", flush=True)
         print(f"LLM Provider:   {provider.upper()}", flush=True)
+        if fallback_model:
+            print(f"Fallback Model: {fallback_model}", flush=True)
         print(f"Display Format: {fmt}", flush=True)
         if date_override:
             print(f"Date Override:  {date_override}", flush=True)
@@ -221,6 +224,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
             mode=mode,
             current_date=date_override,
             provider=provider,
+            fallback_model=fallback_model,
             on_progress=on_progress
         )
     except Exception as e:
@@ -295,6 +299,12 @@ Examples:
         choices=["gpt-oss", "qwen", "gemini", "iteracompute", "azure"],
         default=os.environ.get("LLM_PROVIDER", "gpt-oss").lower(),
         help="LLM provider family for non-Perplexity tasks: 'gpt-oss', 'qwen', 'gemini', 'iteracompute', or 'azure'. Default: gpt-oss"
+    )
+    parser.add_argument(
+        "--fallback-model", "--secondary-model",
+        dest="fallback_model",
+        default=os.environ.get("AZURE_FALLBACK_MODEL") or os.environ.get("LLM_FALLBACK_MODEL"),
+        help="Secondary/fallback model name to fail over to upon encountering 429 TPM rate limits (e.g. claude-sonnet-4-6)"
     )
     parser.add_argument(
         "--format",

@@ -1030,6 +1030,52 @@ class TestPerplexitySearchAPI(unittest.TestCase):
         args5 = parser.parse_args(["NVDA", "--llm-provider", "gpt-oss"])
         self.assertEqual(args5.provider, "gpt-oss")
 
+        args6 = parser.parse_args(["NVDA", "--fallback-model", "claude-sonnet-4-6"])
+        self.assertEqual(args6.fallback_model, "claude-sonnet-4-6")
+
+    def test_fallback_model_get_set(self):
+        from app.workflows.do_risk_report.roles import set_fallback_model, get_fallback_model
+
+        orig = get_fallback_model()
+        try:
+            set_fallback_model("claude-sonnet-4-6")
+            self.assertEqual(get_fallback_model(), "claude-sonnet-4-6")
+
+            set_fallback_model(None)
+            self.assertIsNone(get_fallback_model())
+        finally:
+            set_fallback_model(orig)
+
+    def test_azure_rate_limit_failover_to_fallback(self):
+        import asyncio
+        from unittest.mock import patch
+        from app.workflows.do_risk_report.roles import run_role
+
+        models_called = []
+
+        async def mock_execute(model, system_prompt, user_prompt, temp, max_tokens):
+            models_called.append(model)
+            if model == "claude-opus-4-8":
+                raise RuntimeError("Azure Foundry error 429: Rate limit TPM exceeded")
+            return '{"risk_tier": "Contained", "executive_summary": "Fallback success"}'
+
+        async def run_test():
+            with patch("app.workflows.do_risk_report.roles._execute_azure_chat", side_effect=mock_execute):
+                with patch.dict("os.environ", {"AZURE_API_KEY": "live-test-key", "TESTING": "false"}):
+                    res = await run_role(
+                        "synthesize",
+                        "summary info",
+                        model_override="claude-opus-4-8",
+                        provider_override="azure",
+                        fallback_model_override="claude-sonnet-4-6",
+                    )
+                    self.assertIsNotNone(res)
+                    self.assertEqual(res.get("risk_tier"), "Contained")
+                    self.assertIn("claude-opus-4-8", models_called)
+                    self.assertIn("claude-sonnet-4-6", models_called)
+
+        asyncio.run(run_test())
+
     def test_run_role_timings_provider_meta(self):
         import asyncio
         from app.workflows.do_risk_report.roles import run_role_with_timings

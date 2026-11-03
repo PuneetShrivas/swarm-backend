@@ -23,6 +23,8 @@ from app.workflows.do_risk_report.roles import (
     run_role,
     set_active_provider,
     get_active_provider,
+    set_fallback_model,
+    get_fallback_model,
     PROVIDER_MODELS,
     ROLE_TIER_MAPPING,
 )
@@ -191,14 +193,19 @@ class DORiskReportOrchestrator:
         current_date: Optional[str] = None,
         user_id: Optional[str] = None,
         provider: str = "gpt-oss",
+        fallback_model: Optional[str] = None,
         on_progress: Optional[Callable[[str, str], None]] = None
     ) -> ReportResult:
         """
         Executes the entire D&O Public Risk Underwriting Report pipeline end-to-end,
         capturing granular stage, section, and subsection timings.
+        Supports secondary/fallback models for rate-limit failover.
         """
         set_active_provider(provider)
+        if fallback_model:
+            set_fallback_model(fallback_model)
         active_prov = get_active_provider()
+        active_fallback = get_fallback_model()
         prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["gpt-oss"])
         synth_model = prov_models.get(ROLE_TIER_MAPPING.get("synthesize", "reasoning"), "unknown")
         val_model = prov_models.get(ROLE_TIER_MAPPING.get("repair", "reasoning"), "unknown")
@@ -390,6 +397,7 @@ class DORiskReportOrchestrator:
         telemetry = {
             "mode": mode,
             "llm_provider": active_prov,
+            "fallback_model": active_fallback,
             "total_wall_clock_ms": total_wall_clock_ms,
             "total_compute_ms": total_compute_ms,
             "concurrency_speedup": speedup_multiplier,

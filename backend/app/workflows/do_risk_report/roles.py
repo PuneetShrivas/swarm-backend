@@ -94,6 +94,24 @@ def get_active_provider() -> str:
     return ACTIVE_PROVIDER
 
 
+# Fallback/Secondary model to fail over to upon encountering 429 rate limits
+ACTIVE_FALLBACK_MODEL: Optional[str] = (
+    os.environ.get("AZURE_FALLBACK_MODEL")
+    or os.environ.get("LLM_FALLBACK_MODEL")
+)
+
+
+def set_fallback_model(model: Optional[str]) -> None:
+    """Sets the secondary/fallback model to use when primary model encounters 429 rate limits."""
+    global ACTIVE_FALLBACK_MODEL
+    ACTIVE_FALLBACK_MODEL = model.strip() if (model and model.strip()) else None
+
+
+def get_fallback_model() -> Optional[str]:
+    """Returns the currently active fallback model name, if configured."""
+    return ACTIVE_FALLBACK_MODEL
+
+
 async def _execute_azure_chat(
     model: str,
     system_prompt: str,
@@ -332,11 +350,13 @@ async def run_role(
     *,
     model_override: Optional[str] = None,
     provider_override: Optional[str] = None,
+    fallback_model_override: Optional[str] = None,
     mock_response: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Executes a role using the active LLM provider (gpt-oss, qwen, or gemini) with strict JSON schema outputs.
+    Executes a role using the active LLM provider (gpt-oss, qwen, gemini, iteracompute, or azure) with strict JSON schema outputs.
     Falls back gracefully to mock payloads for tests or offline execution.
+    Supports automatic 429 TPM rate-limit failover to secondary/fallback models (e.g. claude-sonnet-4-6).
     """
     if role not in ROLES_CONFIG:
         raise ValueError(f"Unknown role '{role}'. Valid roles: {list(ROLES_CONFIG.keys())}")
@@ -346,6 +366,9 @@ async def run_role(
     prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["gpt-oss"])
     role_tier = ROLE_TIER_MAPPING.get(role, "medium")
     selected_model = model_override or prov_models.get(role_tier, "openai/gpt-oss-20b")
+    active_fallback = fallback_model_override or ACTIVE_FALLBACK_MODEL or (
+        os.environ.get("AZURE_FALLBACK_MODEL", "claude-sonnet-4-6") if active_prov in ["azure", "azure-foundry", "foundry"] else None
+    )
 
     # If mock_response is provided explicitly
     if mock_response is not None:
@@ -361,27 +384,39 @@ async def run_role(
         if not gemini_api_key or gemini_api_key.startswith("your-") or gemini_api_key.startswith("test-"):
             return _generate_mock_role_output(role, user_input)
 
+        models_sequence = [selected_model]
+        if active_fallback and active_fallback != selected_model:
+            models_sequence.append(active_fallback)
+
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
-        for attempt in range(3):
-            try:
-                content = await _execute_gemini_chat(
-                    model=selected_model,
-                    system_prompt=system_p,
-                    user_prompt=user_input,
-                    temp=cfg["temp"],
-                    max_tokens=cfg["max_tokens"],
-                )
-                parsed = _extract_json_from_llm_response(content)
-                if parsed:
-                    return parsed
-                break
-            except Exception as e:
-                err_msg = str(e).lower()
-                if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "unavailable" in err_msg) and attempt < 2:
-                    await asyncio.sleep(2.0 * (attempt + 1))
-                    continue
-                print(f"Role '{role}' Gemini execution note ({selected_model}): {e}")
-                break
+        for m_idx, current_model in enumerate(models_sequence):
+            is_fallback = (m_idx > 0)
+            max_attempts = 2 if len(models_sequence) > 1 else 3
+            for attempt in range(max_attempts):
+                try:
+                    content = await _execute_gemini_chat(
+                        model=current_model,
+                        system_prompt=system_p,
+                        user_prompt=user_input,
+                        temp=cfg["temp"],
+                        max_tokens=cfg["max_tokens"],
+                    )
+                    parsed = _extract_json_from_llm_response(content)
+                    if parsed:
+                        if is_fallback:
+                            print(f"[FALLBACK SUCCESS] Role '{role}' succeeded with fallback model '{current_model}'")
+                        return parsed
+                    break
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if ("rate limit" in err_msg or "429" in err_msg) and not is_fallback and len(models_sequence) > 1:
+                        print(f"[RATE LIMIT 429] Role '{role}' hit rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
+                        break
+                    if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "unavailable" in err_msg) and attempt < max_attempts - 1:
+                        await asyncio.sleep(2.0 * (attempt + 1))
+                        continue
+                    print(f"Role '{role}' Gemini execution note ({current_model}): {e}")
+                    break
         return _generate_mock_role_output(role, user_input)
 
     # Dispatch to IteraCompute (OpenAI-compatible)
@@ -390,56 +425,80 @@ async def run_role(
         if not itera_key or itera_key.startswith("your-") or itera_key.startswith("test-"):
             return _generate_mock_role_output(role, user_input)
 
+        models_sequence = [selected_model]
+        if active_fallback and active_fallback != selected_model:
+            models_sequence.append(active_fallback)
+
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
-        for attempt in range(3):
-            try:
-                content = await _execute_iteracompute_chat(
-                    model=selected_model,
-                    system_prompt=system_p,
-                    user_prompt=user_input,
-                    temp=cfg["temp"],
-                    max_tokens=cfg["max_tokens"],
-                )
-                parsed = _extract_json_from_llm_response(content)
-                if parsed:
-                    return parsed
-                break
-            except Exception as e:
-                err_msg = str(e).lower()
-                if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < 2:
-                    await asyncio.sleep(2.0 * (attempt + 1))
-                    continue
-                print(f"Role '{role}' IteraCompute execution note ({selected_model}): {e}")
-                break
+        for m_idx, current_model in enumerate(models_sequence):
+            is_fallback = (m_idx > 0)
+            max_attempts = 2 if len(models_sequence) > 1 else 3
+            for attempt in range(max_attempts):
+                try:
+                    content = await _execute_iteracompute_chat(
+                        model=current_model,
+                        system_prompt=system_p,
+                        user_prompt=user_input,
+                        temp=cfg["temp"],
+                        max_tokens=cfg["max_tokens"],
+                    )
+                    parsed = _extract_json_from_llm_response(content)
+                    if parsed:
+                        if is_fallback:
+                            print(f"[FALLBACK SUCCESS] Role '{role}' succeeded with fallback model '{current_model}'")
+                        return parsed
+                    break
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if ("rate limit" in err_msg or "429" in err_msg) and not is_fallback and len(models_sequence) > 1:
+                        print(f"[RATE LIMIT 429] Role '{role}' hit rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
+                        break
+                    if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < max_attempts - 1:
+                        await asyncio.sleep(2.0 * (attempt + 1))
+                        continue
+                    print(f"Role '{role}' IteraCompute execution note ({current_model}): {e}")
+                    break
         return _generate_mock_role_output(role, user_input)
 
-    # Dispatch to Azure Foundry (Anthropic claude-opus-4-8)
+    # Dispatch to Azure Foundry (Anthropic claude-opus-4-8 / claude-sonnet-4-6 fallback)
     if active_prov in ["azure", "azure-foundry", "foundry"]:
         azure_key = os.environ.get("AZURE_API_KEY")
         if not azure_key or azure_key.startswith("your-") or azure_key.startswith("test-"):
             return _generate_mock_role_output(role, user_input)
 
+        models_sequence = [selected_model]
+        if active_fallback and active_fallback != selected_model:
+            models_sequence.append(active_fallback)
+
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
-        for attempt in range(3):
-            try:
-                content = await _execute_azure_chat(
-                    model=selected_model,
-                    system_prompt=system_p,
-                    user_prompt=user_input,
-                    temp=cfg["temp"],
-                    max_tokens=cfg["max_tokens"],
-                )
-                parsed = _extract_json_from_llm_response(content)
-                if parsed:
-                    return parsed
-                break
-            except Exception as e:
-                err_msg = str(e).lower()
-                if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < 2:
-                    await asyncio.sleep(2.0 * (attempt + 1))
-                    continue
-                print(f"Role '{role}' Azure Foundry execution note ({selected_model}): {e}")
-                break
+        for m_idx, current_model in enumerate(models_sequence):
+            is_fallback = (m_idx > 0)
+            max_attempts = 2 if len(models_sequence) > 1 else 3
+            for attempt in range(max_attempts):
+                try:
+                    content = await _execute_azure_chat(
+                        model=current_model,
+                        system_prompt=system_p,
+                        user_prompt=user_input,
+                        temp=cfg["temp"],
+                        max_tokens=cfg["max_tokens"],
+                    )
+                    parsed = _extract_json_from_llm_response(content)
+                    if parsed:
+                        if is_fallback:
+                            print(f"[FALLBACK SUCCESS] Role '{role}' succeeded with fallback model '{current_model}'")
+                        return parsed
+                    break
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if ("rate limit" in err_msg or "429" in err_msg or "token" in err_msg) and not is_fallback and len(models_sequence) > 1:
+                        print(f"[RATE LIMIT 429] Role '{role}' hit TPM rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
+                        break
+                    if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < max_attempts - 1:
+                        await asyncio.sleep(2.0 * (attempt + 1))
+                        continue
+                    print(f"Role '{role}' Azure Foundry execution note ({current_model}): {e}")
+                    break
         return _generate_mock_role_output(role, user_input)
 
     # Dispatch to Groq LPUs (gpt-oss or qwen)
@@ -447,28 +506,40 @@ async def run_role(
     if not groq_client or not is_groq_configured():
         return _generate_mock_role_output(role, user_input)
 
-    # Live Groq API Execution with retry for transient rate limits
-    for attempt in range(3):
-        try:
-            content, _, _, _, _ = execute_groq_chat(
-                client=groq_client,
-                messages=[{"role": "user", "content": user_input}],
-                system_prompt=cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema.",
-                requested_model=selected_model,
-                temperature=cfg["temp"],
-                max_completion_tokens=cfg["max_tokens"],
-            )
-            parsed = _extract_json_from_llm_response(content)
-            if parsed:
-                return parsed
-            break
-        except Exception as e:
-            err_msg = str(e).lower()
-            if ("rate limit" in err_msg or "429" in err_msg) and attempt < 2:
-                await asyncio.sleep(2.0 * (attempt + 1))
-                continue
-            print(f"Role '{role}' Groq execution note ({selected_model}): {e}")
-            break
+    models_sequence = [selected_model]
+    if active_fallback and active_fallback != selected_model:
+        models_sequence.append(active_fallback)
+
+    # Live Groq API Execution with retry for transient rate limits and fallback failover
+    for m_idx, current_model in enumerate(models_sequence):
+        is_fallback = (m_idx > 0)
+        max_attempts = 2 if len(models_sequence) > 1 else 3
+        for attempt in range(max_attempts):
+            try:
+                content, _, _, _, _ = execute_groq_chat(
+                    client=groq_client,
+                    messages=[{"role": "user", "content": user_input}],
+                    system_prompt=cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema.",
+                    requested_model=current_model,
+                    temperature=cfg["temp"],
+                    max_completion_tokens=cfg["max_tokens"],
+                )
+                parsed = _extract_json_from_llm_response(content)
+                if parsed:
+                    if is_fallback:
+                        print(f"[FALLBACK SUCCESS] Role '{role}' succeeded on Groq with fallback model '{current_model}'")
+                    return parsed
+                break
+            except Exception as e:
+                err_msg = str(e).lower()
+                if ("rate limit" in err_msg or "429" in err_msg) and not is_fallback and len(models_sequence) > 1:
+                    print(f"[RATE LIMIT 429] Role '{role}' hit Groq rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
+                    break
+                if ("rate limit" in err_msg or "429" in err_msg) and attempt < max_attempts - 1:
+                    await asyncio.sleep(2.0 * (attempt + 1))
+                    continue
+                print(f"Role '{role}' Groq execution note ({current_model}): {e}")
+                break
 
     # Fallback to deterministic mock
     return _generate_mock_role_output(role, user_input)
@@ -480,6 +551,7 @@ async def run_role_with_timings(
     *,
     model_override: Optional[str] = None,
     provider_override: Optional[str] = None,
+    fallback_model_override: Optional[str] = None,
     mock_response: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
@@ -489,6 +561,9 @@ async def run_role_with_timings(
     prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["gpt-oss"])
     role_tier = ROLE_TIER_MAPPING.get(role, "medium")
     model_used = model_override or prov_models.get(role_tier, "unknown")
+    active_fallback = fallback_model_override or ACTIVE_FALLBACK_MODEL or (
+        os.environ.get("AZURE_FALLBACK_MODEL", "claude-sonnet-4-6") if active_prov in ["azure", "azure-foundry", "foundry"] else None
+    )
 
     t0 = time.perf_counter()
     result = await run_role(
@@ -496,6 +571,7 @@ async def run_role_with_timings(
         user_input,
         model_override=model_override,
         provider_override=provider_override,
+        fallback_model_override=fallback_model_override,
         mock_response=mock_response
     )
     duration_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -504,6 +580,7 @@ async def run_role_with_timings(
         "role": role,
         "model": model_used,
         "provider": active_prov,
+        "fallback_model": active_fallback,
     }
     return result, meta
 
