@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-03
 
 ### Added
+- **Async Job Queue, SSE Push Channel, and SEC EDGAR Filings Enrichment (`backend/app/workflows/do_risk_report/jobs.py`, `edgar.py`, `orchestrator.py`, `backend/app/main.py`)**:
+  - **SEC EDGAR Primary Filings Enrichment (Lane A)**:
+    - Expanded `EdgarFetcher.extract_filings_evidence()` in `edgar.py` to extract primary evidence from recent SEC Form 8-K filings directly from `submissions.json` without web search.
+    - Added item mappings for 4.01 (auditor changes), 4.02 (restatements), 5.01 (change in control), 5.02 (executive/board changes), 1.01 (material agreements), 2.01 (M&A/dispositions), 5.07 (shareholder voting results), and 2.02 (quarterly earnings).
+    - Extracted annual proxy statements (DEF 14A) into `board_and_governance` and periodic reports (10-K, 10-Q) into `company_snapshot`.
+    - Added all items with `confidence="high"`, `source_type="filing"`, and official SEC Edgar archive links.
+    - Recorded `filings_extraction_ms` and `filings_extracted_count` in granular telemetry.
+  - **Asynchronous Job Manager & Real-Time SSE Push Streaming**:
+    - Built `JobManager` singleton in `jobs.py` tracking job lifecycle (`pending` -> `running` -> `completed` / `failed`), progress milestones, and completed section contents.
+    - Added `on_section_complete` callback to `DORiskReportOrchestrator.run()`, notifying subscribers the instant any section completes drafting and validation in Stage 2.
+    - Implemented Server-Sent Events (SSE) generator streaming `event: init`, `progress`, `section_complete`, `completed`, `error`, and periodic `: keep-alive` heartbeats with auto-cleanup on client disconnect.
+    - Exposed REST endpoints in `main.py`: `POST /api/do-risk-report/jobs` (HTTP 202 Accepted), `GET /api/do-risk-report/jobs/{job_id}`, `GET /api/do-risk-report/jobs`, and `GET /api/do-risk-report/jobs/{job_id}/stream`.
+  - **Automated Test Coverage (`backend/test_do_risk_report.py`)**:
+    - Added `TestEdgarFilingsEnrichment` and `TestAsyncJobManagerAndSSE` suites bringing total test suite to 57 passing tests.
 - **Multi-Query Batch Search API Integration (`backend/app/agents/researcher/tools.py`, `retrieval.py`)**:
   - **Native Batch Query Support (`tools.py`)**:
     - Upgraded `search_via_perplexity_search_api()` and `async_search_via_perplexity_search_api()` to accept `query: Union[str, List[str]]`.

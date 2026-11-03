@@ -47,6 +47,27 @@ KNOWN_CPI_SCORES: Dict[str, str] = {
     "Netherlands": "79/100, rank 8, CPI 2023 (source: Transparency International)",
 }
 
+# Authoritative SEC Form 8-K Item mappings to D&O risk report sections and descriptions
+ITEM_8K_MAPPINGS: Dict[str, Tuple[str, str]] = {
+    "1.01": ("ma_capital_allocation", "Entry into a Material Definitive Agreement"),
+    "1.02": ("ma_capital_allocation", "Termination of a Material Definitive Agreement"),
+    "1.03": ("regulatory_and_accounting", "Bankruptcy or Receivership"),
+    "2.01": ("ma_capital_allocation", "Completion of Acquisition or Disposition of Assets"),
+    "2.02": ("financial_overview", "Results of Operations and Financial Condition (Quarterly Earnings)"),
+    "2.03": ("financial_overview", "Creation of a Direct Financial Obligation or Off-Balance Sheet Arrangement"),
+    "2.04": ("financial_overview", "Triggering Events That Accelerate or Increase a Direct Financial Obligation"),
+    "2.05": ("ma_capital_allocation", "Costs Associated with Exit or Disposal Activities (Restructuring)"),
+    "3.01": ("regulatory_and_accounting", "Notice of Delisting or Failure to Satisfy Continued Listing Rule"),
+    "4.01": ("regulatory_and_accounting", "Changes in Registrant's Certifying Accountant"),
+    "4.02": ("regulatory_and_accounting", "Non-Reliance on Previously Issued Financial Statements or Related Audit Report (Restatement)"),
+    "5.01": ("board_and_governance", "Changes in Control of Registrant"),
+    "5.02": ("board_and_governance", "Departure of Directors or Principal Officers; Election/Appointment of Directors/Officers"),
+    "5.03": ("board_and_governance", "Amendments to Articles of Incorporation or Bylaws"),
+    "5.07": ("board_and_governance", "Submission of Matters to a Vote of Security Holders"),
+    "7.01": ("key_disclosures", "Regulation FD Disclosure"),
+    "8.01": ("key_disclosures", "Other Material Events"),
+}
+
 
 class EdgarFetcher:
     def __init__(self, cache_dir: Optional[str] = None):
@@ -145,7 +166,8 @@ class EdgarFetcher:
                     "form": ["10-K", "10-Q", "DEF 14A", "8-K"],
                     "filingDate": ["2023-11-03", "2024-02-02", "2024-01-12", "2024-03-01"],
                     "accessionNumber": ["0000320193-23-000106", "0000320193-24-000006", "0000320193-24-000010", "0000320193-24-000015"],
-                    "primaryDocument": ["aapl-20230930.htm", "aapl-20231230.htm", "def14a.htm", "form8k.htm"]
+                    "primaryDocument": ["aapl-20230930.htm", "aapl-20231230.htm", "def14a.htm", "form8k.htm"],
+                    "items": ["", "", "", "5.02,1.01"]
                 }
             }
         }
@@ -391,6 +413,116 @@ class EdgarFetcher:
 
         return metrics
 
+    def extract_filings_evidence(self, cik: str, submissions: Dict[str, Any]) -> List[Evidence]:
+        """
+        Extracts primary filing evidence from SEC submissions:
+        - Recent 8-K filings with material item disclosures (4.01, 4.02, 5.01, 5.02, 1.01, 2.01, etc.)
+        - Latest DEF 14A proxy statements
+        - Latest 10-K and 10-Q periodic filings
+        """
+        recent = submissions.get("filings", {}).get("recent", {})
+        forms = recent.get("form", [])
+        filing_dates = recent.get("filingDate", [])
+        acc_nums = recent.get("accessionNumber", [])
+        primary_docs = recent.get("primaryDocument", [])
+        items_list = recent.get("items", [])
+
+        cik_clean = cik.strip()
+        cik_digits = str(int(cik_clean)) if cik_clean.isdigit() else cik_clean
+
+        filing_items: List[Evidence] = []
+        found_10k = False
+        found_10q = False
+        found_def14a = False
+        item_counts: Dict[str, int] = {}
+
+        for i in range(len(forms)):
+            form = str(forms[i]).strip()
+            filing_date = filing_dates[i] if i < len(filing_dates) else ""
+            acc_num = acc_nums[i] if i < len(acc_nums) else ""
+            primary_doc = primary_docs[i] if i < len(primary_docs) else ""
+            acc_clean = acc_num.replace("-", "")
+
+            if acc_clean and primary_doc:
+                doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik_digits}/{acc_clean}/{primary_doc}"
+            else:
+                doc_url = f"https://www.sec.gov/edgar/browse/?CIK={cik_clean}"
+
+            # 1. Latest 10-K
+            if form == "10-K" and not found_10k:
+                found_10k = True
+                filing_items.append(Evidence(
+                    id="",
+                    section="company_snapshot",
+                    claim=f"SEC Annual Report Form 10-K filed on {filing_date} (Accession: {acc_num})",
+                    value=f"Form 10-K filed {filing_date}",
+                    as_of=filing_date,
+                    source_url=doc_url,
+                    source_type="filing",
+                    confidence="high",
+                    quote=f"Official SEC Form 10-K Annual Report, filed {filing_date} with accession number {acc_num}."
+                ))
+
+            # 2. Latest 10-Q
+            elif form == "10-Q" and not found_10q:
+                found_10q = True
+                filing_items.append(Evidence(
+                    id="",
+                    section="company_snapshot",
+                    claim=f"SEC Quarterly Report Form 10-Q filed on {filing_date} (Accession: {acc_num})",
+                    value=f"Form 10-Q filed {filing_date}",
+                    as_of=filing_date,
+                    source_url=doc_url,
+                    source_type="filing",
+                    confidence="high",
+                    quote=f"Official SEC Form 10-Q Quarterly Report, filed {filing_date} with accession number {acc_num}."
+                ))
+
+            # 3. Latest DEF 14A Proxy Statement
+            elif form in ("DEF 14A", "DEFA14A") and not found_def14a:
+                found_def14a = True
+                filing_items.append(Evidence(
+                    id="",
+                    section="board_and_governance",
+                    claim=f"Annual Definitive Proxy Statement (Form DEF 14A) filed on {filing_date} covering executive compensation, director nominees, and board committee governance.",
+                    value=f"Form DEF 14A filed {filing_date}",
+                    as_of=filing_date,
+                    source_url=doc_url,
+                    source_type="filing",
+                    confidence="high",
+                    quote=f"SEC Form DEF 14A Proxy Statement filed on {filing_date} (Accession: {acc_num})."
+                ))
+
+            # 4. Form 8-K Material Event Items
+            elif "8-K" in form:
+                raw_item = items_list[i] if i < len(items_list) else None
+                if isinstance(raw_item, str):
+                    code_list = [c.strip() for c in raw_item.split(",") if c.strip()]
+                elif isinstance(raw_item, list):
+                    code_list = [str(c).strip() for c in raw_item if str(c).strip()]
+                else:
+                    code_list = []
+
+                for code in code_list:
+                    if code in ITEM_8K_MAPPINGS:
+                        target_sec, desc = ITEM_8K_MAPPINGS[code]
+                        cur_count = item_counts.get(code, 0)
+                        max_allowed = 10 if code in ("4.01", "4.02", "5.01", "5.02", "1.01", "2.01", "3.01") else 3
+                        if cur_count < max_allowed:
+                            item_counts[code] = cur_count + 1
+                            filing_items.append(Evidence(
+                                id="",
+                                section=target_sec,
+                                claim=f"SEC Form 8-K Item {code} ({desc}) filed on {filing_date} (Accession: {acc_num})",
+                                value=f"Item {code}: {desc}",
+                                as_of=filing_date,
+                                source_url=doc_url,
+                                source_type="filing",
+                                confidence="high",
+                                quote=f"SEC Form 8-K Item {code} ({desc}), filed on {filing_date} with accession {acc_num}."
+                            ))
+        return filing_items
+
     def populate_edgar_ledger(self, entity: EntityCard, ledger: EvidenceLedger) -> int:
         """
         Populates Evidence Ledger directly with structured primary EDGAR facts.
@@ -505,6 +637,11 @@ class EdgarFetcher:
                 confidence="high",
                 quote=f"Auditor: {entity.auditor}"
             ))
+
+        # 3. Add primary filings evidence (8-Ks, DEF 14A, 10-K, 10-Q)
+        subs = self.fetch_submissions(entity.cik)
+        filing_items = self.extract_filings_evidence(entity.cik, subs)
+        items.extend(filing_items)
 
         return ledger.add(items)
 
@@ -625,11 +762,20 @@ class EdgarFetcher:
                 quote=f"Auditor: {entity.auditor}"
             ))
 
+        # 3. Add primary filings evidence (8-Ks, DEF 14A, 10-K, 10-Q)
+        t_fil0 = time.perf_counter()
+        subs = self.fetch_submissions(entity.cik)
+        filing_items = self.extract_filings_evidence(entity.cik, subs)
+        items.extend(filing_items)
+        filings_ms = round((time.perf_counter() - t_fil0) * 1000, 2)
+
         count = ledger.add(items)
         t2 = time.perf_counter()
 
         timings = {
             "company_facts_xbrl_fetch_ms": round((t1 - t0) * 1000, 2),
+            "filings_extraction_ms": filings_ms,
+            "filings_extracted_count": len(filing_items),
             "fact_extraction_and_ledger_ms": round((t2 - t1) * 1000, 2),
             "facts_found_count": count,
         }

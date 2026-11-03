@@ -1096,6 +1096,167 @@ class TestPerplexitySearchAPI(unittest.TestCase):
         self.assertEqual(val.current_date, "2026-11-03")
 
 
+class TestEdgarFilingsEnrichment(unittest.TestCase):
+    def setUp(self):
+        from app.workflows.do_risk_report.edgar import EdgarFetcher
+        self.fetcher = EdgarFetcher()
+
+    def test_extract_filings_evidence_from_submissions(self):
+        cik = "0001045810"
+        submissions = {
+            "cik": cik,
+            "filings": {
+                "recent": {
+                    "form": ["10-K", "10-Q", "DEF 14A", "8-K", "8-K", "8-K", "8-K"],
+                    "filingDate": ["2026-02-20", "2026-05-22", "2026-05-12", "2026-06-30", "2026-07-02", "2026-08-17", "2026-09-01"],
+                    "accessionNumber": [
+                        "0001045810-26-000010",
+                        "0001045810-26-000030",
+                        "0001045810-26-000040",
+                        "0001045810-26-000056",
+                        "0001045810-26-000060",
+                        "0001045810-26-000069",
+                        "0001045810-26-000075",
+                    ],
+                    "primaryDocument": ["10k.htm", "10q.htm", "def14a.htm", "8k507.htm", "8k502.htm", "8k101.htm", "8k401.htm"],
+                    "items": ["", "", "", "5.07", "5.02", "1.01,2.01", "4.01,4.02"],
+                }
+            }
+        }
+        items = self.fetcher.extract_filings_evidence(cik, submissions)
+        self.assertGreater(len(items), 0)
+
+        # Check section categorization
+        sections = [ev.section for ev in items]
+        self.assertIn("company_snapshot", sections)  # 10-K, 10-Q
+        self.assertIn("board_and_governance", sections)  # DEF 14A, 5.07, 5.02
+        self.assertIn("ma_capital_allocation", sections)  # 1.01, 2.01
+        self.assertIn("regulatory_and_accounting", sections)  # 4.01, 4.02
+
+        # Check confidence and source type
+        for ev in items:
+            self.assertEqual(ev.confidence, "high")
+            self.assertEqual(ev.source_type, "filing")
+            self.assertTrue(ev.source_url.startswith("https://www.sec.gov"))
+
+    def test_populate_edgar_ledger_with_timings_includes_filings(self):
+        from app.workflows.do_risk_report.ledger import EvidenceLedger
+        card = self.fetcher.build_entity_card("AAPL")
+        ledger = EvidenceLedger()
+        count, timings = self.fetcher.populate_edgar_ledger_with_timings(card, ledger)
+        self.assertGreater(count, 0)
+        self.assertIn("filings_extraction_ms", timings)
+        self.assertIn("filings_extracted_count", timings)
+        self.assertGreaterEqual(timings["filings_extracted_count"], 1)
+
+        # Evidence rows should span multiple sections
+        stats = ledger.stats()
+        self.assertGreater(stats["sections"].get("board_and_governance", 0), 0)
+
+
+class TestAsyncJobManagerAndSSE(unittest.TestCase):
+    def setUp(self):
+        from app.workflows.do_risk_report.jobs import JobManager
+        self.job_manager = JobManager()
+
+    def test_job_create_and_lifecycle(self):
+        job = self.job_manager.create_job(ticker="NVDA", mode="fast", provider="gpt-oss")
+        self.assertEqual(job.ticker, "NVDA")
+        self.assertEqual(job.status, "pending")
+        self.assertEqual(job.progress_stage, "initialized")
+        self.assertEqual(job.sections_completed_count, 0)
+
+        retrieved = self.job_manager.get_job(job.job_id)
+        self.assertIsNotNone(retrieved)
+        self.assertEqual(retrieved.job_id, job.job_id)
+
+        jobs_list = self.job_manager.list_jobs()
+        self.assertIn(job.job_id, [j.job_id for j in jobs_list])
+
+    def test_job_start_and_execution(self):
+        import asyncio
+        job = self.job_manager.create_job(ticker="AAPL", mode="fast")
+
+        async def run_test():
+            task = self.job_manager.start_job(job.job_id)
+            await task
+            self.assertEqual(job.status, "completed")
+            self.assertIsNotNone(job.result)
+            self.assertGreater(job.sections_completed_count, 0)
+            self.assertIn("company_snapshot", job.completed_sections)
+
+        asyncio.run(run_test())
+
+    def test_sse_subscription_terminal_and_streaming(self):
+        import asyncio
+        import json
+        job = self.job_manager.create_job(ticker="AAPL", mode="fast")
+
+        async def run_test():
+            # Subscribe and read events
+            task = self.job_manager.start_job(job.job_id)
+            events = []
+            async for sse_chunk in self.job_manager.subscribe(job.job_id):
+                for line in sse_chunk.strip().split("\n"):
+                    if line.startswith("event:"):
+                        events.append(line.split(":", 1)[1].strip())
+            await task
+            self.assertIn("init", events)
+            self.assertIn("completed", events)
+
+        asyncio.run(run_test())
+
+    def test_sse_not_found(self):
+        import asyncio
+        async def run_test():
+            chunks = []
+            async for chunk in self.job_manager.subscribe("non-existent-uuid"):
+                chunks.append(chunk)
+            self.assertTrue(any("event: error" in c for c in chunks))
+
+        asyncio.run(run_test())
+
+    def test_api_jobs_endpoints(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app)
+
+        # 1. Submit job (202 Accepted)
+        post_res = client.post("/api/do-risk-report/jobs", json={
+            "ticker": "AAPL",
+            "mode": "fast",
+            "provider": "gpt-oss"
+        })
+        self.assertEqual(post_res.status_code, 202)
+        data = post_res.json()
+        self.assertIn("job_id", data)
+        self.assertIn("stream_url", data)
+        self.assertIn("status_url", data)
+        job_id = data["job_id"]
+
+        # 2. Poll job status
+        get_res = client.get(f"/api/do-risk-report/jobs/{job_id}")
+        self.assertEqual(get_res.status_code, 200)
+        job_data = get_res.json()
+        self.assertIn("status", job_data)
+        self.assertIn("sections_completed_count", job_data)
+
+        # 3. List jobs
+        list_res = client.get("/api/do-risk-report/jobs")
+        self.assertEqual(list_res.status_code, 200)
+        self.assertIsInstance(list_res.json(), list)
+
+        # 4. 404 for missing job
+        not_found = client.get("/api/do-risk-report/jobs/00000000-0000-0000-0000-000000000000")
+        self.assertEqual(not_found.status_code, 404)
+
+        # 5. Connect to SSE stream
+        stream_res = client.get(f"/api/do-risk-report/jobs/{job_id}/stream")
+        self.assertEqual(stream_res.status_code, 200)
+        self.assertIn("text/event-stream", stream_res.headers.get("content-type", ""))
+
+
 if __name__ == "__main__":
     unittest.main()
 

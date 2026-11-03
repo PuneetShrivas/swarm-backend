@@ -4134,6 +4134,8 @@ class DORiskReportRequest(BaseModel):
     ticker: str = Field(..., description="Target company ticker, e.g. AAPL")
     mode: str = Field("standard", description="'fast', 'standard', 'thorough'")
     current_date: Optional[str] = Field(None, description="Optional override for validation cutoff date (YYYY-MM-DD)")
+    provider: Optional[str] = Field("gpt-oss", description="LLM provider: gpt-oss, gemini, qwen, iteracompute, azure-foundry")
+    fallback_model: Optional[str] = Field(None, description="Optional fallback model name for rate-limit failover")
 
 
 class DORiskReportValidationRequest(BaseModel):
@@ -4159,8 +4161,81 @@ async def generate_do_risk_report_api(
         mode=payload.mode,
         current_date=payload.current_date,
         user_id=user_id,
+        provider=payload.provider or "gpt-oss",
+        fallback_model=payload.fallback_model,
     )
     return result.model_dump()
+
+
+@app.post("/api/do-risk-report/jobs", status_code=202, response_model=Dict[str, Any])
+async def create_do_risk_report_job_api(
+    payload: DORiskReportRequest,
+    current_user: Optional[AuthUser] = Depends(get_optional_user)
+):
+    """
+    Submits an asynchronous background report generation job and returns immediately (HTTP 202).
+    Clients can poll status or subscribe to the real-time SSE stream.
+    """
+    from app.workflows.do_risk_report.jobs import job_manager
+    user_id = current_user.id if current_user else None
+    job = job_manager.create_job(
+        ticker=payload.ticker,
+        mode=payload.mode,
+        current_date=payload.current_date,
+        user_id=user_id,
+        provider=payload.provider,
+        fallback_model=payload.fallback_model,
+    )
+    job_manager.start_job(job.job_id)
+    return {
+        "job_id": job.job_id,
+        "ticker": job.ticker,
+        "mode": job.mode,
+        "status": job.status,
+        "created_at": job.created_at,
+        "stream_url": f"/api/do-risk-report/jobs/{job.job_id}/stream",
+        "status_url": f"/api/do-risk-report/jobs/{job.job_id}",
+    }
+
+
+@app.get("/api/do-risk-report/jobs", response_model=List[Dict[str, Any]])
+def list_do_risk_report_jobs_api(limit: int = 20):
+    """Lists recent async risk report generation jobs and their current execution statuses."""
+    from app.workflows.do_risk_report.jobs import job_manager
+    jobs = job_manager.list_jobs(limit=limit)
+    return [j.model_dump() for j in jobs]
+
+
+@app.get("/api/do-risk-report/jobs/{job_id}", response_model=Dict[str, Any])
+def get_do_risk_report_job_status_api(job_id: str):
+    """Returns current progress, completed sections, or final report for an async job."""
+    from app.workflows.do_risk_report.jobs import job_manager
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+    return job.model_dump()
+
+
+@app.get("/api/do-risk-report/jobs/{job_id}/stream")
+async def stream_do_risk_report_job_api(job_id: str):
+    """
+    Real-time Server-Sent Events (SSE) push channel for report job progress,
+    milestone transitions, and live early-reading markdown sections.
+    """
+    from app.workflows.do_risk_report.jobs import job_manager
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+
+    return StreamingResponse(
+        job_manager.subscribe(job_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/api/do-risk-report/templates", response_model=Dict[str, Any])

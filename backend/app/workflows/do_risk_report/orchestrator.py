@@ -12,6 +12,7 @@ Coordinates the end-to-end DAG execution:
 import os
 import time
 import uuid
+import inspect
 import asyncio
 from typing import Dict, Any, List, Optional, Tuple, Callable
 from app.workflows.do_risk_report.models import EntityCard, Evidence, ReportResult
@@ -194,7 +195,8 @@ class DORiskReportOrchestrator:
         user_id: Optional[str] = None,
         provider: str = "gpt-oss",
         fallback_model: Optional[str] = None,
-        on_progress: Optional[Callable[[str, str], None]] = None
+        on_progress: Optional[Callable[[str, str], None]] = None,
+        on_section_complete: Optional[Callable[[str, str, str], Any]] = None,
     ) -> ReportResult:
         """
         Executes the entire D&O Public Risk Underwriting Report pipeline end-to-end,
@@ -243,17 +245,16 @@ class DORiskReportOrchestrator:
         t1 = time.perf_counter()
         template_spec = TemplateCompiler.get_template_spec()
         static_queries_map = TemplateCompiler.generate_static_queries(entity, template_spec=template_spec)
-        section_tasks = []
 
         # Sections to draft dynamically from prompt (excluding overall_verdict which is handled by Synthesize)
         draft_sections = [s for s in template_spec.sections if s.name != "overall_verdict"]
         _notify("stage_2", f"Concurrent Perplexity retrieval & Groq drafting across {len(draft_sections)} parallel sections...")
 
-        for s_spec in draft_sections:
+        async def _run_section_worker(s_spec):
             sec_name = s_spec.name
             sec_title = s_spec.title
             queries = static_queries_map.get(sec_name, [])
-            task = self._process_section(
+            draft_text, timings = await self._process_section(
                 section_name=sec_name,
                 section_title=sec_title,
                 entity=entity,
@@ -263,14 +264,22 @@ class DORiskReportOrchestrator:
                 section_prompt_rules=s_spec.section_prompt,
                 master_rules=template_spec.system_prompt_template,
             )
-            section_tasks.append((sec_name, task))
+            if on_section_complete:
+                try:
+                    if inspect.iscoroutinefunction(on_section_complete):
+                        await on_section_complete(sec_name, sec_title, draft_text)
+                    else:
+                        on_section_complete(sec_name, sec_title, draft_text)
+                except Exception as e:
+                    print(f"on_section_complete callback error: {e}")
+            return sec_name, draft_text, timings
 
-        raw_section_results = await asyncio.gather(*[t[1] for t in section_tasks])
+        raw_section_results = await asyncio.gather(*[_run_section_worker(s) for s in draft_sections])
         stage2_ms = round((time.perf_counter() - t1) * 1000, 2)
 
-        section_results = [r[0] for r in raw_section_results]
-        sections_map = {section_tasks[i][0]: section_results[i] for i in range(len(section_tasks))}
-        sections_timings = {section_tasks[i][0]: raw_section_results[i][1] for i in range(len(section_tasks))}
+        section_results = [r[1] for r in raw_section_results]
+        sections_map = {r[0]: r[1] for r in raw_section_results}
+        sections_timings = {r[0]: r[2] for r in raw_section_results}
         _notify("stage_2_done", f"All {len(draft_sections)} sections researched and drafted in {stage2_ms:,.1f} ms")
 
         stage2_telemetry = {
