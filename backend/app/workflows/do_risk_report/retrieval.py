@@ -12,6 +12,11 @@ import hashlib
 import asyncio
 from typing import Dict, Any, List, Optional, Set, Tuple
 from urllib.parse import urlparse
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from app.agents.researcher.tools import async_search_via_perplexity_search_api
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache_retrieval")
 
@@ -102,13 +107,14 @@ class PerplexitySearchQueue:
     Async search queue for Perplexity Search API.
     Supports query caching, domain scoping, and rate limiting.
     """
-    def __init__(self, cache_dir: Optional[str] = None, max_concurrency: int = 5):
+    def __init__(self, cache_dir: Optional[str] = None, max_concurrency: int = 2):
         self.cache_dir = cache_dir or CACHE_DIR
         os.makedirs(self.cache_dir, exist_ok=True)
         self.semaphore = asyncio.Semaphore(max_concurrency)
 
-    def _get_cache_key(self, query: str, domains: Optional[List[str]] = None, recency: Optional[str] = None) -> str:
-        raw = f"{query}|{sorted(domains or [])}|{recency or ''}"
+    def _get_cache_key(self, query: str, domains: Optional[List[str]] = None, recency: Optional[str] = None, is_mock: bool = False) -> str:
+        mode_prefix = "mock" if is_mock else "live"
+        raw = f"{mode_prefix}|{query}|{sorted(domains or [])}|{recency or ''}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     def _read_cache(self, key: str) -> Optional[List[Dict[str, Any]]]:
@@ -142,11 +148,6 @@ class PerplexitySearchQueue:
         """
         Executes a single search query against Perplexity Search or returns cached/mocked results.
         """
-        cache_key = self._get_cache_key(query, domains, recency)
-        cached = self._read_cache(cache_key)
-        if cached is not None:
-            return cached
-
         api_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
         is_mock = (
             not api_key
@@ -156,6 +157,11 @@ class PerplexitySearchQueue:
             or os.environ.get("MOCK_PERPLEXITY") == "true"
         )
 
+        cache_key = self._get_cache_key(query, domains, recency, is_mock=is_mock)
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            return cached
+
         if is_mock:
             results = self._generate_mock_results(query, domains)
             self._write_cache(cache_key, results)
@@ -163,7 +169,8 @@ class PerplexitySearchQueue:
 
         async with self.semaphore:
             results = await self._execute_live_search(query, domains, recency, max_results, api_key)
-            self._write_cache(cache_key, results)
+            if results:
+                self._write_cache(cache_key, results)
             return results
 
     async def _execute_live_search(
@@ -174,68 +181,33 @@ class PerplexitySearchQueue:
         max_results: int,
         api_key: str
     ) -> List[Dict[str, Any]]:
-        import httpx
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        domain_guidance = ""
-        if domains:
-            domain_guidance = f" Prioritize authoritative sources such as {', '.join(domains[:4])} where applicable."
+        """
+        Executes fast, token-efficient live search via the raw Perplexity Search API endpoint
+        (POST https://api.perplexity.ai/search) with search_context_size='high'.
+        """
+        search_res = await async_search_via_perplexity_search_api(
+            query=query,
+            api_key=api_key,
+            max_results=max_results,
+            search_context_size="high",
+            timeout=DEFAULT_PERPLEXITY_TIMEOUT,
+            max_retries=4,
+        )
 
-        payload = {
-            "model": "sonar",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a factual research retrieval engine. Provide comprehensive, detailed search findings "
-                        f"with exact numbers, dates, executive names, court dockets, regulatory actions, and direct citations.{domain_guidance}"
-                    )
-                },
-                {"role": "user", "content": query}
-            ],
-            "max_tokens": 1500,
-            "temperature": 0.0,
-        }
+        if search_res and search_res.get("results"):
+            raw_results = []
+            for item in search_res["results"]:
+                url = item.get("url", "")
+                raw_results.append({
+                    "title": item.get("title") or f"Source: {item.get('domain', 'web')}",
+                    "url": url,
+                    "domain": item.get("domain") or (urlparse(url).netloc if url else "web"),
+                    "snippet": ResultCompactor.clean_snippet(item.get("snippet", ""), max_chars=1500),
+                    "date": item.get("date") or time.strftime("%Y-%m-%d"),
+                })
+            return ResultCompactor.deduplicate_results(raw_results)
 
-        try:
-            async with httpx.AsyncClient(timeout=DEFAULT_PERPLEXITY_TIMEOUT) as client:
-                resp = await client.post("https://api.perplexity.ai/chat/completions", headers=headers, json=payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    citations = data.get("citations") or []
-
-                    raw_results = []
-                    # Primary result: Full grounded research synthesis
-                    if content:
-                        primary_url = citations[0] if citations else "https://api.perplexity.ai/grounded-findings"
-                        primary_domain = urlparse(primary_url).netloc or "api.perplexity.ai"
-                        raw_results.append({
-                            "title": f"Perplexity Grounded Findings: {query[:50]}",
-                            "url": primary_url,
-                            "domain": primary_domain,
-                            "snippet": ResultCompactor.clean_snippet(content, max_chars=1500),
-                            "date": time.strftime("%Y-%m-%d"),
-                        })
-
-                    # Secondary results: individual cited URLs with context
-                    for cit_url in citations[:max_results]:
-                        c_domain = urlparse(cit_url).netloc
-                        raw_results.append({
-                            "title": f"Source: {c_domain}",
-                            "url": cit_url,
-                            "domain": c_domain,
-                            "snippet": ResultCompactor.clean_snippet(content, max_chars=1000),
-                            "date": time.strftime("%Y-%m-%d"),
-                        })
-
-                    return ResultCompactor.deduplicate_results(raw_results)
-        except Exception as e:
-            print(f"Perplexity live search note: {type(e).__name__} {e}")
-
-        return self._generate_mock_results(query, domains)
+        return []
 
     def _generate_mock_results(self, query: str, domains: Optional[List[str]]) -> List[Dict[str, Any]]:
         """Generates realistic synthetic results for testing and offline environments."""

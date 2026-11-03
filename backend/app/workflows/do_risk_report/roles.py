@@ -84,13 +84,13 @@ Remove unsupported statements, correct numbers/dates, or downgrade to 'Data unav
 Output format: JSON object with key "patched_text": "..." """
 
 ROLES_CONFIG: Dict[str, Dict[str, Any]] = {
-    "plan": {"model": GROQ_MEDIUM_TIER, "system": PLAN_PROMPT, "temp": 0.1, "max_tokens": 600},
-    "extract": {"model": GROQ_FAST_TIER, "system": EXTRACT_PROMPT, "temp": 0.0, "max_tokens": 1500},
-    "gap": {"model": GROQ_FAST_TIER, "system": GAP_PROMPT, "temp": 0.0, "max_tokens": 600},
-    "draft": {"model": GROQ_MEDIUM_TIER, "system": DRAFT_PROMPT, "temp": 0.1, "max_tokens": 2000},
-    "synthesize": {"model": GROQ_REASONING_TIER, "system": SYNTHESIZE_PROMPT, "temp": 0.1, "max_tokens": 2000},
-    "verify": {"model": GROQ_REASONING_TIER, "system": VERIFY_PROMPT, "temp": 0.0, "max_tokens": 1000},
-    "repair": {"model": GROQ_MEDIUM_TIER, "system": REPAIR_PROMPT, "temp": 0.0, "max_tokens": 2000},
+    "plan": {"model": GROQ_MEDIUM_TIER, "system": PLAN_PROMPT, "temp": 0.1, "max_tokens": 800},
+    "extract": {"model": GROQ_FAST_TIER, "system": EXTRACT_PROMPT, "temp": 0.0, "max_tokens": 2500},
+    "gap": {"model": GROQ_FAST_TIER, "system": GAP_PROMPT, "temp": 0.0, "max_tokens": 800},
+    "draft": {"model": GROQ_MEDIUM_TIER, "system": DRAFT_PROMPT, "temp": 0.1, "max_tokens": 3000},
+    "synthesize": {"model": GROQ_REASONING_TIER, "system": SYNTHESIZE_PROMPT, "temp": 0.1, "max_tokens": 3000},
+    "verify": {"model": GROQ_REASONING_TIER, "system": VERIFY_PROMPT, "temp": 0.0, "max_tokens": 1500},
+    "repair": {"model": GROQ_MEDIUM_TIER, "system": REPAIR_PROMPT, "temp": 0.0, "max_tokens": 3500},
 }
 
 

@@ -10,6 +10,9 @@ import time
 import asyncio
 import argparse
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Ensure backend root directory is on sys.path
 backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

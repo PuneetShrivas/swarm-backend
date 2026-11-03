@@ -191,10 +191,6 @@ class TestEvidenceLedger(unittest.TestCase):
                 os.remove(tmp_path)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 from app.workflows.do_risk_report.edgar import EdgarFetcher
 
 
@@ -849,4 +845,72 @@ class TestDepthParityAndDynamicAdherence(unittest.TestCase):
                 self.assertGreaterEqual(len(reader.pages), 4, "PDF should be at least 4 pages")
             finally:
                 loop.close()
+
+
+class TestPerplexitySearchAPI(unittest.TestCase):
+    def test_search_via_perplexity_search_api_empty_key(self):
+        from app.agents.researcher.tools import search_via_perplexity_search_api
+        res = search_via_perplexity_search_api("NVIDIA board", api_key="")
+        self.assertIsNone(res)
+
+    def test_search_via_perplexity_search_api_mock(self):
+        from unittest.mock import patch, MagicMock
+        from app.agents.researcher.tools import search_via_perplexity_search_api
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "test-uuid-1234",
+            "results": [
+                {
+                    "title": "NVIDIA Governance",
+                    "url": "https://investor.nvidia.com/governance",
+                    "snippet": "Jensen Huang serves as CEO and Director.",
+                    "date": "2026-10-30"
+                }
+            ]
+        }
+
+        with patch("httpx.post", return_value=mock_resp):
+            res = search_via_perplexity_search_api("NVIDIA board", api_key="test-key-123")
+            self.assertIsNotNone(res)
+            self.assertEqual(res["provider"], "perplexity_search_api")
+            self.assertEqual(res["results_count"], 1)
+            self.assertEqual(res["results"][0]["title"], "NVIDIA Governance")
+            self.assertEqual(res["results"][0]["domain"], "investor.nvidia.com")
+            self.assertIn("https://investor.nvidia.com/governance", res["sources"])
+
+    def test_async_search_via_perplexity_search_api_mock(self):
+        import asyncio
+        from unittest.mock import patch, MagicMock
+        from app.agents.researcher.tools import async_search_via_perplexity_search_api
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "test-uuid-5678",
+            "results": [
+                {
+                    "title": "NVIDIA SEC Inquiry",
+                    "url": "https://sec.gov/filings/nvda-note",
+                    "snippet": "Disclosed antitrust inquiry regarding AI software acquisition.",
+                    "last_updated": "2026-11-01"
+                }
+            ]
+        }
+
+        async def run_test():
+            with patch("httpx.AsyncClient.post", return_value=mock_resp):
+                res = await async_search_via_perplexity_search_api("NVIDIA DOJ probe", api_key="test-key-456")
+                self.assertIsNotNone(res)
+                self.assertEqual(res["provider"], "perplexity_search_api")
+                self.assertEqual(res["results_count"], 1)
+                self.assertEqual(res["results"][0]["domain"], "sec.gov")
+                self.assertEqual(res["results"][0]["date"], "2026-11-01")
+
+        asyncio.run(run_test())
+
+
+if __name__ == "__main__":
+    unittest.main()
 

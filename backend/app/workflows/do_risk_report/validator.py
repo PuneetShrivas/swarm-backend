@@ -218,7 +218,13 @@ class ValidationAgent:
             llm_text = resp.get("patched_text", "")
             if llm_text and len(llm_text) > 200:
                 clean_llm = re.sub(r"^REPORT TO VALIDATE AND CORRECT:\s*", "", llm_text, flags=re.IGNORECASE).strip()
-                return clean_llm
+                orig_headers = re.findall(r"^#+\s+.*?$", code_corrected, flags=re.MULTILINE)
+                new_headers = re.findall(r"^#+\s+.*?$", clean_llm, flags=re.MULTILINE)
+                # Ensure the LLM didn't truncate the report or drop section headers
+                if len(new_headers) >= len(orig_headers) - 1 and len(clean_llm) >= len(code_corrected) * 0.85:
+                    return clean_llm
+                else:
+                    print(f"Validation Agent note: LLM dropped sections ({len(new_headers)} vs {len(orig_headers)}) or truncated; keeping deterministic corrections.")
         except Exception as e:
             print(f"Validation Agent LLM execution note: {e}")
 

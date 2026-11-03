@@ -74,7 +74,7 @@ class DORiskReportOrchestrator:
                 # 2. Extract role on Groq (atomic claims with Entity Guard)
                 compacted_text = "\n".join(
                     f"Title: {r['title']}\nURL: {r['url']}\nDate: {r.get('date')}\nSnippet: {r['snippet']}"
-                    for r in search_batches[:6]
+                    for r in search_batches[:10]
                 )
                 user_prompt = (
                     f"TARGET COMPANY: {entity.legal_name} (Ticker: {entity.ticker}, CIK: {entity.cik})\n"

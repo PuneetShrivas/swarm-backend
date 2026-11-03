@@ -7,9 +7,17 @@ Usage:
 
 import os
 import sys
+from dotenv import load_dotenv
+
+# Load backend environment variables
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+dotenv_path = os.path.join(backend_dir, ".env")
+if os.path.isfile(dotenv_path):
+    load_dotenv(dotenv_path)
+else:
+    load_dotenv()
 
 # Ensure backend root is on sys.path
-backend_dir = os.path.dirname(os.path.abspath(__file__))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 

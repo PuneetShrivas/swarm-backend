@@ -49,6 +49,161 @@ def search_via_perplexity(query: str, api_key: str, max_results: int = 5) -> Opt
     return None
 
 
+def search_via_perplexity_search_api(
+    query: str,
+    api_key: str,
+    max_results: int = 5,
+    search_context_size: str = "high",
+    timeout: float = 15.0,
+) -> Optional[Dict[str, Any]]:
+    """
+    Performs fast, token-efficient live web search using Perplexity's raw Search API endpoint
+    (https://api.perplexity.ai/search) instead of the LLM completions endpoint.
+    Returns ranked structured results with high-context snippets and metadata.
+    """
+    import httpx
+    if not api_key or not api_key.strip():
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "query": query,
+        "max_results": max(1, min(max_results, 20)),
+        "search_context_size": search_context_size,
+    }
+
+    try:
+        resp = httpx.post(
+            "https://api.perplexity.ai/search",
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            raw_results = data.get("results", [])
+            formatted_results = []
+            sources = []
+            for item in raw_results:
+                url = item.get("url", "")
+                title = item.get("title", "")
+                snippet = item.get("snippet", "")
+                date = item.get("date") or item.get("last_updated") or ""
+                domain = urllib.parse.urlparse(url).netloc if url else ""
+                formatted_results.append({
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "date": date,
+                    "domain": domain,
+                })
+                if url:
+                    sources.append(url)
+
+            return {
+                "query": query,
+                "provider": "perplexity_search_api",
+                "results_count": len(formatted_results),
+                "results": formatted_results,
+                "sources": sources[:max_results],
+                "status": "completed",
+            }
+        else:
+            print(f"Perplexity Search API error HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        print(f"Perplexity Search API exception: {e}")
+    return None
+
+
+async def async_search_via_perplexity_search_api(
+    query: str,
+    api_key: str,
+    max_results: int = 5,
+    search_context_size: str = "high",
+    timeout: float = 20.0,
+    max_retries: int = 4,
+) -> Optional[Dict[str, Any]]:
+    """
+    Asynchronous version of search_via_perplexity_search_api with exponential backoff retry.
+    Ideal for high-concurrency workflows like the D&O Risk Underwriting pipeline.
+    """
+    import asyncio
+    import httpx
+
+    if not api_key or not api_key.strip():
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "query": query,
+        "max_results": max(1, min(max_results, 20)),
+        "search_context_size": search_context_size,
+    }
+
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    "https://api.perplexity.ai/search",
+                    headers=headers,
+                    json=payload,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw_results = data.get("results", [])
+                    formatted_results = []
+                    sources = []
+                    for item in raw_results:
+                        url = item.get("url", "")
+                        title = item.get("title", "")
+                        snippet = item.get("snippet", "")
+                        date = item.get("date") or item.get("last_updated") or ""
+                        domain = urllib.parse.urlparse(url).netloc if url else ""
+                        formatted_results.append({
+                            "title": title,
+                            "url": url,
+                            "snippet": snippet,
+                            "date": date,
+                            "domain": domain,
+                        })
+                        if url:
+                            sources.append(url)
+
+                    # Short polite pause between calls
+                    await asyncio.sleep(0.2)
+
+                    return {
+                        "query": query,
+                        "provider": "perplexity_search_api",
+                        "results_count": len(formatted_results),
+                        "results": formatted_results,
+                        "sources": sources[:max_results],
+                        "status": "completed",
+                    }
+                elif resp.status_code == 429:
+                    wait = 1.5 * (attempt + 1)
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(wait)
+                        continue
+                else:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1.0 * (attempt + 1))
+                        continue
+        except Exception as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.5 * (attempt + 1))
+                continue
+            print(f"Perplexity Search API async note: {type(e).__name__} {e}")
+
+    return None
+
+
 def search_via_duckduckgo(query: str, max_results: int = 5) -> Dict[str, Any]:
     """Performs live real web search lookup against DuckDuckGo."""
     import httpx
