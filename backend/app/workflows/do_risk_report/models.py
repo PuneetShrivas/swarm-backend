@@ -50,8 +50,10 @@ class SectionSpec(BaseModel):
     """Configuration for an individual D&O report section."""
     name: str = Field(..., description="Section key/slug, e.g. 'company_snapshot'")
     title: str = Field(..., description="Section display header, e.g. 'COMPANY SNAPSHOT'")
+    section_prompt: str = Field(default="", description="Verbatim instructions from web-search-prompt.txt for this section")
     required_fields: List[str] = Field(default_factory=list, description="Mandatory factual fields")
     static_queries: List[str] = Field(default_factory=list, description="Pre-compiled static search query templates")
+    workstream: str = Field(default="news", description="Domain filter workstream: news, litigation, regulatory, credit_ratings")
     stop_threshold: int = Field(2, description="Target corroborating source threshold before stopping")
 
 

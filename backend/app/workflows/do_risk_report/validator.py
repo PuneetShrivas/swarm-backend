@@ -200,8 +200,10 @@ class ValidationAgent:
         Executes the Validation Agent pass.
         Runs deterministic code corrections first, then dispatches to Groq LLM validator.
         """
+        clean_input = re.sub(r"^REPORT TO VALIDATE AND CORRECT:\s*", "", report_text, flags=re.IGNORECASE).strip()
+
         # 1. Fast deterministic code pass
-        code_corrected = self.apply_deterministic_corrections(report_text)
+        code_corrected = self.apply_deterministic_corrections(clean_input)
 
         # 2. LLM Validation pass with strict zero-web-access system prompt
         system_prompt = self.render_system_prompt()
@@ -215,11 +217,12 @@ class ValidationAgent:
             )
             llm_text = resp.get("patched_text", "")
             if llm_text and len(llm_text) > 200:
-                return llm_text
+                clean_llm = re.sub(r"^REPORT TO VALIDATE AND CORRECT:\s*", "", llm_text, flags=re.IGNORECASE).strip()
+                return clean_llm
         except Exception as e:
             print(f"Validation Agent LLM execution note: {e}")
 
-        return code_corrected
+        return re.sub(r"^REPORT TO VALIDATE AND CORRECT:\s*", "", code_corrected, flags=re.IGNORECASE).strip()
 
 
 class RepairCoordinator:

@@ -1,253 +1,302 @@
 """
-Template Specifications & Static Query Library.
-Compiles the master D&O Underwriter structure from `web-search-prompt.txt` and
-validation rules from `validation-prompt.txt` into structured section specifications
-and pre-written static query templates.
+Dynamic Template Specifications & Query Compiler.
+Treats `web-search-prompt.txt` as the dynamic single source of truth.
+Parses sections, verbatim instructions, field requirements, and search queries dynamically at runtime.
 """
 
 import os
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Tuple
 from app.workflows.do_risk_report.models import SectionSpec, TemplateSpec, EntityCard
 from app.workflows.do_risk_report.retrieval import WORKSTREAM_DOMAINS
 
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
 
+HEADER_EXCLUDES = {
+    "IN SCOPE", "OUT OF SCOPE", "SOURCING", "RULES", "CONCLUSION", "OUTPUT",
+    "WHO TO REVIEW", "LOOK FOR", "TIME HORIZON", "IDENTITY DISCIPLINE", "PER-INDIVIDUAL OUTCOME",
+    "DISCIPLINE", "CLOSE WITH", "BAND REGISTER", "SUMMARY", "TITLE", "TARGET COMPANY",
+    "DATA SOURCE", "LIKELIHOOD", "SEVERITY IF BROUGHT", "SIDE A / SIDE C EXPOSURE",
+    "TOWER INTERACTION", "MOST LIKELY ALLEGATION TYPE", "Debt & Refinancing Profile",
+}
 
-def load_prompt_text(filename: str) -> str:
+# Domain keyword mappings for workstream selection
+WORKSTREAM_KEYWORDS = {
+    "litigation": ["litigation", "lawsuit", "court", "derivative", "docket", "sec investigation", "settlement", "class action"],
+    "credit_ratings": ["credit rating", "debt", "refinancing", "bond", "maturities", "commercial paper", "fitch", "moodys", "s&p"],
+    "regulatory": ["sec", "doj", "ftc", "regulator", "governance", "board", "insider", "audit", "compliance", "whistleblower"],
+}
+
+
+def load_prompt_text(filename: str = "web_search_prompt.txt") -> str:
+    """Loads prompt text from file or parent agent-instructions directory."""
     path = os.path.join(PROMPTS_DIR, filename)
     if os.path.isfile(path):
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
+
+    # Fallback to root agent-instructions
+    root_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+        "agent-instructions",
+        filename.replace("_", "-")
+    )
+    if os.path.isfile(root_path):
+        with open(root_path, "r", encoding="utf-8") as f:
+            return f.read()
     return ""
 
 
-# Section Definitions matching agent-instructions/web-search-prompt.txt
-SECTION_DEFINITIONS: List[Dict[str, Any]] = [
-    {
-        "name": "company_snapshot",
-        "title": "COMPANY SNAPSHOT",
-        "required_fields": [
-            "legal_name", "business_description", "hq_footprint", "us_exposure",
-            "country_of_domicile", "cpi_score", "listing_ticker", "market_cap",
-            "share_price", "total_assets", "revenue", "capital_structure",
-            "trading_liquidity", "analyst_sentiment", "governance_snapshot",
-            "crypto_cannabis_coal", "ai_exposure", "conclusion_band"
-        ],
-        "static_query_templates": [
+def slugify_header(title: str) -> str:
+    """Converts display section title into a clean slug."""
+    clean = re.sub(r"[^\w\s]", "", title.lower())
+    words = clean.split()
+    if not words:
+        return "section"
+    # Canonical mappings for common titles
+    if "snapshot" in words:
+        return "company_snapshot"
+    if "news" in words or "updates" in words or "press" in words:
+        return "news_updates"
+    if "financial" in words:
+        return "financial_overview"
+    if "analysts" in words:
+        return "analysts"
+    if "governance" in words:
+        return "governance_culture"
+    if "director" in words or "officer" in words:
+        return "director_officer_history"
+    if any(w.startswith("forward") for w in words):
+        return "forward_looking_risk"
+    if "strategic" in words:
+        return "strategic_operational_profile"
+    if "securities" in words or "sca" in words:
+        return "securities_class_action_risk"
+    if "legal" in words or "claims" in words:
+        return "legal_regulatory_claims"
+    if "esg" in words or "cyber" in words:
+        return "esg_cyber_operational"
+    if "verdict" in words or "overall" in words:
+        return "overall_verdict"
+    return "_".join(words[:3])
+
+
+def determine_workstream(text: str) -> str:
+    """Determines domain filter workstream based on section instruction content."""
+    t_lower = text.lower()
+    for ws, kws in WORKSTREAM_KEYWORDS.items():
+        if any(kw in t_lower for kw in kws):
+            return ws
+    return "news"
+
+
+def extract_section_queries(title: str, text: str) -> List[str]:
+    """
+    Extracts targeted search query concepts dynamically from the prompt instructions.
+    """
+    slug = slugify_header(title)
+    queries: List[str] = []
+
+    if slug == "company_snapshot":
+        queries = [
             "{company} {ticker} market cap share price 52 week range current month",
-            "{company} business description headquarters US exposure country of domicile",
+            "{company} business description headquarters US operations country of domicile",
             "{company} capital structure debt to equity trading liquidity analyst rating",
-            "{company} AI exposure material to revenue valuation governance",
+            "{company} AI exposure material to revenue valuation margins concentration risk",
             "{company} exposure crypto cannabis coal",
-        ],
-        "workstream": "news",
-    },
-    {
-        "name": "news_updates",
-        "title": "UPDATES / PRESS RELEASES / NEWS",
-        "required_fields": [
-            "items_within_12_months", "newest_first", "claim_triggers_only"
-        ],
-        "static_query_templates": [
+        ]
+    elif slug == "news_updates":
+        queries = [
             "{company} litigation securities class action regulatory enforcement last 12 months",
             "{company} CEO CFO leadership departure auditor change resignation",
             "{company} guidance withdrawal earnings miss accounting restatement",
-            "{company} M&A financing debt offering credit downgrade",
+            "{company} M&A financing debt offering credit rating downgrade",
             "{company} SEC DOJ investigation whistleblower short seller report",
-        ],
-        "workstream": "news",
-    },
-    {
-        "name": "financial_overview",
-        "title": "FINANCIAL OVERVIEW",
-        "required_fields": [
-            "snapshot_metrics", "revenue_trend_descending", "profitability_durability",
-            "cash_liquidity", "leverage_refinancing", "earnings_quality",
-            "balance_sheet_flexibility", "credit_rating", "macro_resilience",
-            "auditor_assessment", "debt_refinancing_profile", "conclusion_band"
-        ],
-        "static_query_templates": [
-            "{company} annual report 10-K revenue trend balance sheet cash liquidity",
+        ]
+    elif slug == "financial_overview":
+        queries = [
+            "{company} annual report 10-K revenue trend balance sheet cash liquidity operating cash flow",
             "{company} credit rating S&P Moody's Fitch senior debt outlook",
-            "{company} debt maturity profile credit facilities revolving commercial paper",
+            "{company} debt maturity profile credit facilities revolving commercial paper covenants",
             "{company} auditor assessment material weakness going concern internal controls",
-        ],
-        "workstream": "credit_ratings",
-    },
-    {
-        "name": "analysts",
-        "title": "ANALYSTS",
-        "required_fields": [
-            "analyst_coverage", "bullish_neutral_bearish_breakdown", "positives_concerns",
-            "peer_benchmarking_volatility", "conclusion_bullets"
-        ],
-        "static_query_templates": [
-            "{company} Wall Street analyst consensus price target ratings bullish bearish",
-            "{company} stock beta volatility peer comparison 52 week range",
+        ]
+    elif slug == "analysts":
+        queries = [
+            "{company} Wall Street analyst consensus price target ratings bullish bearish breakdown",
+            "{company} stock beta volatility peer comparison 52 week trading range",
             "{company} latest analyst upgrades downgrades key concerns",
-        ],
-        "workstream": "news",
-    },
-    {
-        "name": "governance_culture",
-        "title": "GOVERNANCE & CULTURE",
-        "required_fields": [
-            "board_independence", "governance_drift_5yr", "turnover_ceo_cfo",
-            "audit_committee_strength", "related_party_complexity", "disclosure_discipline",
-            "conclusion_band"
-        ],
-        "static_query_templates": [
-            "{company} board independence CEO chair duality proxy statement DEF 14A",
-            "{company} 5-year governance drift board turnover executive changes",
-            "{company} audit committee financial experts related party transactions",
-            "{company} disclosure controls culture scrutiny compliance failures",
-        ],
-        "workstream": "regulatory",
-    },
-    {
-        "name": "director_officer_history",
-        "title": "DIRECTOR & OFFICER HISTORY",
-        "required_fields": [
-            "mandatory_officers_reviewed", "scope_10_years", "identity_match_confirming",
-            "per_individual_outcome"
-        ],
-        "static_query_templates": [
-            "{company} CEO CFO prior litigation regulatory enforcement sanctions",
-            "{company} Board Chair Audit Committee Chair history securities violations",
-            "{company} executive officer director bar disqualification restatement",
-        ],
-        "workstream": "litigation",
-    },
-    {
-        "name": "strategic_operational_profile",
-        "title": "STRATEGIC & OPERATIONAL PROFILE",
-        "required_fields": [
-            "sector_position", "execution_capability", "concentration_risk",
-            "regulatory_exposure", "key_man_dependency", "cyber_operational_risk",
-            "conclusion_bullets"
-        ],
-        "static_query_templates": [
-            "{company} competitive market share sector position customer concentration",
-            "{company} key man dependencies operational execution risks supply chain",
-            "{company} cyber operational resilience ransomware disaster recovery",
-        ],
-        "workstream": "news",
-    },
-    {
-        "name": "securities_class_action_risk",
-        "title": "SECURITIES CLASS ACTION RISK",
-        "required_fields": [
-            "scale_assessment", "jurisdiction", "likelihood_drivers_band",
-            "most_likely_allegation_type", "severity_band", "side_a_side_c_bands",
-            "tower_interaction", "scenario_max_2_lines", "conclusion_final_band"
-        ],
-        "static_query_templates": [
-            "{company} securities class action lawsuit Stanford clearinghouse",
+            "{company} short interest short interest ratio days to cover stock loan fee",
+        ]
+    elif slug == "governance_culture":
+        queries = [
+            "{company} board independence Lead Independent Director chair CEO duality DEF 14A",
+            "{company} 5-year governance drift board turnover executive changes refresh",
+            "{company} audit committee financial experts auditor tenure fees related party transactions",
+            "{company} insider selling Rule 10b5-1 trading plans executive compensation clawback",
+        ]
+    elif slug == "director_officer_history":
+        queries = [
+            "{company} CEO CFO President prior litigation regulatory enforcement sanctions",
+            "{company} Board Chair Audit Committee Chair history securities violations dockets",
+            "{company} executive officer director bar disqualification restatement accounting fraud",
+        ]
+    elif slug == "strategic_operational_profile":
+        queries = [
+            "{company} competitive market share sector position customer concentration top customers",
+            "{company} single-source supplier dependencies manufacturing TSMC operational risk",
+            "{company} key man dependencies operational execution risks supply chain choke points",
+            "{company} geopolitical export restrictions BIS licenses trade compliance",
+        ]
+    elif slug == "securities_class_action_risk":
+        queries = [
+            "{company} securities class action lawsuit Stanford clearinghouse certified class",
             "{company} shareholder derivative lawsuit Delaware chancery court",
-            "{company} stock drop restatement disclosure event litigation risk",
-        ],
-        "workstream": "litigation",
-    },
-    {
-        "name": "legal_regulatory_claims",
-        "title": "LEGAL, REGULATORY & CLAIMS CONTEXT",
-        "required_fields": [
-            "lawsuits_ongoing_and_1yr", "nature_of_claim", "parties_jurisdiction_outcome",
-            "regulatory_heat", "whistleblower_signals", "sector_clustering",
-            "venue_risk", "us_exposure", "sanctions_exposure", "conclusion_bullets"
-        ],
-        "static_query_templates": [
+            "{company} stock drop restatement disclosure event litigation Side A Side C exposure",
+        ]
+    elif slug == "legal_regulatory_claims":
+        queries = [
             "{company} federal court docket litigation ongoing settlement courtlistener",
-            "{company} SEC DOJ FTC formal investigation enforcement action order",
-            "{company} whistleblower allegations sanctions Russia high risk territories",
-        ],
-        "workstream": "litigation",
-    },
-    {
-        "name": "esg_cyber_operational",
-        "title": "ESG, CYBER & OPERATIONAL EXPOSURE",
-        "required_fields": [
-            "esg_controversy_velocity", "cyber_disclosure_quality", "product_safety_exposure",
-            "supply_chain_fragility", "conclusion_bullets"
-        ],
-        "static_query_templates": [
-            "{company} ESG controversy environmental safety OSHA regulatory fine",
-            "{company} cyber incident data breach SEC 8-K cyber disclosure",
-            "{company} product recall safety investigation supply chain disruption",
-        ],
-        "workstream": "news",
-    },
-    {
-        "name": "forward_looking_risk",
-        "title": "FORWARD-LOOKING STRATEGIC RISK",
-        "required_fields": [
-            "near_term_catalysts", "macro_sector_pressure", "execution_vulnerabilities",
-            "regulatory_shifts", "conclusion_bullets"
-        ],
-        "static_query_templates": [
-            "{company} near term catalysts regulatory headwinds tariff exposure",
-            "{company} macro headwinds interest rate margin pressure earnings risk",
+            "{company} SEC DOJ FTC formal investigation enforcement action order subpoenas",
+            "{company} whistleblower allegations sanctions Russia high risk export controls",
+        ]
+    elif slug == "esg_cyber_operational":
+        queries = [
+            "{company} ESG controversy environmental safety OSHA regulatory fine power consumption",
+            "{company} cyber incident data breach ransomware SEC 8-K cyber disclosure",
+            "{company} product recall safety investigation AI training copyright lawsuit",
+        ]
+    elif slug == "forward_looking_risk":
+        queries = [
+            "{company} near term catalysts regulatory headwinds tariff exposure margin trajectory",
+            "{company} macro headwinds interest rate margin pressure earnings guidance risk",
             "{company} strategic execution vulnerabilities upcoming product pipeline",
-        ],
-        "workstream": "news",
-    },
-    {
-        "name": "overall_verdict",
-        "title": "OVERALL D&O UNDERWRITER VERDICT",
-        "required_fields": [
-            "headline_max_20_words", "final_band_confidence", "dominant_driver_cited",
-            "tensions_mismatches", "unknowns_gaps", "band_register_verbatim",
-            "closing_disclaimer"
-        ],
-        "static_query_templates": [],
-        "workstream": "news",
-    },
-]
+        ]
+    elif slug == "overall_verdict":
+        queries = []
+    else:
+        # Generic query generation from lines in the custom section
+        cleaned_lines = [
+            re.sub(r"[^\w\s]", "", l).strip()
+            for l in text.splitlines()
+            if l.strip() and len(l.strip()) > 3 and not l.strip().startswith("-")
+        ]
+        for l in cleaned_lines[:4]:
+            queries.append(f"{{company}} {l[:50]}")
+
+    return queries
+
+
+def parse_prompt_sections(prompt_text: str) -> Tuple[str, List[SectionSpec]]:
+    """
+    Dynamically segments `web-search-prompt.txt` into master rules and SectionSpec objects.
+    Finds section headers by detecting uppercase section lines.
+    """
+    lines = prompt_text.splitlines()
+    section_spans: List[Dict[str, Any]] = []
+    curr_title = None
+    curr_start = 0
+
+    for idx, line in enumerate(lines):
+        clean = re.sub(r"[\*#_]", "", line).strip()
+        clean_no_colon = clean[:-1].strip() if clean.endswith(":") else clean
+
+        # Detect section headings
+        is_hdr = (
+            clean.isupper()
+            and len(clean) >= 4
+            and clean_no_colon not in HEADER_EXCLUDES
+            and not clean.startswith("NOTE")
+            and not clean.startswith("HTTP")
+            and not clean.startswith("END OF")
+            and not clean.endswith(":")
+            and not clean.startswith("---")
+        )
+
+        if is_hdr:
+            if any(s["title"] == clean for s in section_spans):
+                continue
+            if curr_title is not None:
+                section_spans.append({"title": curr_title, "start": curr_start, "end": idx})
+            curr_title = clean
+            curr_start = idx
+
+    if curr_title is not None:
+        section_spans.append({"title": curr_title, "start": curr_start, "end": len(lines)})
+
+    if not section_spans:
+        # Fallback if no uppercase headers detected
+        return prompt_text, []
+
+    # Master prompt is everything before the first section
+    first_start = section_spans[0]["start"]
+    master_prompt = "\n".join(lines[:first_start]).strip()
+
+    section_specs: List[SectionSpec] = []
+    for span in section_spans:
+        sec_title = span["title"]
+        sec_body = "\n".join(lines[span["start"]:span["end"]]).strip()
+        sec_name = slugify_header(sec_title)
+        workstream = determine_workstream(sec_body)
+        queries = extract_section_queries(sec_title, sec_body)
+
+        # Extract field lines
+        req_fields = [
+            line.strip().lstrip("-*• ")
+            for line in sec_body.splitlines()
+            if line.strip() and not line.strip().isupper() and len(line.strip()) < 80
+        ][:15]
+
+        section_specs.append(SectionSpec(
+            name=sec_name,
+            title=sec_title,
+            section_prompt=sec_body,
+            required_fields=req_fields,
+            static_queries=queries,
+            workstream=workstream,
+            stop_threshold=2,
+        ))
+
+    return master_prompt, section_specs
 
 
 class TemplateCompiler:
-    """Compiles prompt files and static definitions into runtime specifications."""
+    """
+    Dynamic Template Specification Compiler.
+    Loads and compiles `web-search-prompt.txt` dynamically at runtime.
+    """
 
     @staticmethod
-    def get_template_spec() -> TemplateSpec:
-        web_search_prompt = load_prompt_text("web_search_prompt.txt")
-        validation_prompt = load_prompt_text("validation_prompt.txt")
+    def get_template_spec(prompt_filename: str = "web_search_prompt.txt") -> TemplateSpec:
+        raw_web_prompt = load_prompt_text(prompt_filename)
+        raw_val_prompt = load_prompt_text("validation_prompt.txt")
 
-        section_specs = [
-            SectionSpec(
-                name=d["name"],
-                title=d["title"],
-                required_fields=d["required_fields"],
-                static_queries=d["static_query_templates"],
-                stop_threshold=2,
-            )
-            for d in SECTION_DEFINITIONS
-        ]
+        master_rules, section_specs = parse_prompt_sections(raw_web_prompt)
 
         return TemplateSpec(
             id="do_underwriting_lens_v1",
-            title="D&O Public Risk Underwriting Lens (0.01% Tier Senior Underwriter)",
+            title="D&O Public Risk Underwriting Lens (Dynamic from web-search-prompt.txt)",
             sections=section_specs,
-            system_prompt_template=web_search_prompt,
-            validation_rules_template=validation_prompt,
+            system_prompt_template=master_rules or raw_web_prompt,
+            validation_rules_template=raw_val_prompt,
         )
 
     @staticmethod
-    def generate_static_queries(entity: EntityCard) -> Dict[str, List[Dict[str, Any]]]:
+    def generate_static_queries(
+        entity: EntityCard,
+        template_spec: Optional[TemplateSpec] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Fills static query templates for each section with entity details and domain filters.
-        No LLM required — queries are ready to execute immediately at t=0.
+        Dynamically generates search queries for each parsed section using entity details.
         """
+        spec = template_spec or TemplateCompiler.get_template_spec()
         queries_by_section: Dict[str, List[Dict[str, Any]]] = {}
 
-        for defn in SECTION_DEFINITIONS:
-            sec_name = defn["name"]
-            templates = defn.get("static_query_templates", [])
-            workstream = defn.get("workstream", "news")
-            domains = WORKSTREAM_DOMAINS.get(workstream, [])
+        for sec in spec.sections:
+            sec_name = sec.name
+            domains = WORKSTREAM_DOMAINS.get(sec.workstream, [])
 
             sec_queries: List[Dict[str, Any]] = []
-            for tmpl in templates:
+            for tmpl in sec.static_queries:
                 q_text = tmpl.format(
                     company=entity.legal_name,
                     ticker=entity.ticker
@@ -262,3 +311,22 @@ class TemplateCompiler:
             queries_by_section[sec_name] = sec_queries
 
         return queries_by_section
+
+
+# Dynamic module-level definitions for backward compatibility
+def _get_dynamic_definitions() -> List[Dict[str, Any]]:
+    spec = TemplateCompiler.get_template_spec()
+    return [
+        {
+            "name": s.name,
+            "title": s.title,
+            "section_prompt": s.section_prompt,
+            "required_fields": s.required_fields,
+            "static_query_templates": s.static_queries,
+            "workstream": s.workstream,
+        }
+        for s in spec.sections
+    ]
+
+
+SECTION_DEFINITIONS = _get_dynamic_definitions()

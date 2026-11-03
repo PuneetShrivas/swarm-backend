@@ -43,7 +43,9 @@ class DORiskReportOrchestrator:
         entity: EntityCard,
         static_queries: List[Dict[str, Any]],
         ledger: EvidenceLedger,
-        mode: str = "standard"
+        mode: str = "standard",
+        section_prompt_rules: str = "",
+        master_rules: str = "",
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Executes search, extraction, gap checking, and drafting for a single section
@@ -128,9 +130,12 @@ class DORiskReportOrchestrator:
         ) if sec_rows else "No specific public disclosures found in ledger."
 
         draft_prompt = (
-            f"TARGET COMPANY: {entity.legal_name} ({entity.ticker})\n"
+            f"TARGET COMPANY: {entity.legal_name} (Ticker: {entity.ticker}, CIK: {entity.cik}, Domicile: {entity.country_of_domicile}, Exchange: {entity.exchange})\n\n"
+            f"MASTER UNDERWRITING GUIDELINES:\n{master_rules}\n\n"
+            f"SECTION SPECIFICATION & DETAILED INSTRUCTIONS:\n{section_prompt_rules}\n\n"
             f"SECTION HEADER: ### {section_title}\n\n"
-            f"SECTION EVIDENCE LEDGER ROWS:\n{ledger_text}"
+            f"SECTION EVIDENCE LEDGER ROWS:\n{ledger_text}\n\n"
+            f"INSTRUCTION: Draft the complete, institutional-grade underwriting narrative for '### {section_title}'. Follow every field and bullet point requirement in the section instructions above. Cite evidence strictly with [E###] tokens. If a required field is not present in the ledger, explicitly state that it is not publicly available or not disclosed."
         )
         t_d0 = time.perf_counter()
         draft_res = await run_role("draft", draft_prompt)
@@ -197,18 +202,28 @@ class DORiskReportOrchestrator:
 
         # Stage 2: Parallel Per-Section Research & Drafting
         t1 = time.perf_counter()
-        static_queries_map = TemplateCompiler.generate_static_queries(entity)
+        template_spec = TemplateCompiler.get_template_spec()
+        static_queries_map = TemplateCompiler.generate_static_queries(entity, template_spec=template_spec)
         section_tasks = []
 
-        # Sections to draft (excluding overall_verdict which is handled by Synthesize)
-        draft_sections = [s for s in SECTION_DEFINITIONS if s["name"] != "overall_verdict"]
+        # Sections to draft dynamically from prompt (excluding overall_verdict which is handled by Synthesize)
+        draft_sections = [s for s in template_spec.sections if s.name != "overall_verdict"]
         _notify("stage_2", f"Concurrent Perplexity retrieval & Groq drafting across {len(draft_sections)} parallel sections...")
 
-        for s_def in draft_sections:
-            sec_name = s_def["name"]
-            sec_title = s_def["title"]
+        for s_spec in draft_sections:
+            sec_name = s_spec.name
+            sec_title = s_spec.title
             queries = static_queries_map.get(sec_name, [])
-            task = self._process_section(sec_name, sec_title, entity, queries, ledger, mode=mode)
+            task = self._process_section(
+                section_name=sec_name,
+                section_title=sec_title,
+                entity=entity,
+                static_queries=queries,
+                ledger=ledger,
+                mode=mode,
+                section_prompt_rules=s_spec.section_prompt,
+                master_rules=template_spec.system_prompt_template,
+            )
             section_tasks.append((sec_name, task))
 
         raw_section_results = await asyncio.gather(*[t[1] for t in section_tasks])
@@ -228,8 +243,13 @@ class DORiskReportOrchestrator:
         # Stage 3: Executive Synthesis & Overall D&O Verdict
         _notify("stage_3", "Synthesizing executive summary and determining D&O underwriter verdict on Groq LPUs...")
         t2 = time.perf_counter()
+        verdict_spec = next((s for s in template_spec.sections if s.name == "overall_verdict"), None)
+        verdict_instructions = verdict_spec.section_prompt if verdict_spec else ""
         synth_input = (
-            f"TARGET COMPANY: {entity.legal_name} ({entity.ticker})\n\n"
+            f"TARGET COMPANY: {entity.legal_name} (Ticker: {entity.ticker}, CIK: {entity.cik})\n\n"
+            f"MASTER UNDERWRITING GUIDELINES:\n{template_spec.system_prompt_template}\n\n"
+            f"OVERALL VERDICT SPECIFICATION:\n{verdict_instructions}\n\n"
+            f"DRAFTED SECTIONS EVIDENCE & NARRATIVES:\n"
             + "\n\n".join(section_results)
         )
         synth_res = await run_role("synthesize", synth_input)
@@ -294,21 +314,23 @@ class DORiskReportOrchestrator:
         docx_path = os.path.join(self.artifacts_dir, f"{base_filename}.docx")
         pdf_path = os.path.join(self.artifacts_dir, f"{base_filename}.pdf")
 
+        report_date = current_date or time.strftime("%B %d, %Y")
+
         # 1. Render Markdown
         t_md0 = time.perf_counter()
-        md_content = MarkdownRenderer.render(entity, risk_tier, transformed_body, footnotes, ledger)
+        md_content = MarkdownRenderer.render(entity, risk_tier, transformed_body, footnotes, ledger, report_date=report_date)
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(md_content)
         md_ms = round((time.perf_counter() - t_md0) * 1000, 2)
 
         # 2. Render DOCX
         t_docx0 = time.perf_counter()
-        DocxRenderer.render(docx_path, entity, risk_tier, transformed_body, footnotes, ledger)
+        DocxRenderer.render(docx_path, entity, risk_tier, transformed_body, footnotes, ledger, report_date=report_date)
         docx_ms = round((time.perf_counter() - t_docx0) * 1000, 2)
 
         # 3. Render PDF
         t_pdf0 = time.perf_counter()
-        PdfRenderer.render(pdf_path, entity, risk_tier, transformed_body, footnotes, ledger)
+        PdfRenderer.render(pdf_path, entity, risk_tier, transformed_body, footnotes, ledger, report_date=report_date)
         pdf_ms = round((time.perf_counter() - t_pdf0) * 1000, 2)
 
         stage5_ms = round((time.perf_counter() - t4) * 1000, 2)

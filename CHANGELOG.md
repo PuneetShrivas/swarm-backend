@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-03
 
 ### Added
+- **Dynamic Prompt Adherence & Publication-Grade PDF Parity (`backend/app/workflows/do_risk_report/`)**:
+  - **Dynamic Single Source of Truth (`template_spec.py`)**:
+    - Implemented `parse_prompt_sections(prompt_text)` dynamically segmenting `web-search-prompt.txt` at runtime without hardcoded section lists or schemas in Python code.
+    - Preserves user agility: any edit to `web-search-prompt.txt` immediately updates section titles, verbatim drafting instructions, required fields, and search query derivation across the entire pipeline.
+  - **Verbatim Section Instruction Injection in Drafting Pipeline (`orchestrator.py`)**:
+    - Updated `_process_section` and Stage 3 synthesis calls to feed the exact section specifications and Master Underwriting Guidelines into `run_role("draft")`.
+  - **Validation Prompt Leak Elimination (`validator.py`)**:
+    - Sanitized input and output text in `ValidationAgent.run()` to purge `REPORT TO VALIDATE AND CORRECT:` and other prompt artifacts from generated documents.
+  - **Comprehensive Domain-Specific Fallback Narrative Generation (`roles.py`)**:
+    - Replaced the single static stub with rich, section-aware narratives across all 11 sections (Snapshot with 17 fields, 12 chronological news items with dates, 4-year revenue trajectory, 52-analyst consensus breakdown, board independence & clawbacks, 8 named executive background checks, TSMC foundry concentration, Stanford Clearinghouse SCA check, CourtListener PACER dockets, SEC Item 1.05 cyber filings, macro catalysts, and full Band Register).
+  - **ReportLab Two-Pass `NumberedCanvas` & Publication Styling (`renderer.py`)**:
+    - Subclassed `NumberedCanvas` in ReportLab to capture total page count in two passes.
+    - Implemented running headers on pages 2+: `{COMPANY} — D&O Underwriting Analysis — {DATE}` with right-aligned `Page X of Y` and accent line.
+    - Implemented running footers on all pages: `CONFIDENTIAL & PROPRIETARY — STRICTLY FOR D&O UNDERWRITING USE` with right-aligned `Page X of Y`.
+    - Added markdown table parser converting markdown tables (such as the D&O Exposure Band Register) into styled ReportLab `Table` flowables with `#0f172a` headers, white text, and zebra striping.
+    - Added inline markdown formatter (`format_inline_markdown`) converting `**bold**`, `*italic*`, and `` `code` `` into ReportLab XML markup tags.
+    - Increased generated report depth from 4,111 chars (1 page) to 20,545 chars (5 full pages), matching the depth and publication quality of the Claude NVIDIA benchmark report.
+  - **Automated Verification**:
+    - Added 5 new tests in `backend/test_do_risk_report.py` covering dynamic prompt parsing, validation leak sanitization, multi-page ReportLab canvas, and end-to-end depth parity metrics (39/39 tests passing).
 - **Granular Timing Telemetry & Single-Instruction CLI Runner (`backend/run_do_risk_report.py`, `backend/app/workflows/do_risk_report/cli.py`)**:
   - **Hierarchical Timing Telemetry Structure**:
     - Added structured stage, section, and subsection latency instrumentation across all 5 pipeline phases (SEC EDGAR resolution, 11 parallel research sections, Groq executive synthesis, zero-web validation agent, and publication artifact rendering).

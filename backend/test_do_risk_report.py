@@ -757,3 +757,96 @@ class TestCLIRunner(unittest.TestCase):
         self.assertIn("GRANULAR TIMINGS TABLE", table_text)
         self.assertIn("Stage 1: SEC EDGAR & Entity Resolution", table_text)
         self.assertIn("Stage 2: Research & Drafting (Parallel)", table_text)
+
+
+class TestDepthParityAndDynamicAdherence(unittest.TestCase):
+    def test_dynamic_prompt_parsing(self):
+        """Verifies dynamic segmentation of web-search-prompt.txt into sections without hardcoding."""
+        from app.workflows.do_risk_report.template_spec import parse_prompt_sections, load_prompt_text
+        prompt_text = load_prompt_text("web_search_prompt.txt")
+        self.assertTrue(len(prompt_text) > 0, "Prompt text could not be loaded")
+
+        master_rules, sections = parse_prompt_sections(prompt_text)
+        self.assertTrue(len(master_rules) > 100, "Master underwriting guidelines should be extracted")
+        self.assertGreaterEqual(len(sections), 10, "Should parse at least 10 dynamic sections")
+
+        # Confirm verbatim section prompt contains prompt instructions
+        snapshot_sec = next((s for s in sections if s.name == "company_snapshot"), None)
+        self.assertIsNotNone(snapshot_sec, "company_snapshot section must be detected")
+        self.assertIn("market capitalization", snapshot_sec.section_prompt.lower())
+        self.assertIn("company", snapshot_sec.static_queries[0])
+
+    def test_no_prompt_leak_in_validation(self):
+        """Verifies that validation wrapper instructions do not leak into the report."""
+        from app.workflows.do_risk_report.validator import ValidationAgent
+        agent = ValidationAgent()
+        sample_report = "### COMPANY SNAPSHOT\n- Legal Name: Apple Inc.\n- Share price as of current month: $180 [E001]"
+        loop = asyncio.new_event_loop()
+        try:
+            validated = loop.run_until_complete(
+                agent.run(sample_report)
+            )
+            self.assertNotIn("REPORT TO VALIDATE AND CORRECT:", validated)
+            self.assertNotIn("VALIDATED AND CORRECTED REPORT:", validated)
+            self.assertIn("Apple Inc.", validated)
+        finally:
+            loop.close()
+
+    def test_pdf_multipage_and_headers(self):
+        """Verifies ReportLab NumberedCanvas generates running headers, footers, and multi-page layout."""
+        import pypdf
+        from app.workflows.do_risk_report.renderer import PdfRenderer
+        from app.workflows.do_risk_report.models import EntityCard
+        from app.workflows.do_risk_report.ledger import EvidenceLedger
+
+        entity = EntityCard(ticker="AAPL", legal_name="Apple Inc.", cik="0000320193", exchange="NASDAQ")
+        ledger = EvidenceLedger()
+
+        # Build substantial multi-section content to span multiple pages
+        long_body = "\n\n".join([
+            f"## SECTION {i}: OPERATIONAL EVALUATION\n" + "\n".join([f"- Underwriting item {j} verified with primary SEC filing [1]." for j in range(1, 15)])
+            for i in range(1, 8)
+        ])
+        long_body += "\n\n### D&O Risk Band Register\n| Dimension | Band | Driver |\n| :--- | :--- | :--- |\n| Financial | Contained | Liquidity |\n| Legal | Elevated | DOJ Inquiry |\n"
+
+        footnotes = [{"num": 1, "id": "E001", "claim": "Fact verified", "source_url": "sec.gov", "source_type": "filing", "published": "2024-01-01", "confidence": "high", "quote": "Fact"}]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "test_parity.pdf")
+            PdfRenderer.render(pdf_path, entity, "Contained", long_body, footnotes, ledger, report_date="November 03, 2026")
+
+            self.assertTrue(os.path.isfile(pdf_path))
+            reader = pypdf.PdfReader(pdf_path)
+            self.assertGreaterEqual(len(reader.pages), 2, "Report should be multi-page")
+
+            # Page 2 should include running header
+            page2_text = reader.pages[1].extract_text()
+            self.assertIn("Apple Inc. — D&O Underwriting Analysis", page2_text)
+            self.assertIn("Page 2 of", page2_text)
+            self.assertIn("CONFIDENTIAL & PROPRIETARY", page2_text)
+
+    def test_e2e_depth_parity_metrics(self):
+        """Verifies end-to-end report generation generates benchmark-grade depth (>15,000 chars, multi-page PDF)."""
+        import pypdf
+        from app.workflows.do_risk_report.orchestrator import DORiskReportOrchestrator
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orch = DORiskReportOrchestrator(artifacts_dir=tmpdir)
+            loop = asyncio.new_event_loop()
+            try:
+                res = loop.run_until_complete(
+                    orch.run(ticker="AAPL", mode="fast", current_date="2026-11-03")
+                )
+                self.assertIsNotNone(res)
+                self.assertGreater(len(res.validated_report_text), 15000, "Validated report text should exceed 15,000 characters")
+
+                # Verify PDF size and page count
+                pdf_artifact = next((a for a in res.artifacts if a["type"] == "pdf"), None)
+                self.assertIsNotNone(pdf_artifact)
+                self.assertGreater(pdf_artifact["size"], 20000, "PDF should exceed 20 KB")
+
+                reader = pypdf.PdfReader(pdf_artifact["path"])
+                self.assertGreaterEqual(len(reader.pages), 4, "PDF should be at least 4 pages")
+            finally:
+                loop.close()
+
