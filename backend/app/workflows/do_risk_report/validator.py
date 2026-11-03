@@ -83,6 +83,15 @@ class DeterministicValidator:
 
         return issues
 
+    @staticmethod
+    def validate(text: str, ledger: EvidenceLedger) -> List[ValidationIssue]:
+        """Runs all Layer 1 deterministic checks and aggregates detected issues."""
+        issues: List[ValidationIssue] = []
+        issues.extend(DeterministicValidator.validate_citations(text, ledger))
+        issues.extend(DeterministicValidator.validate_two_source_rule(ledger))
+        issues.extend(DeterministicValidator.validate_date_recency(ledger))
+        return issues
+
 
 class ValidationAgent:
     """

@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-03
 
 ### Added
+- **Granular Timing Telemetry & Single-Instruction CLI Runner (`backend/run_do_risk_report.py`, `backend/app/workflows/do_risk_report/cli.py`)**:
+  - **Hierarchical Timing Telemetry Structure**:
+    - Added structured stage, section, and subsection latency instrumentation across all 5 pipeline phases (SEC EDGAR resolution, 11 parallel research sections, Groq executive synthesis, zero-web validation agent, and publication artifact rendering).
+    - Introduced strongly typed Pydantic timing schemas (`EdgarSubstageTiming`, `SectionSubsectionTiming`, `SectionTiming`, `ValidationSubsectionTiming`, `RenderingSubsectionTiming`, `ReportTelemetry`).
+    - Computed cumulative compute processing time against total elapsed wall-clock time to calculate real-time concurrency speedup multiplier (`concurrency_speedup`).
+  - **Single-Instruction CLI Runner**:
+    - Built standalone command-line executable `backend/run_do_risk_report.py` executing the entire pipeline from ticker input to final artifact delivery in a single instruction.
+    - Added default indented tree visualization (`--format tree`) rendering stages, sections, subsections, and character/fact counts with ASCII branch glyphs (`├──`, `└──`).
+    - Added table formatting (`--format table`) and JSON output (`--format json`).
+    - Added configurable execution modes (`--mode standard|fast`), reference date override (`--date`), custom artifact directory (`--output-dir`), and quiet execution (`--quiet`).
+    - Added real-time progress notification streaming across pipeline stages.
+  - **Automated Verification**:
+    - Added 7 new tests in `backend/test_do_risk_report.py` covering timing models serialization, EDGAR micro-timings, role latencies, CLI parser flags, tree formatting, and table formatting (34/34 tests green).
+
 - **D&O Public Risk Report System & Underwriting Pipeline (`backend/app/workflows/do_risk_report/`, `backend/app/agents/do_risk_*`)**:
   - **Comprehensive Risk Assessment Architecture**:
     - Implemented end-to-end multi-agent D&O underwriting report workflow with SEC EDGAR financial facts ingestion, batched Perplexity real-time research, parallel Groq LPU inference, two-layer validation, and multi-format deliverable rendering (Markdown, PDF, DOCX).

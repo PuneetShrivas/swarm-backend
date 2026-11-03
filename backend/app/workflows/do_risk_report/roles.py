@@ -6,9 +6,10 @@ not a separate agent.
 """
 
 import os
+import time
 import json
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -166,6 +167,29 @@ async def run_role(
 
     # Fallback to deterministic mock
     return _generate_mock_role_output(role, user_input)
+
+
+async def run_role_with_timings(
+    role: str,
+    user_input: str,
+    *,
+    model_override: Optional[str] = None,
+    mock_response: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Executes a role using Groq models and captures exact execution latency.
+    """
+    t0 = time.perf_counter()
+    result = await run_role(role, user_input, model_override=model_override, mock_response=mock_response)
+    duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+    cfg = ROLES_CONFIG.get(role, {})
+    model_used = model_override or cfg.get("model", "unknown")
+    meta = {
+        "duration_ms": duration_ms,
+        "role": role,
+        "model": model_used,
+    }
+    return result, meta
 
 
 def _generate_mock_role_output(role: str, user_input: str) -> Dict[str, Any]:

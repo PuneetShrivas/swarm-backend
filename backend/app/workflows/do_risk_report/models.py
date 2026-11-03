@@ -73,6 +73,57 @@ class ValidationIssue(BaseModel):
     severity: Literal["critical", "warning", "info"] = Field("warning", description="Severity level")
 
 
+class EdgarSubstageTiming(BaseModel):
+    ticker_to_cik_lookup_ms: float = 0.0
+    submissions_metadata_fetch_ms: float = 0.0
+    company_facts_xbrl_fetch_ms: float = 0.0
+    fact_extraction_and_ledger_ms: float = 0.0
+    facts_found_count: int = 0
+
+
+class SectionSubsectionTiming(BaseModel):
+    retrieval_ms: float = 0.0
+    groq_extract_ms: float = 0.0
+    groq_gap_check_ms: float = 0.0
+    groq_draft_narrative_ms: float = 0.0
+    queries_count: int = 0
+    claims_extracted: int = 0
+    evidence_cited_count: int = 0
+    char_length: int = 0
+
+
+class SectionTiming(BaseModel):
+    total_ms: float = 0.0
+    subsections: SectionSubsectionTiming = Field(default_factory=SectionSubsectionTiming)
+
+
+class ValidationSubsectionTiming(BaseModel):
+    deterministic_validator_ms: float = 0.0
+    deterministic_issues_count: int = 0
+    validation_agent_pass_ms: float = 0.0
+    repair_coordinator_ms: float = 0.0
+    repair_rounds: int = 0
+    model_used: str = "qwen/qwen3.8-27b"
+
+
+class RenderingSubsectionTiming(BaseModel):
+    footnote_transformation_ms: float = 0.0
+    footnotes_count: int = 0
+    render_markdown_ms: float = 0.0
+    render_docx_ms: float = 0.0
+    render_pdf_ms: float = 0.0
+
+
+class ReportTelemetry(BaseModel):
+    mode: str = "standard"
+    total_wall_clock_ms: float = 0.0
+    total_compute_ms: float = 0.0
+    concurrency_speedup: str = "1.00x"
+    edgar_facts_count: int = 0
+    evidence_count: int = 0
+    stages: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ReportResult(BaseModel):
     """Complete output payload of the D&O Public Risk Report system."""
     report_id: str = Field(..., description="Unique report run identifier")

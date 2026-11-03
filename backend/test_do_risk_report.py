@@ -582,3 +582,178 @@ class TestWorkflowSeedingAndEndpoints(unittest.TestCase):
         self.assertEqual(data["status"], "validated")
         self.assertIn("15-Jan-2026", data["validated_report"])
         self.assertNotIn("10-Oct-2024", data["validated_report"])
+
+
+from app.workflows.do_risk_report.models import (
+    EdgarSubstageTiming,
+    SectionSubsectionTiming,
+    SectionTiming,
+    ValidationSubsectionTiming,
+    RenderingSubsectionTiming,
+    ReportTelemetry,
+)
+from app.workflows.do_risk_report.edgar import EdgarFetcher
+from app.workflows.do_risk_report.retrieval import PerplexitySearchQueue
+from app.workflows.do_risk_report.roles import run_role_with_timings
+from app.workflows.do_risk_report.cli import build_parser, render_tree, render_table
+
+
+class TestGranularTimingTelemetry(unittest.TestCase):
+    def test_timing_telemetry_models_serialization(self):
+        edgar_t = EdgarSubstageTiming(
+            ticker_to_cik_lookup_ms=120.5,
+            submissions_metadata_fetch_ms=250.0,
+            company_facts_xbrl_fetch_ms=450.0,
+            fact_extraction_and_ledger_ms=180.0,
+            facts_found_count=24
+        )
+        self.assertEqual(edgar_t.facts_found_count, 24)
+        self.assertEqual(edgar_t.ticker_to_cik_lookup_ms, 120.5)
+
+        sec_sub = SectionSubsectionTiming(
+            retrieval_ms=1100.0,
+            groq_extract_ms=1400.0,
+            groq_gap_check_ms=600.0,
+            groq_draft_narrative_ms=900.0,
+            queries_count=3,
+            claims_extracted=5,
+            evidence_cited_count=8,
+            char_length=1500
+        )
+        sec_t = SectionTiming(total_ms=4000.0, subsections=sec_sub)
+        self.assertEqual(sec_t.total_ms, 4000.0)
+        self.assertEqual(sec_t.subsections.queries_count, 3)
+
+        rep_t = ReportTelemetry(
+            mode="fast",
+            total_wall_clock_ms=25000.0,
+            total_compute_ms=75000.0,
+            concurrency_speedup="3.00x",
+            edgar_facts_count=24,
+            evidence_count=45,
+            stages={
+                "stage_1_edgar_resolution": {"wall_clock_ms": 1000.0, "subsections": edgar_t.model_dump()},
+                "stage_2_research_and_draft": {"wall_clock_ms": 20000.0, "sections": {"company_snapshot": sec_t.model_dump()}}
+            }
+        )
+        data = rep_t.model_dump()
+        self.assertEqual(data["concurrency_speedup"], "3.00x")
+        self.assertIn("stage_1_edgar_resolution", data["stages"])
+
+    def test_edgar_fetcher_with_timings(self):
+        edgar = EdgarFetcher()
+        card, card_timings = edgar.build_entity_card_with_timings("AAPL")
+        self.assertEqual(card.ticker, "AAPL")
+        self.assertIn("ticker_to_cik_lookup_ms", card_timings)
+        self.assertIn("submissions_metadata_fetch_ms", card_timings)
+
+        ledger = EvidenceLedger()
+        count, ledger_timings = edgar.populate_edgar_ledger_with_timings(card, ledger)
+        self.assertGreaterEqual(count, 1)
+        self.assertIn("company_facts_xbrl_fetch_ms", ledger_timings)
+        self.assertIn("fact_extraction_and_ledger_ms", ledger_timings)
+        self.assertEqual(ledger_timings["facts_found_count"], count)
+
+    def test_roles_with_timings(self):
+        res, meta = asyncio.run(run_role_with_timings(
+            "extract",
+            "TARGET COMPANY: Apple Inc.\nSECTION: company_snapshot\n\nSEARCH RESULTS: Apple reported $383B revenue.",
+            mock_response={"items": [{"claim": "Revenue $383B", "status": "found"}]}
+        ))
+        self.assertIn("items", res)
+        self.assertIn("duration_ms", meta)
+        self.assertEqual(meta["role"], "extract")
+
+
+class TestCLIRunner(unittest.TestCase):
+    def test_cli_parser_defaults(self):
+        parser = build_parser()
+        args = parser.parse_args(["AAPL"])
+        self.assertEqual(args.ticker, "AAPL")
+        self.assertEqual(args.mode, "standard")
+        self.assertEqual(args.format, "tree")
+        self.assertIsNone(args.output_dir)
+        self.assertFalse(args.quiet)
+
+    def test_cli_parser_custom_flags(self):
+        parser = build_parser()
+        args = parser.parse_args(["MSFT", "--mode", "fast", "--format", "table", "--quiet", "--output-dir", "./tmp_rep"])
+        self.assertEqual(args.ticker, "MSFT")
+        self.assertEqual(args.mode, "fast")
+        self.assertEqual(args.format, "table")
+        self.assertTrue(args.quiet)
+        self.assertEqual(args.output_dir, "./tmp_rep")
+
+    def test_render_tree_output(self):
+        sample_telemetry = {
+            "total_wall_clock_ms": 30000.0,
+            "total_compute_ms": 90000.0,
+            "concurrency_speedup": "3.00x",
+            "stages": {
+                "stage_1_edgar_resolution": {
+                    "wall_clock_ms": 1200.0,
+                    "subsections": {
+                        "ticker_to_cik_lookup_ms": 150.0,
+                        "submissions_metadata_fetch_ms": 250.0,
+                        "company_facts_xbrl_fetch_ms": 600.0,
+                        "fact_extraction_and_ledger_ms": 200.0,
+                        "facts_found_count": 24,
+                    }
+                },
+                "stage_2_research_and_draft": {
+                    "wall_clock_ms": 22000.0,
+                    "parallel_workers_count": 1,
+                    "sections": {
+                        "company_snapshot": {
+                            "total_ms": 4000.0,
+                            "subsections": {
+                                "retrieval_ms": 1000.0,
+                                "groq_extract_ms": 1400.0,
+                                "groq_gap_check_ms": 600.0,
+                                "groq_draft_narrative_ms": 1000.0,
+                                "queries_count": 3,
+                                "claims_extracted": 5,
+                                "evidence_cited_count": 8,
+                                "char_length": 1400,
+                            }
+                        }
+                    }
+                },
+                "stage_3_synthesis_and_verdict": {
+                    "wall_clock_ms": 3000.0,
+                    "subsections": {"groq_synthesis_ms": 3000.0, "risk_tier": "Contained"}
+                },
+                "stage_4_validation_agent": {
+                    "wall_clock_ms": 2500.0,
+                    "subsections": {"deterministic_validator_ms": 10.0, "validation_agent_pass_ms": 2490.0}
+                },
+                "stage_5_artifact_rendering": {
+                    "wall_clock_ms": 800.0,
+                    "subsections": {"footnote_transformation_ms": 40.0, "render_markdown_ms": 10.0, "render_docx_ms": 350.0, "render_pdf_ms": 400.0}
+                }
+            }
+        }
+        tree_text = render_tree(sample_telemetry, "AAPL")
+        self.assertIn("GRANULAR TIMINGS TREE", tree_text)
+        self.assertIn("├── Stage 1: SEC EDGAR & Entity Resolution", tree_text)
+        self.assertIn("├── Stage 2: Research & Drafting", tree_text)
+        self.assertIn("└── Stage 5: Publication Artifact Rendering", tree_text)
+        self.assertIn("Concurrency: 3.00x", tree_text)
+
+    def test_render_table_output(self):
+        sample_telemetry = {
+            "total_wall_clock_ms": 30000.0,
+            "total_compute_ms": 90000.0,
+            "concurrency_speedup": "3.00x",
+            "stages": {
+                "stage_1_edgar_resolution": {"wall_clock_ms": 1200.0, "subsections": {}},
+                "stage_2_research_and_draft": {"wall_clock_ms": 22000.0, "sections": {}},
+                "stage_3_synthesis_and_verdict": {"wall_clock_ms": 3000.0},
+                "stage_4_validation_agent": {"wall_clock_ms": 2500.0},
+                "stage_5_artifact_rendering": {"wall_clock_ms": 800.0},
+            }
+        }
+        table_text = render_table(sample_telemetry, "AAPL")
+        self.assertIn("GRANULAR TIMINGS TABLE", table_text)
+        self.assertIn("Stage 1: SEC EDGAR & Entity Resolution", table_text)
+        self.assertIn("Stage 2: Research & Drafting (Parallel)", table_text)

@@ -85,6 +85,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+artifacts/
+backend/artifacts/
 
 # Testing & Coverage (Jest / Pytest)
 coverage/

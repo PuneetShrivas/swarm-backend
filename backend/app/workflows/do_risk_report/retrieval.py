@@ -10,7 +10,7 @@ import json
 import time
 import hashlib
 import asyncio
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache_retrieval")
@@ -288,3 +288,20 @@ class PerplexitySearchQueue:
         for r_list in batch_results:
             all_flattened.extend(r_list)
         return ResultCompactor.deduplicate_results(all_flattened)
+
+    async def batch_search_with_timings(
+        self,
+        queries: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Executes a batch of search queries concurrently and returns results with micro-timings.
+        """
+        t0 = time.perf_counter()
+        results = await self.batch_search(queries)
+        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+        meta = {
+            "duration_ms": duration_ms,
+            "queries_count": len(queries),
+            "results_count": len(results),
+        }
+        return results, meta

@@ -7,6 +7,7 @@ and XBRL company facts into the Evidence Ledger without LLM arithmetic.
 import os
 import re
 import json
+import time
 import hashlib
 from typing import Dict, Any, Optional, List, Tuple
 from app.workflows.do_risk_report.models import EntityCard, Evidence
@@ -261,6 +262,46 @@ class EdgarFetcher:
             auditor="Ernst & Young LLP" if ticker.upper() in ["AAPL"] else "Independent Registered Public Accounting Firm"
         )
 
+    def build_entity_card_with_timings(self, ticker: str) -> Tuple[EntityCard, Dict[str, float]]:
+        """Constructs EntityCard and records micro-timings for resolution and metadata fetching."""
+        t0 = time.perf_counter()
+        cik = self.resolve_cik(ticker)
+        t1 = time.perf_counter()
+        subs = self.fetch_submissions(cik)
+        t2 = time.perf_counter()
+
+        legal_name = subs.get("name") or subs.get("entityName") or ticker.upper()
+        sic = subs.get("sic")
+        industry = subs.get("sicDescription")
+        fye = subs.get("fiscalYearEnd")
+        former_names_raw = subs.get("formerNames") or []
+        former_names = [f.get("name") for f in former_names_raw if isinstance(f, dict) and f.get("name")]
+
+        addr = subs.get("addresses", {}).get("business", {})
+        hq = f"{addr.get('city', '')}, {addr.get('stateOrCountry', '')}".strip(", ")
+        country = "United States" if addr.get("stateOrCountry") in ["CA", "NY", "TX", "WA", "DE", "IL", "US", "USA"] else "United States"
+        cpi = KNOWN_CPI_SCORES.get(country, "Not available")
+
+        card = EntityCard(
+            ticker=ticker.upper(),
+            legal_name=legal_name,
+            cik=cik,
+            former_names=former_names,
+            sic_code=sic,
+            industry=industry,
+            hq_address=hq or "United States",
+            country_of_domicile=country,
+            cpi_score=cpi,
+            exchange="NASDAQ" if ticker.upper() in ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"] else "NYSE",
+            fiscal_year_end=fye,
+            auditor="Ernst & Young LLP" if ticker.upper() in ["AAPL"] else "Independent Registered Public Accounting Firm"
+        )
+        timings = {
+            "ticker_to_cik_lookup_ms": round((t1 - t0) * 1000, 2),
+            "submissions_metadata_fetch_ms": round((t2 - t1) * 1000, 2),
+        }
+        return card, timings
+
     def extract_xbrl_metrics(self, facts: Dict[str, Any]) -> Dict[str, Any]:
         """Extracts key financial figures from US-GAAP XBRL concepts deterministically."""
         us_gaap = facts.get("facts", {}).get("us-gaap", {})
@@ -466,3 +507,130 @@ class EdgarFetcher:
             ))
 
         return ledger.add(items)
+
+    def populate_edgar_ledger_with_timings(
+        self,
+        entity: EntityCard,
+        ledger: EvidenceLedger
+    ) -> Tuple[int, Dict[str, Any]]:
+        """Populates evidence ledger with US-GAAP facts while recording XBRL fetch and parsing timings."""
+        t0 = time.perf_counter()
+        facts = self.fetch_company_facts(entity.cik)
+        t1 = time.perf_counter()
+        metrics = self.extract_xbrl_metrics(facts)
+        source_url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{entity.cik}.json"
+
+        # Populate ledger items
+        items: List[Evidence] = []
+        items.append(Evidence(
+            id="",
+            section="company_snapshot",
+            claim=f"Entity legal name is {entity.legal_name} registered under SEC CIK {entity.cik} with SIC code {entity.sic_code or 'N/A'} ({entity.industry or 'N/A'})",
+            value=entity.legal_name,
+            source_url=source_url,
+            source_type="filing",
+            confidence="high",
+            quote=f"Legal Name: {entity.legal_name}, CIK: {entity.cik}"
+        ))
+
+        if entity.cpi_score:
+            items.append(Evidence(
+                id="",
+                section="company_snapshot",
+                claim=f"Country of domicile is {entity.country_of_domicile} with Corruption Perception Index {entity.cpi_score}",
+                value=entity.cpi_score,
+                source_url="https://www.transparency.org/en/cpi",
+                source_type="regulator",
+                confidence="high",
+                quote=f"Country: {entity.country_of_domicile}, CPI: {entity.cpi_score}"
+            ))
+
+        if "revenue_trend" in metrics:
+            trend_strs = [f"{y} ${val/1e9:.2f}B" for y, val in metrics["revenue_trend"].items()]
+            trend_text = " | ".join(trend_strs)
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Revenue trend in descending annual order: {trend_text}",
+                value=trend_text,
+                as_of=str(metrics.get("latest_revenue_year")),
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"Annual Revenues (US-GAAP XBRL): {trend_text}"
+            ))
+
+        if "total_assets" in metrics:
+            val_b = metrics["total_assets"] / 1e9
+            period = metrics.get("total_assets_period", "reported period")
+            items.append(Evidence(
+                id="",
+                section="company_snapshot",
+                claim=f"Total assets reported at ${val_b:.2f}B for {period}",
+                value=f"${val_b:.2f}B ({period})",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Assets: ${val_b:.2f} Billion"
+            ))
+
+        if "total_liabilities" in metrics:
+            val_b = metrics["total_liabilities"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Total liabilities recorded at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Liabilities: ${val_b:.2f} Billion"
+            ))
+
+        if "cash_and_equivalents" in metrics:
+            val_b = metrics["cash_and_equivalents"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Cash and cash equivalents at carrying value stood at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Cash & Equivalents: ${val_b:.2f} Billion"
+            ))
+
+        if "total_debt" in metrics:
+            val_b = metrics["total_debt"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Total non-current debt recorded at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Long-Term Debt: ${val_b:.2f} Billion"
+            ))
+
+        if entity.auditor:
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Independent registered public accounting firm auditor is {entity.auditor}",
+                value=entity.auditor,
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"Auditor: {entity.auditor}"
+            ))
+
+        count = ledger.add(items)
+        t2 = time.perf_counter()
+
+        timings = {
+            "company_facts_xbrl_fetch_ms": round((t1 - t0) * 1000, 2),
+            "fact_extraction_and_ledger_ms": round((t2 - t1) * 1000, 2),
+            "facts_found_count": count,
+        }
+        return count, timings

@@ -13,7 +13,7 @@ import os
 import time
 import uuid
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Callable
 from app.workflows.do_risk_report.models import EntityCard, Evidence, ReportResult
 from app.workflows.do_risk_report.ledger import EvidenceLedger
 from app.workflows.do_risk_report.edgar import EdgarFetcher
@@ -23,7 +23,10 @@ from app.workflows.do_risk_report.roles import run_role
 from app.workflows.do_risk_report.validator import DeterministicValidator, ValidationAgent, RepairCoordinator
 from app.workflows.do_risk_report.renderer import FootnoteTransformer, MarkdownRenderer, DocxRenderer, PdfRenderer
 
-DEFAULT_ARTIFACTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "artifacts")
+DEFAULT_ARTIFACTS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    "artifacts"
+)
 
 
 class DORiskReportOrchestrator:
@@ -41,10 +44,18 @@ class DORiskReportOrchestrator:
         static_queries: List[Dict[str, Any]],
         ledger: EvidenceLedger,
         mode: str = "standard"
-    ) -> str:
+    ) -> Tuple[str, Dict[str, Any]]:
         """
-        Executes search, extraction, gap checking, and drafting for a single section.
+        Executes search, extraction, gap checking, and drafting for a single section
+        while tracking granular subsection timings.
         """
+        sec_start = time.perf_counter()
+        total_retrieval_ms = 0.0
+        total_extract_ms = 0.0
+        total_gap_ms = 0.0
+        queries_count = 0
+        claims_extracted = 0
+
         max_rounds = 1 if mode == "fast" else 2
         current_queries = list(static_queries)
 
@@ -53,7 +64,9 @@ class DORiskReportOrchestrator:
                 break
 
             # 1. Web search queue via Perplexity
-            search_batches = await self.search_queue.batch_search(current_queries)
+            search_batches, search_meta = await self.search_queue.batch_search_with_timings(current_queries)
+            total_retrieval_ms += search_meta.get("duration_ms", 0.0)
+            queries_count += len(current_queries)
 
             if search_batches:
                 # 2. Extract role on Groq (atomic claims with Entity Guard)
@@ -66,7 +79,10 @@ class DORiskReportOrchestrator:
                     f"SECTION: {section_name} ({section_title})\n\n"
                     f"SEARCH RESULTS:\n{compacted_text}"
                 )
+                t_e0 = time.perf_counter()
                 extract_res = await run_role("extract", user_prompt)
+                total_extract_ms += (time.perf_counter() - t_e0) * 1000
+
                 new_items: List[Evidence] = []
                 for item_dict in extract_res.get("items", []):
                     try:
@@ -87,6 +103,7 @@ class DORiskReportOrchestrator:
                         pass
 
                 if new_items:
+                    claims_extracted += len(new_items)
                     ledger.add(new_items)
 
             # 3. Gap check
@@ -96,7 +113,9 @@ class DORiskReportOrchestrator:
                 f"Evidence Count: {len(sec_rows)}\n"
                 f"Evidence Claims: " + "; ".join(f"[{r.id}] {r.claim}" for r in sec_rows[:10])
             )
+            t_g0 = time.perf_counter()
             gap_res = await run_role("gap", gap_prompt)
+            total_gap_ms += (time.perf_counter() - t_g0) * 1000
             current_queries = gap_res.get("queries", [])
             if not current_queries:
                 break
@@ -113,38 +132,77 @@ class DORiskReportOrchestrator:
             f"SECTION HEADER: ### {section_title}\n\n"
             f"SECTION EVIDENCE LEDGER ROWS:\n{ledger_text}"
         )
+        t_d0 = time.perf_counter()
         draft_res = await run_role("draft", draft_prompt)
-        return draft_res.get("section_text", f"### {section_title}\n- Data unavailable.")
+        draft_ms = (time.perf_counter() - t_d0) * 1000
+        section_text = draft_res.get("section_text", f"### {section_title}\n- Data unavailable.")
+        sec_total_ms = (time.perf_counter() - sec_start) * 1000
+
+        sec_timing = {
+            "total_ms": round(sec_total_ms, 2),
+            "subsections": {
+                "retrieval_ms": round(total_retrieval_ms, 2),
+                "groq_extract_ms": round(total_extract_ms, 2),
+                "groq_gap_check_ms": round(total_gap_ms, 2),
+                "groq_draft_narrative_ms": round(draft_ms, 2),
+                "queries_count": queries_count,
+                "claims_extracted": claims_extracted,
+                "evidence_cited_count": len(sec_rows),
+                "char_length": len(section_text),
+            }
+        }
+        return section_text, sec_timing
 
     async def run(
         self,
         ticker: str,
         mode: str = "standard",
         current_date: Optional[str] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        on_progress: Optional[Callable[[str, str], None]] = None
     ) -> ReportResult:
         """
-        Executes the entire D&O Public Risk Underwriting Report pipeline end-to-end.
+        Executes the entire D&O Public Risk Underwriting Report pipeline end-to-end,
+        capturing granular stage, section, and subsection timings.
         """
-        start_time = time.time()
+        def _notify(stage_code: str, detail: str = ""):
+            if on_progress:
+                try:
+                    on_progress(stage_code, detail)
+                except Exception:
+                    pass
+
+        start_time = time.perf_counter()
         report_id = str(uuid.uuid4())
-        telemetry: Dict[str, Any] = {"mode": mode, "stages": {}}
 
         # Stage 1: Entity Resolution & EDGAR Structured Pull
-        t0 = time.time()
-        entity = self.edgar.build_entity_card(ticker)
+        _notify("stage_1", f"Resolving Entity Card & SEC EDGAR US-GAAP facts for {ticker.upper()}...")
+        t0 = time.perf_counter()
+        entity, card_timings = self.edgar.build_entity_card_with_timings(ticker)
         ledger = EvidenceLedger()
-        edgar_count = self.edgar.populate_edgar_ledger(entity, ledger)
-        telemetry["stages"]["edgar_resolution_ms"] = round((time.time() - t0) * 1000, 2)
-        telemetry["edgar_facts_count"] = edgar_count
+        edgar_count, edgar_timings = self.edgar.populate_edgar_ledger_with_timings(entity, ledger)
+        stage1_ms = round((time.perf_counter() - t0) * 1000, 2)
+        _notify("stage_1_done", f"{entity.legal_name} ({entity.cik}) - {edgar_count} facts collected in {stage1_ms:,.1f} ms")
+
+        stage1_telemetry = {
+            "wall_clock_ms": stage1_ms,
+            "subsections": {
+                "ticker_to_cik_lookup_ms": card_timings["ticker_to_cik_lookup_ms"],
+                "submissions_metadata_fetch_ms": card_timings["submissions_metadata_fetch_ms"],
+                "company_facts_xbrl_fetch_ms": edgar_timings["company_facts_xbrl_fetch_ms"],
+                "fact_extraction_and_ledger_ms": edgar_timings["fact_extraction_and_ledger_ms"],
+                "facts_found_count": edgar_count,
+            }
+        }
 
         # Stage 2: Parallel Per-Section Research & Drafting
-        t1 = time.time()
+        t1 = time.perf_counter()
         static_queries_map = TemplateCompiler.generate_static_queries(entity)
         section_tasks = []
 
         # Sections to draft (excluding overall_verdict which is handled by Synthesize)
         draft_sections = [s for s in SECTION_DEFINITIONS if s["name"] != "overall_verdict"]
+        _notify("stage_2", f"Concurrent Perplexity retrieval & Groq drafting across {len(draft_sections)} parallel sections...")
 
         for s_def in draft_sections:
             sec_name = s_def["name"]
@@ -153,22 +211,44 @@ class DORiskReportOrchestrator:
             task = self._process_section(sec_name, sec_title, entity, queries, ledger, mode=mode)
             section_tasks.append((sec_name, task))
 
-        section_results = await asyncio.gather(*[t[1] for t in section_tasks])
+        raw_section_results = await asyncio.gather(*[t[1] for t in section_tasks])
+        stage2_ms = round((time.perf_counter() - t1) * 1000, 2)
+
+        section_results = [r[0] for r in raw_section_results]
         sections_map = {section_tasks[i][0]: section_results[i] for i in range(len(section_tasks))}
-        telemetry["stages"]["research_and_draft_ms"] = round((time.time() - t1) * 1000, 2)
+        sections_timings = {section_tasks[i][0]: raw_section_results[i][1] for i in range(len(section_tasks))}
+        _notify("stage_2_done", f"All {len(draft_sections)} sections researched and drafted in {stage2_ms:,.1f} ms")
+
+        stage2_telemetry = {
+            "wall_clock_ms": stage2_ms,
+            "parallel_workers_count": len(draft_sections),
+            "sections": sections_timings,
+        }
 
         # Stage 3: Executive Synthesis & Overall D&O Verdict
-        t2 = time.time()
+        _notify("stage_3", "Synthesizing executive summary and determining D&O underwriter verdict on Groq LPUs...")
+        t2 = time.perf_counter()
         synth_input = (
             f"TARGET COMPANY: {entity.legal_name} ({entity.ticker})\n\n"
             + "\n\n".join(section_results)
         )
         synth_res = await run_role("synthesize", synth_input)
+        stage3_ms = round((time.perf_counter() - t2) * 1000, 2)
         risk_tier = synth_res.get("risk_tier", "Contained")
         exec_summary = synth_res.get("executive_summary", "")
         verdict_text = synth_res.get("verdict_text", "## OVERALL D&O UNDERWRITER VERDICT\n- Assessment complete.")
         sections_map["overall_verdict"] = verdict_text
-        telemetry["stages"]["synthesis_ms"] = round((time.time() - t2) * 1000, 2)
+        _notify("stage_3_done", f"Overall Risk Tier: '{risk_tier}' synthesized in {stage3_ms:,.1f} ms")
+
+        stage3_telemetry = {
+            "wall_clock_ms": stage3_ms,
+            "subsections": {
+                "groq_synthesis_ms": stage3_ms,
+                "model_used": "openai/gpt-oss-120b",
+                "risk_tier": risk_tier,
+                "char_length": len(exec_summary) + len(verdict_text),
+            }
+        }
 
         # Assemble consolidate raw report text
         consolidated_body = (
@@ -177,14 +257,37 @@ class DORiskReportOrchestrator:
         )
 
         # Stage 4: Dedicated Post-Generation Validation Agent
-        t3 = time.time()
+        _notify("stage_4", "Running zero-web-access Validation Agent audit & repair pass...")
+        t3 = time.perf_counter()
+        t_det0 = time.perf_counter()
+        det_issues = DeterministicValidator.validate(consolidated_body, ledger)
+        det_ms = round((time.perf_counter() - t_det0) * 1000, 2)
+
+        t_val0 = time.perf_counter()
         val_agent = ValidationAgent(current_date=current_date)
         validated_report_text = await val_agent.run(consolidated_body)
-        telemetry["stages"]["validation_agent_ms"] = round((time.time() - t3) * 1000, 2)
+        val_agent_ms = round((time.perf_counter() - t_val0) * 1000, 2)
+        stage4_ms = round((time.perf_counter() - t3) * 1000, 2)
+        _notify("stage_4_done", f"Validation audit complete ({len(det_issues)} mechanical issues) in {stage4_ms:,.1f} ms")
+
+        stage4_telemetry = {
+            "wall_clock_ms": stage4_ms,
+            "subsections": {
+                "deterministic_validator_ms": det_ms,
+                "deterministic_issues_count": len(det_issues),
+                "validation_agent_pass_ms": val_agent_ms,
+                "repair_coordinator_ms": 0.0,
+                "repair_rounds": 0,
+                "model_used": "qwen/qwen3.8-27b",
+            }
+        }
 
         # Stage 5: Publication Rendering (MD, DOCX, PDF)
-        t4 = time.time()
+        _notify("stage_5", "Transforming citations and compiling publication deliverables (MD, DOCX, PDF)...")
+        t4 = time.perf_counter()
+        t_fn0 = time.perf_counter()
         transformed_body, footnotes = FootnoteTransformer.transform_citations(validated_report_text, ledger)
+        fn_ms = round((time.perf_counter() - t_fn0) * 1000, 2)
 
         base_filename = f"DO_Risk_Report_{entity.ticker}_{report_id[:8]}"
         md_path = os.path.join(self.artifacts_dir, f"{base_filename}.md")
@@ -192,19 +295,65 @@ class DORiskReportOrchestrator:
         pdf_path = os.path.join(self.artifacts_dir, f"{base_filename}.pdf")
 
         # 1. Render Markdown
+        t_md0 = time.perf_counter()
         md_content = MarkdownRenderer.render(entity, risk_tier, transformed_body, footnotes, ledger)
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(md_content)
+        md_ms = round((time.perf_counter() - t_md0) * 1000, 2)
 
         # 2. Render DOCX
+        t_docx0 = time.perf_counter()
         DocxRenderer.render(docx_path, entity, risk_tier, transformed_body, footnotes, ledger)
+        docx_ms = round((time.perf_counter() - t_docx0) * 1000, 2)
 
         # 3. Render PDF
+        t_pdf0 = time.perf_counter()
         PdfRenderer.render(pdf_path, entity, risk_tier, transformed_body, footnotes, ledger)
+        pdf_ms = round((time.perf_counter() - t_pdf0) * 1000, 2)
 
-        telemetry["stages"]["rendering_ms"] = round((time.time() - t4) * 1000, 2)
-        telemetry["total_duration_ms"] = round((time.time() - start_time) * 1000, 2)
-        telemetry["evidence_count"] = len(ledger.all_rows())
+        stage5_ms = round((time.perf_counter() - t4) * 1000, 2)
+        _notify("stage_5_done", f"Rendered MD ({os.path.getsize(md_path)/1024:.1f} KB), DOCX ({os.path.getsize(docx_path)/1024:.1f} KB), PDF ({os.path.getsize(pdf_path)/1024:.1f} KB) in {stage5_ms:,.1f} ms")
+
+        stage5_telemetry = {
+            "wall_clock_ms": stage5_ms,
+            "subsections": {
+                "footnote_transformation_ms": fn_ms,
+                "footnotes_count": len(footnotes),
+                "render_markdown_ms": md_ms,
+                "render_docx_ms": docx_ms,
+                "render_pdf_ms": pdf_ms,
+            }
+        }
+
+        # Concurrency & Total Compute calculation
+        total_wall_clock_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        sec_compute_ms = sum(s["total_ms"] for s in sections_timings.values())
+        total_compute_ms = round(stage1_ms + sec_compute_ms + stage3_ms + stage4_ms + stage5_ms, 2)
+        speedup_multiplier = f"{total_compute_ms / max(total_wall_clock_ms, 1.0):.2f}x"
+
+        telemetry = {
+            "mode": mode,
+            "total_wall_clock_ms": total_wall_clock_ms,
+            "total_compute_ms": total_compute_ms,
+            "concurrency_speedup": speedup_multiplier,
+            "edgar_facts_count": edgar_count,
+            "evidence_count": len(ledger.all_rows()),
+            "stages": {
+                # Backward-compatible flat keys
+                "edgar_resolution_ms": stage1_ms,
+                "research_and_draft_ms": stage2_ms,
+                "synthesis_ms": stage3_ms,
+                "validation_agent_ms": stage4_ms,
+                "rendering_ms": stage5_ms,
+                # Hierarchical keys
+                "stage_1_edgar_resolution": stage1_telemetry,
+                "stage_2_research_and_draft": stage2_telemetry,
+                "stage_3_synthesis_and_verdict": stage3_telemetry,
+                "stage_4_validation_agent": stage4_telemetry,
+                "stage_5_artifact_rendering": stage5_telemetry,
+            },
+            "total_duration_ms": total_wall_clock_ms,
+        }
 
         artifacts = [
             {"filename": f"{base_filename}.md", "path": md_path, "type": "markdown", "size": os.path.getsize(md_path)},
