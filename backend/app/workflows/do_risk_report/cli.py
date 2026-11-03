@@ -58,6 +58,8 @@ def render_tree(telemetry: Dict[str, Any], entity_ticker: str) -> str:
     sec_names = list(s2_secs.keys())
     lines.append(f"├── Stage 2: Research & Drafting ({s2.get('parallel_workers_count', len(sec_names))} Parallel Sections) [{format_ms(s2.get('wall_clock_ms', 0.0))}]")
 
+    prov_label = telemetry.get("llm_provider", "Groq").capitalize()
+
     for i, name in enumerate(sec_names):
         is_last_sec = (i == len(sec_names) - 1)
         prefix_sec = "│   └──" if is_last_sec else "│   ├──"
@@ -65,24 +67,38 @@ def render_tree(telemetry: Dict[str, Any], entity_ticker: str) -> str:
 
         s_info = s2_secs[name]
         s_subs = s_info.get("subsections", {})
+        rounds = s_subs.get("rounds", [])
+
         lines.append(f"{prefix_sec} [{i+1:02d}] {name} [{format_ms(s_info.get('total_ms', 0.0))}]")
-        lines.append(f"{branch_child}├── Perplexity Search: {format_ms(s_subs.get('retrieval_ms', 0.0))} ({s_subs.get('queries_count', 0)} queries)")
-        lines.append(f"{branch_child}├── Groq Claim Extraction: {format_ms(s_subs.get('groq_extract_ms', 0.0))} ({s_subs.get('claims_extracted', 0)} claims)")
-        lines.append(f"{branch_child}├── Groq Gap Analysis: {format_ms(s_subs.get('groq_gap_check_ms', 0.0))}")
-        lines.append(f"{branch_child}└── Groq Narrative Draft: {format_ms(s_subs.get('groq_draft_narrative_ms', 0.0))} ({s_subs.get('char_length', 0):,} chars, {s_subs.get('evidence_cited_count', 0)} citations)")
+        if rounds and len(rounds) > 1:
+            for r in rounds:
+                r_num = r.get("round", 1)
+                lines.append(f"{branch_child}├── Round {r_num} Search (Pplx Batch): {format_ms(r.get('retrieval_ms', 0.0))} ({r.get('queries_count', 0)} queries)")
+                lines.append(f"{branch_child}├── Round {r_num} Claim Extraction ({prov_label}): {format_ms(r.get('extract_ms', 0.0))} ({r.get('claims_extracted', 0)} claims)")
+                lines.append(f"{branch_child}├── Round {r_num} Gap Analysis ({prov_label}): {format_ms(r.get('gap_ms', 0.0))}")
+            lines.append(f"{branch_child}└── {prov_label} Narrative Draft: {format_ms(s_subs.get('groq_draft_narrative_ms', 0.0))} ({s_subs.get('char_length', 0):,} chars, {s_subs.get('evidence_cited_count', 0)} citations)")
+        else:
+            lines.append(f"{branch_child}├── Perplexity Batch Search: {format_ms(s_subs.get('retrieval_ms', 0.0))} ({s_subs.get('queries_count', 0)} queries)")
+            lines.append(f"{branch_child}├── {prov_label} Claim Extraction: {format_ms(s_subs.get('groq_extract_ms', 0.0))} ({s_subs.get('claims_extracted', 0)} claims)")
+            lines.append(f"{branch_child}├── {prov_label} Gap Analysis: {format_ms(s_subs.get('groq_gap_check_ms', 0.0))}")
+            lines.append(f"{branch_child}└── {prov_label} Narrative Draft: {format_ms(s_subs.get('groq_draft_narrative_ms', 0.0))} ({s_subs.get('char_length', 0):,} chars, {s_subs.get('evidence_cited_count', 0)} citations)")
 
     # Stage 3: Synthesis
     s3 = stages.get("stage_3_synthesis_and_verdict", {})
     s3_subs = s3.get("subsections", {})
+    s3_model = s3_subs.get("model_used", "reasoning")
+    s3_prov = s3_subs.get("provider", telemetry.get("llm_provider", "llm")).upper()
     lines.append(f"├── Stage 3: Executive Synthesis & D&O Verdict [{format_ms(s3.get('wall_clock_ms', 0.0))}]")
-    lines.append(f"│   └── Groq Synthesis ({s3_subs.get('model_used', 'openai/gpt-oss-120b')}): {format_ms(s3_subs.get('groq_synthesis_ms', 0.0))} (Verdict: {s3_subs.get('risk_tier', 'Contained')})")
+    lines.append(f"│   └── Synthesis ({s3_prov} - {s3_model}): {format_ms(s3_subs.get('synthesis_ms', s3_subs.get('groq_synthesis_ms', 0.0)))} (Verdict: {s3_subs.get('risk_tier', 'Contained')})")
 
     # Stage 4: Validation
     s4 = stages.get("stage_4_validation_agent", {})
     s4_subs = s4.get("subsections", {})
+    s4_model = s4_subs.get("model_used", "reasoning")
+    s4_prov = s4_subs.get("provider", telemetry.get("llm_provider", "llm")).upper()
     lines.append(f"├── Stage 4: Post-Generation Validation Agent (Zero Web Access) [{format_ms(s4.get('wall_clock_ms', 0.0))}]")
     lines.append(f"│   ├── Layer 1 Deterministic Verification: {format_ms(s4_subs.get('deterministic_validator_ms', 0.0))} ({s4_subs.get('deterministic_issues_count', 0)} issues)")
-    lines.append(f"│   └── Layer 2 Validation Agent Pass ({s4_subs.get('model_used', 'qwen/qwen3.8-27b')}): {format_ms(s4_subs.get('validation_agent_pass_ms', 0.0))}")
+    lines.append(f"│   └── Layer 2 Validation Agent Pass ({s4_prov} - {s4_model}): {format_ms(s4_subs.get('validation_agent_pass_ms', 0.0))}")
 
     # Stage 5: Rendering
     s5 = stages.get("stage_5_artifact_rendering", {})
@@ -157,6 +173,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
     fmt = args.format.lower()
     date_override = args.date
     output_dir = args.output_dir
+    provider = getattr(args, "provider", "gpt-oss").lower()
 
     if not args.quiet:
         print("=" * 80, flush=True)
@@ -164,6 +181,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
         print("=" * 80, flush=True)
         print(f"Target Ticker:  {ticker}", flush=True)
         print(f"Execution Mode: {mode} ({'1 search round' if mode == 'fast' else '2 search rounds + gap check'})", flush=True)
+        print(f"LLM Provider:   {provider.upper()}", flush=True)
         print(f"Display Format: {fmt}", flush=True)
         if date_override:
             print(f"Date Override:  {date_override}", flush=True)
@@ -202,6 +220,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
             ticker=ticker,
             mode=mode,
             current_date=date_override,
+            provider=provider,
             on_progress=on_progress
         )
     except Exception as e:
@@ -269,6 +288,13 @@ Examples:
         choices=["fast", "standard"],
         default="standard",
         help="Pipeline execution mode: 'fast' (1 search round) or 'standard' (2 rounds + gap analysis). Default: standard"
+    )
+    parser.add_argument(
+        "--provider", "--llm-provider", "--model-family",
+        dest="provider",
+        choices=["gpt-oss", "qwen", "gemini", "iteracompute"],
+        default=os.environ.get("LLM_PROVIDER", "gpt-oss").lower(),
+        help="LLM provider family for non-Perplexity tasks: 'gpt-oss', 'qwen', 'gemini', or 'iteracompute'. Default: gpt-oss"
     )
     parser.add_argument(
         "--format",

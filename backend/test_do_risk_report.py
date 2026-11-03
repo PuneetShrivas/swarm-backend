@@ -961,6 +961,82 @@ class TestPerplexitySearchAPI(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_provider_switching_and_resolution(self):
+        from app.workflows.do_risk_report.roles import (
+            set_active_provider,
+            get_active_provider,
+            PROVIDER_MODELS,
+            ROLE_TIER_MAPPING,
+        )
+
+        orig = get_active_provider()
+        try:
+            # gpt-oss
+            set_active_provider("gpt-oss")
+            self.assertEqual(get_active_provider(), "gpt-oss")
+            self.assertEqual(PROVIDER_MODELS["gpt-oss"]["fast"], "openai/gpt-oss-20b")
+            self.assertEqual(PROVIDER_MODELS["gpt-oss"]["reasoning"], "openai/gpt-oss-120b")
+
+            # qwen
+            set_active_provider("qwen")
+            self.assertEqual(get_active_provider(), "qwen")
+            self.assertEqual(PROVIDER_MODELS["qwen"]["fast"], "qwen/qwen3.8-27b")
+
+            # gemini
+            set_active_provider("gemini")
+            self.assertEqual(get_active_provider(), "gemini")
+
+            # iteracompute
+            set_active_provider("iteracompute")
+            self.assertEqual(get_active_provider(), "iteracompute")
+            self.assertIn("fast", PROVIDER_MODELS["iteracompute"])
+
+            # itera alias
+            set_active_provider("itera")
+            self.assertEqual(get_active_provider(), "iteracompute")
+
+            # invalid provider raises ValueError
+            with self.assertRaises(ValueError):
+                set_active_provider("unsupported-llm")
+        finally:
+            set_active_provider(orig)
+
+    def test_cli_provider_flag_parsing(self):
+        from app.workflows.do_risk_report.cli import build_parser
+
+        parser = build_parser()
+
+        args1 = parser.parse_args(["NVDA", "--provider", "gemini"])
+        self.assertEqual(args1.provider, "gemini")
+
+        args2 = parser.parse_args(["NVDA", "--provider", "qwen"])
+        self.assertEqual(args2.provider, "qwen")
+
+        args3 = parser.parse_args(["NVDA", "--provider", "iteracompute"])
+        self.assertEqual(args3.provider, "iteracompute")
+
+        args4 = parser.parse_args(["NVDA", "--llm-provider", "gpt-oss"])
+        self.assertEqual(args4.provider, "gpt-oss")
+
+    def test_run_role_timings_provider_meta(self):
+        import asyncio
+        from app.workflows.do_risk_report.roles import run_role_with_timings
+
+        async def run_test():
+            res, meta = await run_role_with_timings("extract", "Company info", provider_override="iteracompute")
+            self.assertIsNotNone(res)
+            self.assertEqual(meta["provider"], "iteracompute")
+            self.assertEqual(meta["role"], "extract")
+
+        asyncio.run(run_test())
+
+    def test_validation_agent_provider_attribute(self):
+        from app.workflows.do_risk_report.validator import ValidationAgent
+
+        val = ValidationAgent(current_date="2026-11-03", provider="iteracompute")
+        self.assertEqual(val.provider, "iteracompute")
+        self.assertEqual(val.current_date, "2026-11-03")
+
 
 if __name__ == "__main__":
     unittest.main()

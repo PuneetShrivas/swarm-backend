@@ -19,7 +19,13 @@ from app.workflows.do_risk_report.ledger import EvidenceLedger
 from app.workflows.do_risk_report.edgar import EdgarFetcher
 from app.workflows.do_risk_report.retrieval import PerplexitySearchQueue, ResultCompactor
 from app.workflows.do_risk_report.template_spec import TemplateCompiler, SECTION_DEFINITIONS
-from app.workflows.do_risk_report.roles import run_role
+from app.workflows.do_risk_report.roles import (
+    run_role,
+    set_active_provider,
+    get_active_provider,
+    PROVIDER_MODELS,
+    ROLE_TIER_MAPPING,
+)
 from app.workflows.do_risk_report.validator import DeterministicValidator, ValidationAgent, RepairCoordinator
 from app.workflows.do_risk_report.renderer import FootnoteTransformer, MarkdownRenderer, DocxRenderer, PdfRenderer
 
@@ -57,6 +63,7 @@ class DORiskReportOrchestrator:
         total_gap_ms = 0.0
         queries_count = 0
         claims_extracted = 0
+        round_substeps: List[Dict[str, Any]] = []
 
         max_rounds = 1 if mode == "fast" else 2
         current_queries = list(static_queries)
@@ -67,8 +74,13 @@ class DORiskReportOrchestrator:
 
             # 1. Web search queue via Perplexity
             search_batches, search_meta = await self.search_queue.batch_search_with_timings(current_queries)
-            total_retrieval_ms += search_meta.get("duration_ms", 0.0)
-            queries_count += len(current_queries)
+            rnd_retrieval_ms = search_meta.get("duration_ms", 0.0)
+            total_retrieval_ms += rnd_retrieval_ms
+            rnd_queries_count = len(current_queries)
+            queries_count += rnd_queries_count
+
+            rnd_extract_ms = 0.0
+            rnd_claims = 0
 
             if search_batches:
                 # 2. Extract role on Groq (atomic claims with Entity Guard)
@@ -83,7 +95,8 @@ class DORiskReportOrchestrator:
                 )
                 t_e0 = time.perf_counter()
                 extract_res = await run_role("extract", user_prompt)
-                total_extract_ms += (time.perf_counter() - t_e0) * 1000
+                rnd_extract_ms = (time.perf_counter() - t_e0) * 1000
+                total_extract_ms += rnd_extract_ms
 
                 new_items: List[Evidence] = []
                 for item_dict in extract_res.get("items", []):
@@ -105,7 +118,8 @@ class DORiskReportOrchestrator:
                         pass
 
                 if new_items:
-                    claims_extracted += len(new_items)
+                    rnd_claims = len(new_items)
+                    claims_extracted += rnd_claims
                     ledger.add(new_items)
 
             # 3. Gap check
@@ -117,7 +131,18 @@ class DORiskReportOrchestrator:
             )
             t_g0 = time.perf_counter()
             gap_res = await run_role("gap", gap_prompt)
-            total_gap_ms += (time.perf_counter() - t_g0) * 1000
+            rnd_gap_ms = (time.perf_counter() - t_g0) * 1000
+            total_gap_ms += rnd_gap_ms
+
+            round_substeps.append({
+                "round": rnd + 1,
+                "retrieval_ms": round(rnd_retrieval_ms, 2),
+                "queries_count": rnd_queries_count,
+                "extract_ms": round(rnd_extract_ms, 2),
+                "claims_extracted": rnd_claims,
+                "gap_ms": round(rnd_gap_ms, 2),
+            })
+
             current_queries = gap_res.get("queries", [])
             if not current_queries:
                 break
@@ -154,6 +179,7 @@ class DORiskReportOrchestrator:
                 "claims_extracted": claims_extracted,
                 "evidence_cited_count": len(sec_rows),
                 "char_length": len(section_text),
+                "rounds": round_substeps,
             }
         }
         return section_text, sec_timing
@@ -164,12 +190,18 @@ class DORiskReportOrchestrator:
         mode: str = "standard",
         current_date: Optional[str] = None,
         user_id: Optional[str] = None,
+        provider: str = "gpt-oss",
         on_progress: Optional[Callable[[str, str], None]] = None
     ) -> ReportResult:
         """
         Executes the entire D&O Public Risk Underwriting Report pipeline end-to-end,
         capturing granular stage, section, and subsection timings.
         """
+        set_active_provider(provider)
+        active_prov = get_active_provider()
+        prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["gpt-oss"])
+        synth_model = prov_models.get(ROLE_TIER_MAPPING.get("synthesize", "reasoning"), "unknown")
+        val_model = prov_models.get(ROLE_TIER_MAPPING.get("repair", "reasoning"), "unknown")
         def _notify(stage_code: str, detail: str = ""):
             if on_progress:
                 try:
@@ -263,8 +295,9 @@ class DORiskReportOrchestrator:
         stage3_telemetry = {
             "wall_clock_ms": stage3_ms,
             "subsections": {
-                "groq_synthesis_ms": stage3_ms,
-                "model_used": "openai/gpt-oss-120b",
+                "synthesis_ms": stage3_ms,
+                "model_used": synth_model,
+                "provider": active_prov,
                 "risk_tier": risk_tier,
                 "char_length": len(exec_summary) + len(verdict_text),
             }
@@ -284,7 +317,7 @@ class DORiskReportOrchestrator:
         det_ms = round((time.perf_counter() - t_det0) * 1000, 2)
 
         t_val0 = time.perf_counter()
-        val_agent = ValidationAgent(current_date=current_date)
+        val_agent = ValidationAgent(current_date=current_date, provider=active_prov)
         validated_report_text = await val_agent.run(consolidated_body)
         val_agent_ms = round((time.perf_counter() - t_val0) * 1000, 2)
         stage4_ms = round((time.perf_counter() - t3) * 1000, 2)
@@ -298,7 +331,8 @@ class DORiskReportOrchestrator:
                 "validation_agent_pass_ms": val_agent_ms,
                 "repair_coordinator_ms": 0.0,
                 "repair_rounds": 0,
-                "model_used": "qwen/qwen3.8-27b",
+                "model_used": val_model,
+                "provider": active_prov,
             }
         }
 
@@ -355,6 +389,7 @@ class DORiskReportOrchestrator:
 
         telemetry = {
             "mode": mode,
+            "llm_provider": active_prov,
             "total_wall_clock_ms": total_wall_clock_ms,
             "total_compute_ms": total_compute_ms,
             "concurrency_speedup": speedup_multiplier,

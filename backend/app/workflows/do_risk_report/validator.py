@@ -99,8 +99,9 @@ class ValidationAgent:
     Operates with ZERO web access, strictly editing the generated report text.
     """
 
-    def __init__(self, current_date: Optional[str] = None):
+    def __init__(self, current_date: Optional[str] = None, provider: Optional[str] = None):
         self.current_date = current_date or datetime.date.today().isoformat()
+        self.provider = provider
         self.raw_rules = load_prompt_text("validation_prompt.txt")
 
     def render_system_prompt(self) -> str:
@@ -213,7 +214,7 @@ class ValidationAgent:
             resp = await run_role(
                 role="repair",
                 user_input=user_prompt,
-                model_override="openai/gpt-oss-120b"
+                provider_override=self.provider,
             )
             llm_text = resp.get("patched_text", "")
             if llm_text and len(llm_text) > 200:

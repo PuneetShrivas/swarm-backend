@@ -17,7 +17,145 @@ load_dotenv()
 from app.groq_client import get_groq_client, execute_groq_chat, is_groq_configured
 from app.workflows.do_risk_report.models import Evidence, EntityCard
 
-# Active model tiers available on Groq LPUs
+# Active model tiers available per provider
+ACTIVE_PROVIDER = os.environ.get("LLM_PROVIDER", "gpt-oss").lower()
+
+PROVIDER_MODELS: Dict[str, Dict[str, str]] = {
+    "gpt-oss": {
+        "fast": "openai/gpt-oss-20b",
+        "medium": "openai/gpt-oss-20b",
+        "reasoning": "openai/gpt-oss-120b",
+    },
+    "qwen": {
+        "fast": "qwen/qwen3.8-27b",
+        "medium": "qwen/qwen3.8-27b",
+        "reasoning": "qwen/qwen3.8-27b",
+    },
+    "gemini": {
+        "fast": os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+        "medium": os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+        "reasoning": os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+    },
+    "iteracompute": {
+        "fast": os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b"),
+        "medium": os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b"),
+        "reasoning": os.environ.get("ITERACOMPUTE_REASONING_MODEL", os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b")),
+    },
+    "itera": {
+        "fast": os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b"),
+        "medium": os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b"),
+        "reasoning": os.environ.get("ITERACOMPUTE_REASONING_MODEL", os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b")),
+    },
+}
+
+ROLE_TIER_MAPPING: Dict[str, str] = {
+    "plan": "medium",
+    "extract": "fast",
+    "gap": "fast",
+    "draft": "medium",
+    "synthesize": "reasoning",
+    "verify": "reasoning",
+    "repair": "reasoning",
+}
+
+
+def set_active_provider(provider: str) -> None:
+    """Sets the active LLM provider for all non-Perplexity workflow tasks."""
+    global ACTIVE_PROVIDER
+    p = provider.lower().strip()
+    if p in ["gpt-oss", "qwen", "gemini", "iteracompute", "itera"]:
+        ACTIVE_PROVIDER = "iteracompute" if p == "itera" else p
+    else:
+        raise ValueError(f"Unknown LLM provider '{provider}'. Valid choices: 'gpt-oss', 'qwen', 'gemini', 'iteracompute'")
+
+
+def get_active_provider() -> str:
+    """Returns the currently active LLM provider name."""
+    return ACTIVE_PROVIDER
+
+
+async def _execute_iteracompute_chat(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temp: float,
+    max_tokens: int,
+) -> str:
+    """Executes a chat generation with IteraCompute OpenAI-compatible API."""
+    api_key = os.environ.get("ITERACOMPUTE_API_KEY")
+    if not api_key:
+        raise RuntimeError("ITERACOMPUTE_API_KEY is not configured.")
+
+    base_url = os.environ.get("ITERACOMPUTE_BASE_URL", "https://api.iteracompute.com/v1").rstrip("/")
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temp,
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+    }
+
+    import httpx
+    async with httpx.AsyncClient(timeout=130.0) as client:
+        r = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+        if r.status_code != 200:
+            raise RuntimeError(f"IteraCompute error {r.status_code}: {r.text}")
+        data = r.json()
+        return data["choices"][0]["message"]["content"] or ""
+
+
+def _get_gemini_client():
+    """Initializes Google GenAI Client from environment variables."""
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key or api_key.strip().startswith("your-") or api_key.strip().startswith("test-"):
+        return None
+    try:
+        from google import genai
+        return genai.Client(api_key=api_key.strip())
+    except Exception as e:
+        print(f"Failed to initialize Gemini client: {e}")
+        return None
+
+
+async def _execute_gemini_chat(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temp: float,
+    max_tokens: int,
+) -> str:
+    """Executes a chat generation with Google Gemini using response_mime_type='application/json'."""
+    client = _get_gemini_client()
+    if not client:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    from google.genai import types
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=temp,
+        max_output_tokens=max_tokens,
+        response_mime_type="application/json",
+    )
+
+    def _call():
+        response = client.models.generate_content(
+            model=model,
+            contents=user_prompt,
+            config=config,
+        )
+        return response.text or ""
+
+    return await asyncio.to_thread(_call)
+
+
 GROQ_FAST_TIER = "openai/gpt-oss-20b"
 GROQ_MEDIUM_TIER = "openai/gpt-oss-20b"
 GROQ_REASONING_TIER = "openai/gpt-oss-120b"
@@ -128,26 +266,91 @@ async def run_role(
     user_input: str,
     *,
     model_override: Optional[str] = None,
+    provider_override: Optional[str] = None,
     mock_response: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Executes a role using Groq models with strict JSON schema outputs.
+    Executes a role using the active LLM provider (gpt-oss, qwen, or gemini) with strict JSON schema outputs.
     Falls back gracefully to mock payloads for tests or offline execution.
     """
     if role not in ROLES_CONFIG:
         raise ValueError(f"Unknown role '{role}'. Valid roles: {list(ROLES_CONFIG.keys())}")
 
     cfg = ROLES_CONFIG[role]
-    selected_model = model_override or cfg["model"]
+    active_prov = (provider_override or ACTIVE_PROVIDER).lower()
+    prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["gpt-oss"])
+    role_tier = ROLE_TIER_MAPPING.get(role, "medium")
+    selected_model = model_override or prov_models.get(role_tier, "openai/gpt-oss-20b")
 
-    # If mock_response is provided explicitly or testing mode is active without Groq key
+    # If mock_response is provided explicitly
     if mock_response is not None:
         return mock_response
 
     is_testing = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_GROQ") == "true"
-    groq_client, _ = get_groq_client()
+    if is_testing:
+        return _generate_mock_role_output(role, user_input)
 
-    if not groq_client or is_testing or not is_groq_configured():
+    # Dispatch to Google Gemini
+    if active_prov == "gemini":
+        gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not gemini_api_key or gemini_api_key.startswith("your-") or gemini_api_key.startswith("test-"):
+            return _generate_mock_role_output(role, user_input)
+
+        system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
+        for attempt in range(3):
+            try:
+                content = await _execute_gemini_chat(
+                    model=selected_model,
+                    system_prompt=system_p,
+                    user_prompt=user_input,
+                    temp=cfg["temp"],
+                    max_tokens=cfg["max_tokens"],
+                )
+                parsed = _extract_json_from_llm_response(content)
+                if parsed:
+                    return parsed
+                break
+            except Exception as e:
+                err_msg = str(e).lower()
+                if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "unavailable" in err_msg) and attempt < 2:
+                    await asyncio.sleep(2.0 * (attempt + 1))
+                    continue
+                print(f"Role '{role}' Gemini execution note ({selected_model}): {e}")
+                break
+        return _generate_mock_role_output(role, user_input)
+
+    # Dispatch to IteraCompute (OpenAI-compatible)
+    if active_prov in ["iteracompute", "itera"]:
+        itera_key = os.environ.get("ITERACOMPUTE_API_KEY")
+        if not itera_key or itera_key.startswith("your-") or itera_key.startswith("test-"):
+            return _generate_mock_role_output(role, user_input)
+
+        system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
+        for attempt in range(3):
+            try:
+                content = await _execute_iteracompute_chat(
+                    model=selected_model,
+                    system_prompt=system_p,
+                    user_prompt=user_input,
+                    temp=cfg["temp"],
+                    max_tokens=cfg["max_tokens"],
+                )
+                parsed = _extract_json_from_llm_response(content)
+                if parsed:
+                    return parsed
+                break
+            except Exception as e:
+                err_msg = str(e).lower()
+                if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < 2:
+                    await asyncio.sleep(2.0 * (attempt + 1))
+                    continue
+                print(f"Role '{role}' IteraCompute execution note ({selected_model}): {e}")
+                break
+        return _generate_mock_role_output(role, user_input)
+
+    # Dispatch to Groq LPUs (gpt-oss or qwen)
+    groq_client, _ = get_groq_client()
+    if not groq_client or not is_groq_configured():
         return _generate_mock_role_output(role, user_input)
 
     # Live Groq API Execution with retry for transient rate limits
@@ -170,7 +373,7 @@ async def run_role(
             if ("rate limit" in err_msg or "429" in err_msg) and attempt < 2:
                 await asyncio.sleep(2.0 * (attempt + 1))
                 continue
-            print(f"Role '{role}' Groq execution note: {e}")
+            print(f"Role '{role}' Groq execution note ({selected_model}): {e}")
             break
 
     # Fallback to deterministic mock
@@ -182,20 +385,31 @@ async def run_role_with_timings(
     user_input: str,
     *,
     model_override: Optional[str] = None,
+    provider_override: Optional[str] = None,
     mock_response: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Executes a role using Groq models and captures exact execution latency.
+    Executes a role using the active LLM provider and captures exact execution latency.
     """
+    active_prov = (provider_override or ACTIVE_PROVIDER).lower()
+    prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["gpt-oss"])
+    role_tier = ROLE_TIER_MAPPING.get(role, "medium")
+    model_used = model_override or prov_models.get(role_tier, "unknown")
+
     t0 = time.perf_counter()
-    result = await run_role(role, user_input, model_override=model_override, mock_response=mock_response)
+    result = await run_role(
+        role,
+        user_input,
+        model_override=model_override,
+        provider_override=provider_override,
+        mock_response=mock_response
+    )
     duration_ms = round((time.perf_counter() - t0) * 1000, 2)
-    cfg = ROLES_CONFIG.get(role, {})
-    model_used = model_override or cfg.get("model", "unknown")
     meta = {
         "duration_ms": duration_ms,
         "role": role,
         "model": model_used,
+        "provider": active_prov,
     }
     return result, meta
 
