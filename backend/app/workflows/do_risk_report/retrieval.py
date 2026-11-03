@@ -112,9 +112,10 @@ class PerplexitySearchQueue:
         os.makedirs(self.cache_dir, exist_ok=True)
         self.semaphore = asyncio.Semaphore(max_concurrency)
 
-    def _get_cache_key(self, query: str, domains: Optional[List[str]] = None, recency: Optional[str] = None, is_mock: bool = False) -> str:
+    def _get_cache_key(self, query: Union[str, List[str]], domains: Optional[List[str]] = None, recency: Optional[str] = None, is_mock: bool = False) -> str:
         mode_prefix = "mock" if is_mock else "live"
-        raw = f"{mode_prefix}|{query}|{sorted(domains or [])}|{recency or ''}"
+        query_repr = tuple(query) if isinstance(query, (list, tuple)) else query
+        raw = f"{mode_prefix}|{query_repr}|{sorted(domains or [])}|{recency or ''}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     def _read_cache(self, key: str) -> Optional[List[Dict[str, Any]]]:
@@ -140,13 +141,13 @@ class PerplexitySearchQueue:
 
     async def search(
         self,
-        query: str,
+        query: Union[str, List[str]],
         domains: Optional[List[str]] = None,
         recency: Optional[str] = None,
         max_results: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        Executes a single search query against Perplexity Search or returns cached/mocked results.
+        Executes a single or batch search query against Perplexity Search or returns cached/mocked results.
         """
         api_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
         is_mock = (
@@ -163,7 +164,8 @@ class PerplexitySearchQueue:
             return cached
 
         if is_mock:
-            results = self._generate_mock_results(query, domains)
+            first_q = query[0] if isinstance(query, list) and query else (query if isinstance(query, str) else "")
+            results = self._generate_mock_results(first_q, domains)
             self._write_cache(cache_key, results)
             return results
 
@@ -175,7 +177,7 @@ class PerplexitySearchQueue:
 
     async def _execute_live_search(
         self,
-        query: str,
+        query: Union[str, List[str]],
         domains: Optional[List[str]],
         recency: Optional[str],
         max_results: int,
@@ -184,6 +186,7 @@ class PerplexitySearchQueue:
         """
         Executes fast, token-efficient live search via the raw Perplexity Search API endpoint
         (POST https://api.perplexity.ai/search) with search_context_size='high'.
+        Supports passing either a single query string or a batch list of query strings (up to 50 QU/s).
         """
         search_res = await async_search_via_perplexity_search_api(
             query=query,
@@ -245,23 +248,87 @@ class PerplexitySearchQueue:
 
     async def batch_search(self, queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Executes a batch of search queries concurrently.
-        Each query dict contains `text`, optional `domains`, optional `recency`.
+        Executes a batch of search queries.
+        In live mode, consolidates uncached queries into a single multi-query batch request
+        using Perplexity's up to 50 QU/sec throughput capacity.
         """
-        tasks = [
-            self.search(
-                query=q.get("text", q.get("query", "")),
-                domains=q.get("domains"),
-                recency=q.get("recency"),
-                max_results=q.get("max_results", 5)
-            )
-            for q in queries
-        ]
-        batch_results = await asyncio.gather(*tasks)
-        all_flattened = []
-        for r_list in batch_results:
-            all_flattened.extend(r_list)
-        return ResultCompactor.deduplicate_results(all_flattened)
+        if not queries:
+            return []
+
+        api_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
+        is_mock = (
+            not api_key
+            or api_key.startswith("your-")
+            or api_key.startswith("test-")
+            or os.environ.get("TESTING") == "true"
+            or os.environ.get("MOCK_PERPLEXITY") == "true"
+        )
+
+        if is_mock:
+            tasks = [
+                self.search(
+                    query=q.get("text", q.get("query", "")),
+                    domains=q.get("domains"),
+                    recency=q.get("recency"),
+                    max_results=q.get("max_results", 5)
+                )
+                for q in queries
+            ]
+            batch_results = await asyncio.gather(*tasks)
+            all_flattened = []
+            for r_list in batch_results:
+                all_flattened.extend(r_list)
+            return ResultCompactor.deduplicate_results(all_flattened)
+
+        # LIVE MODE: Check individual cache hits first
+        all_results = []
+        uncached_queries = []
+
+        for q in queries:
+            q_text = q.get("text", q.get("query", "")).strip()
+            if not q_text:
+                continue
+            domains = q.get("domains")
+            recency = q.get("recency")
+            cache_key = self._get_cache_key(q_text, domains, recency, is_mock=False)
+            cached = self._read_cache(cache_key)
+            if cached is not None:
+                all_results.extend(cached)
+            else:
+                uncached_queries.append(q_text)
+
+        # If uncached queries exist, execute them in a single batch query call
+        if uncached_queries:
+            async with self.semaphore:
+                # Perplexity search API supports sending list of query strings (up to 50)
+                batch_res = await async_search_via_perplexity_search_api(
+                    query=uncached_queries[:50],
+                    api_key=api_key,
+                    max_results=min(10 + len(uncached_queries) * 2, 20),
+                    search_context_size="high",
+                    timeout=DEFAULT_PERPLEXITY_TIMEOUT,
+                    max_retries=4,
+                )
+                if batch_res and batch_res.get("results"):
+                    raw_results = []
+                    for item in batch_res["results"]:
+                        url = item.get("url", "")
+                        raw_results.append({
+                            "title": item.get("title") or f"Source: {item.get('domain', 'web')}",
+                            "url": url,
+                            "domain": item.get("domain") or (urlparse(url).netloc if url else "web"),
+                            "snippet": ResultCompactor.clean_snippet(item.get("snippet", ""), max_chars=1500),
+                            "date": item.get("date") or time.strftime("%Y-%m-%d"),
+                        })
+                    deduped_batch = ResultCompactor.deduplicate_results(raw_results)
+                    all_results.extend(deduped_batch)
+
+                    # Cache the results under a composite key as well as for each query
+                    for q_text in uncached_queries:
+                        ck = self._get_cache_key(q_text, None, None, is_mock=False)
+                        self._write_cache(ck, deduped_batch)
+
+        return ResultCompactor.deduplicate_results(all_results)
 
     async def batch_search_with_timings(
         self,

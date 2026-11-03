@@ -910,6 +910,57 @@ class TestPerplexitySearchAPI(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_search_via_perplexity_search_api_batch_query_list(self):
+        from unittest.mock import patch, MagicMock
+        from app.agents.researcher.tools import search_via_perplexity_search_api
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "batch-uuid-9999",
+            "results": [
+                {"title": "Jensen Huang Bio", "url": "https://nvidia.com/bio", "snippet": "CEO since 1993", "date": "2026-10-30"},
+                {"title": "NVIDIA Market Cap", "url": "https://reuters.com/nvda", "snippet": "Market cap $3.3T", "date": "2026-10-30"}
+            ]
+        }
+
+        with patch("httpx.post", return_value=mock_resp) as mock_post:
+            queries = ["NVIDIA CEO Jensen Huang", "NVIDIA market cap 2026"]
+            res = search_via_perplexity_search_api(queries, api_key="test-key-789")
+            self.assertIsNotNone(res)
+            self.assertEqual(res["results_count"], 2)
+            # Verify payload sent to Perplexity Search API contained the list of query strings
+            call_kwargs = mock_post.call_args[1]
+            payload = call_kwargs["json"]
+            self.assertEqual(payload["query"], queries)
+            self.assertEqual(payload["search_context_size"], "high")
+
+    def test_async_search_via_perplexity_search_api_batch_query_list(self):
+        import asyncio
+        from unittest.mock import patch, MagicMock
+        from app.agents.researcher.tools import async_search_via_perplexity_search_api
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "async-batch-uuid-8888",
+            "results": [
+                {"title": "DOJ Inquiry", "url": "https://bloomberg.com/doj", "snippet": "Antitrust probe", "date": "2026-10-31"}
+            ]
+        }
+
+        async def run_test():
+            with patch("httpx.AsyncClient.post", return_value=mock_resp) as mock_post:
+                queries = ["NVIDIA antitrust DOJ", "NVIDIA Run:ai acquisition"]
+                res = await async_search_via_perplexity_search_api(queries, api_key="test-key-321")
+                self.assertIsNotNone(res)
+                self.assertEqual(res["results_count"], 1)
+                call_kwargs = mock_post.call_args[1]
+                payload = call_kwargs["json"]
+                self.assertEqual(payload["query"], queries)
+
+        asyncio.run(run_test())
+
 
 if __name__ == "__main__":
     unittest.main()

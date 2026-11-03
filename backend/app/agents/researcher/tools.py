@@ -1,7 +1,7 @@
 import os
 import re
 import urllib.parse
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 
 
 def search_via_perplexity(query: str, api_key: str, max_results: int = 5) -> Optional[Dict[str, Any]]:
@@ -50,27 +50,41 @@ def search_via_perplexity(query: str, api_key: str, max_results: int = 5) -> Opt
 
 
 def search_via_perplexity_search_api(
-    query: str,
+    query: Union[str, List[str]],
     api_key: str,
-    max_results: int = 5,
+    max_results: int = 10,
     search_context_size: str = "high",
     timeout: float = 15.0,
 ) -> Optional[Dict[str, Any]]:
     """
     Performs fast, token-efficient live web search using Perplexity's raw Search API endpoint
     (https://api.perplexity.ai/search) instead of the LLM completions endpoint.
+    Supports either a single query string or a list of query strings (up to 50 Query Units).
     Returns ranked structured results with high-context snippets and metadata.
     """
     import httpx
     if not api_key or not api_key.strip():
         return None
 
+    # Normalize query: support single query string or batch list of query strings
+    if isinstance(query, (list, tuple)):
+        query_payload = [str(q).strip() for q in query if str(q).strip()]
+        if not query_payload:
+            return None
+        # Max 50 query units per request
+        query_payload = query_payload[:50]
+    else:
+        query_str = str(query).strip()
+        if not query_str:
+            return None
+        query_payload = query_str
+
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
     payload = {
-        "query": query,
+        "query": query_payload,
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }
@@ -119,15 +133,16 @@ def search_via_perplexity_search_api(
 
 
 async def async_search_via_perplexity_search_api(
-    query: str,
+    query: Union[str, List[str]],
     api_key: str,
-    max_results: int = 5,
+    max_results: int = 10,
     search_context_size: str = "high",
     timeout: float = 20.0,
     max_retries: int = 4,
 ) -> Optional[Dict[str, Any]]:
     """
     Asynchronous version of search_via_perplexity_search_api with exponential backoff retry.
+    Supports either a single query string or a batch list of query strings (up to 50 Query Units).
     Ideal for high-concurrency workflows like the D&O Risk Underwriting pipeline.
     """
     import asyncio
@@ -136,12 +151,25 @@ async def async_search_via_perplexity_search_api(
     if not api_key or not api_key.strip():
         return None
 
+    # Normalize query: support single query string or batch list of query strings
+    if isinstance(query, (list, tuple)):
+        query_payload = [str(q).strip() for q in query if str(q).strip()]
+        if not query_payload:
+            return None
+        # Max 50 query units per request
+        query_payload = query_payload[:50]
+    else:
+        query_str = str(query).strip()
+        if not query_str:
+            return None
+        query_payload = query_str
+
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
     payload = {
-        "query": query,
+        "query": query_payload,
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }

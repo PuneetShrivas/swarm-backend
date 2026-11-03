@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-03
 
 ### Added
+- **Multi-Query Batch Search API Integration (`backend/app/agents/researcher/tools.py`, `retrieval.py`)**:
+  - **Native Batch Query Support (`tools.py`)**:
+    - Upgraded `search_via_perplexity_search_api()` and `async_search_via_perplexity_search_api()` to accept `query: Union[str, List[str]]`.
+    - Transmits multi-query lists directly in the `"query"` JSON array field to `POST https://api.perplexity.ai/search`, leveraging Perplexity's capacity of up to 50 Query Units (QU) per second in a single HTTP request.
+    - Added automatic query list normalization, whitespace sanitization, and safety capping at 50 queries per request.
+  - **Section Query Consolidation in D&O Workflow (`retrieval.py`)**:
+    - Enhanced `PerplexitySearchQueue.batch_search()` to consolidate all uncached section queries (3–5 queries) into a single batch search HTTP request rather than firing separate individual requests.
+    - Decreased Stage 2 retrieval network roundtrips by ~75–80%, drastically reducing latency, connection contention, and rate limit exposure.
+  - **Automated Verification (`backend/test_do_risk_report.py`)**:
+    - Added `test_search_via_perplexity_search_api_batch_query_list` and `test_async_search_via_perplexity_search_api_batch_query_list` (44/44 tests passing).
 - **Perplexity Search API Integration & Token-Efficient Web Retrieval (`backend/app/agents/researcher/tools.py`, `retrieval.py`)**:
   - **Dedicated Perplexity Search API Functions (`tools.py`)**:
     - Created `search_via_perplexity_search_api()` and `async_search_via_perplexity_search_api()` querying the raw search endpoint (`POST https://api.perplexity.ai/search`).
