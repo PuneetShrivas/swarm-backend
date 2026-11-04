@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 2026-11-04
 
+### Added
+- **Azure AI Foundry Three-Agent Workflow Pipeline (`azure_agents_pipeline/`)**:
+  - Implemented a standalone Python package in root coordinating three Azure AI Foundry preview agents using `azure-ai-projects>=2.1.0` and `DefaultAzureCredential`:
+    1. **`DO-researcher`**: Ingests user input or company ticker, executes deep underwriting risk research, and produces preliminary findings.
+    2. **`DO-validator`**: Ingests preliminary research, executes adversarial audits against underwriting standards, enforces 12-month news cutoffs, and produces the finalized report.
+    3. **`DO-report-generator`**: Ingests validated findings, prepares publication-grade executive styling, and feeds the PDF compiler.
+  - **Granular Step Telemetry & Token Tracking (`telemetry.py`)**:
+    - Captures per-step start/end timestamps, duration (seconds and milliseconds), `input_tokens`, `output_tokens`, `total_tokens`, conversation IDs, and response IDs.
+    - Aggregates overall pipeline duration, total token usage, and formats a clean terminal execution summary table.
+  - **Executive PDF Document Compiler (`pdf_compiler.py`)**:
+    - Generates publication-ready PDF reports via ReportLab with running headers, footers, two-pass dynamic page numbering ("Page X of Y"), metadata tables, and SHA256 checksums.
+  - **CLI Entrypoint & Diagnostics (`run_pipeline.py`)**:
+    - Provides a full-featured CLI supporting `--input`, positional `ticker`, `--output-dir`, and `--interactive` for browser-based sign-in.
+    - Added proactive Entra ID credential validation and diagnostic guidance for Service Principal (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`) and Azure CLI (`az login`).
+  - **Comprehensive Unit Tests (`backend/test_azure_agents_pipeline.py`)**:
+    - Added test suite verifying sequential agent piping, telemetry token calculations, PDF generation, and CLI parsing.
+
 ### Fixed & Enhanced
 - **Zero Mock Data Injection in Live Report Generation (`backend/app/workflows/do_risk_report/`)**:
   - **SEC EDGAR Zero-Mock Fallback (`edgar.py`)**:
