@@ -92,6 +92,11 @@ Examples:
         help=f"Directory to save generated reports. (Default: {DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
+        "--prompt-file",
+        default=None,
+        help="Optional path to markdown prompt file to override standard 13-section underwriter instructions.",
+    )
+    parser.add_argument(
         "--interactive",
         action="store_true",
         help="Enable interactive browser login for Entra ID authentication.",
@@ -113,6 +118,14 @@ def main():
         print(diag_msg)
         print("=" * 80 + "\n")
 
+    custom_prompt = None
+    if args.prompt_file:
+        p_path = Path(args.prompt_file)
+        if p_path.is_file():
+            custom_prompt = p_path.read_text(encoding="utf-8")
+        else:
+            print(f"[WARNING] Prompt file '{args.prompt_file}' not found. Using standard underwriter prompt.", flush=True)
+
     pipeline = FastAzureFoundryPipeline(
         endpoint=args.endpoint,
         researcher_agent=DEFAULT_RESEARCHER_AGENT,
@@ -120,6 +133,7 @@ def main():
         direct_model_endpoint=args.direct_endpoint,
         direct_model_name=args.model,
         fallback_model_name=args.fallback_model,
+        direct_model_prompt=custom_prompt,
         output_dir=args.output_dir,
         interactive=args.interactive,
     )

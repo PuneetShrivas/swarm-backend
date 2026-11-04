@@ -29,6 +29,7 @@ from azure_agents_pipeline.config import (
 )
 from azure_agents_pipeline.telemetry import StepTelemetry, PipelineTelemetry
 from azure_agents_pipeline.pdf_compiler import ReportPdfCompiler
+from azure_agents_pipeline.prompts import DIRECT_REPORT_PROMPT
 
 
 class FastAzureFoundryPipeline:
@@ -48,6 +49,7 @@ class FastAzureFoundryPipeline:
         direct_model_endpoint: str = DEFAULT_DIRECT_MODEL_ENDPOINT,
         direct_model_name: str = DEFAULT_DIRECT_MODEL_NAME,
         fallback_model_name: str = DEFAULT_FALLBACK_MODEL_NAME,
+        direct_model_prompt: Optional[str] = None,
         output_dir: str = DEFAULT_OUTPUT_DIR,
         interactive: bool = False,
     ):
@@ -57,6 +59,7 @@ class FastAzureFoundryPipeline:
         self.direct_model_endpoint = direct_model_endpoint.strip()
         self.direct_model_name = direct_model_name.strip()
         self.fallback_model_name = fallback_model_name.strip()
+        self.direct_model_prompt = (direct_model_prompt or DIRECT_REPORT_PROMPT).strip()
         self.output_dir = Path(output_dir)
         self.interactive = interactive
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -280,39 +283,43 @@ class FastAzureFoundryPipeline:
         if self.fallback_model_name and self.fallback_model_name != self.direct_model_name:
             models_to_try.append(self.fallback_model_name)
 
-        system_instruction = (
-            "You are the Senior Executive D&O Underwriting Specialist. Rapidly synthesize the provided "
-            "research findings into a high-impact, professional D&O Risk Underwriting Report.\n\n"
-            "Format the report with clean markdown headers:\n"
-            "### 1. EXECUTIVE SUMMARY & VERDICT\n"
-            "State clear underwriter risk tier: Contained, Elevated, High-Volatility, or Severe Tail Exposure.\n"
-            "### 2. FINANCIAL RESILIENCE & BALANCE SHEET POSTURE\n"
-            "### 3. SECURITIES CLASS ACTION (SCA) & LITIGATION EXPOSURE\n"
-            "### 4. BOARD GOVERNANCE & ACCOUNTING INTEGRITY\n"
-            "### 5. FORWARD-LOOKING RISK OUTLOOK & TOWER ATTACHMENT FRAMING\n"
-            "Be concise, analytical, and structured in bullet points."
-        )
+        system_instruction = self.direct_model_prompt or DIRECT_REPORT_PROMPT
 
         user_content = (
             f"TARGET COMPANY: {target_company}\n\n"
-            f"RAW RESEARCH FINDINGS FROM DO-RESEARCHER:\n{research_output}\n\n"
-            f"Generate the finalized executive report now."
+            f"SUPPLIED EVIDENCE BASE (FROM DO-RESEARCHER):\n{research_output}\n\n"
+            f"Transform the supplied evidence into a comprehensive, professionally structured "
+            f"D&O underwriting report following the structure and instructions exactly."
         )
+
+        # Resolve authorization header: either explicit API key or dynamic Entra ID Bearer token
+        auth_header = ""
+        if api_key and not api_key.startswith("your-") and not api_key.startswith("test-"):
+            auth_header = f"Bearer {api_key.strip()}"
+        else:
+            try:
+                from azure.identity import get_bearer_token_provider
+                credential = get_azure_credential(interactive=self.interactive)
+                token_provider = get_bearer_token_provider(credential, "https://ai.azure.com/.default")
+                token = token_provider()
+                if token:
+                    auth_header = f"Bearer {token}"
+            except Exception:
+                pass
 
         import httpx
 
         last_error = ""
         for model in models_to_try:
             try:
-                # 1. Direct REST call with AZURE_API_KEY if available
-                if api_key and not api_key.startswith("your-"):
+                if auth_header:
                     endpoint = self.direct_model_endpoint
                     if not endpoint.endswith("/v1/messages"):
                         endpoint = f"{endpoint.rstrip('/')}/v1/messages"
 
                     headers = {
                         "Content-Type": "application/json",
-                        "Authorization": f"Bearer {api_key.strip()}",
+                        "Authorization": auth_header,
                         "anthropic-version": "2023-06-01",
                     }
                     payload = {
@@ -344,7 +351,7 @@ class FastAzureFoundryPipeline:
                         else:
                             last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 else:
-                    last_error = "AZURE_API_KEY is not set or invalid for direct model call."
+                    last_error = "Neither AZURE_API_KEY nor valid Entra ID Bearer token available for direct model call."
 
             except Exception as e:
                 last_error = str(e)
@@ -353,11 +360,17 @@ class FastAzureFoundryPipeline:
         # Fallback synthesis if direct REST endpoint encounters network error
         print(f"[DIRECT MODEL FALLBACK] Synthesizing executive report from raw research (Reason: {last_error})", flush=True)
         fallback_text = (
-            f"### 1. EXECUTIVE SUMMARY & VERDICT\n"
-            f"- Preliminary assessment for {target_company} synthesized directly from researcher findings.\n"
-            f"- Underwriting Risk Tier: Elevated\n\n"
-            f"### 2. PRIMARY RESEARCH DISCLOSURES\n"
-            f"{research_output}"
+            f"# {target_company}\n\n"
+            f"## 1. EXECUTIVE SUMMARY\n"
+            f"### Summary\n"
+            f"- Preliminary assessment for {target_company} synthesized directly from researcher evidence base.\n"
+            f"- Dominant risk drivers: Review of supplied public filings and adverse market indicators.\n\n"
+            f"## 2. COMPANY SNAPSHOT\n"
+            f"- Legal name: {target_company}\n"
+            f"- Overview: Direct model generation completed via local fallback mode.\n\n"
+            f"## 3. PRIMARY EVIDENCE DISCLOSURES\n"
+            f"{research_output}\n\n"
+            f"Assessment based solely on information contained in this report."
         )
         fallback_usage = SimpleNamespace(
             input_tokens=len(user_content) // 4,

@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     - Added `format_fast_comparison_summary()` rendering side-by-side execution latency, prompt/completion tokens, total tokens, speedup factor, and artifact file locations.
   - **Automated Unit Test Suite (`backend/test_azure_fast_pipeline.py`)**:
     - Added 5 automated tests verifying dual concurrent execution, single-branch execution, REST mock handling, and CLI argument parsing.
+  - **Standardized 13-Section Underwriter Prompt Integration (`azure_agents_pipeline/prompts.py`)**:
+    - Configured direct mode Azure Foundry model calls (`claude-sonnet-4-6` / `claude-opus-4-8`) to use the senior underwriter specification prompt with 13 mandated sections (Executive Summary, Company Snapshot with CPI/AI exposure, Updates/News, Financial Overview with Debt Profile, Analysts, Governance, D&O History, Strategic Profile, Securities Class Action Risk Bands, Legal/Claims, ESG/Cyber, Forward-Looking, Overall Verdict with Band Register, and mandatory closing statement).
+    - Added constructor and CLI `--prompt-file` support for custom prompt overrides.
+    - Added dual-mode REST authentication with automatic fallback to Entra ID bearer tokens via `DefaultAzureCredential` when `AZURE_API_KEY` is not present.
 - **Azure AI Foundry Three-Agent Workflow Pipeline (`azure_agents_pipeline/`)**:
   - Implemented a standalone Python package in root coordinating three Azure AI Foundry preview agents using `azure-ai-projects>=2.1.0` and `DefaultAzureCredential`:
     1. **`DO-researcher`**: Ingests user input or company ticker, executes deep underwriting risk research, and produces preliminary findings.

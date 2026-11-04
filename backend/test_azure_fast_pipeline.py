@@ -17,6 +17,7 @@ if str(root_dir) not in sys.path:
 
 from azure_agents_pipeline.fast_pipeline import FastAzureFoundryPipeline
 from azure_agents_pipeline.run_fast_pipeline import parse_args
+from azure_agents_pipeline.prompts import DIRECT_REPORT_PROMPT
 
 
 class TestAzureFastPipeline(unittest.TestCase):
@@ -179,11 +180,99 @@ class TestAzureFastPipeline(unittest.TestCase):
 
     def test_run_fast_pipeline_cli_parsing(self):
         """Verifies argument parser in run_fast_pipeline.py."""
-        with patch("sys.argv", ["run_fast_pipeline.py", "TSLA", "--mode", "direct", "--model", "claude-opus-4-8"]):
+        with patch("sys.argv", ["run_fast_pipeline.py", "TSLA", "--mode", "direct", "--model", "claude-opus-4-8", "--prompt-file", "prompt.md"]):
             args = parse_args()
             self.assertEqual(args.company, "TSLA")
             self.assertEqual(args.mode, "direct")
             self.assertEqual(args.model, "claude-opus-4-8")
+            self.assertEqual(args.prompt_file, "prompt.md")
+
+    def test_execute_direct_model_uses_underwriter_prompt(self):
+        """Verifies _execute_direct_model passes the 13-section underwriter prompt as system instruction."""
+        pipeline = FastAzureFoundryPipeline()
+        mock_http_resp = MagicMock()
+        mock_http_resp.status_code = 200
+        mock_http_resp.json.return_value = {
+            "content": [{"type": "text", "text": "# NVDA\n## 1. EXECUTIVE SUMMARY\n- Complete report"}],
+            "usage": {"input_tokens": 1200, "output_tokens": 800},
+        }
+
+        with patch("azure_agents_pipeline.fast_pipeline.AZURE_API_KEY", "sk-valid-key"), \
+             patch("httpx.Client.post") as mock_post:
+            mock_post.return_value = mock_http_resp
+
+            text, usage, model = pipeline._execute_direct_model(
+                research_output="Extracted 10-K litigation and governance data",
+                target_company="NVDA",
+            )
+
+            self.assertTrue(mock_post.called)
+            called_kwargs = mock_post.call_args.kwargs
+            json_payload = called_kwargs.get("json", {})
+
+            # Ensure system prompt matches DIRECT_REPORT_PROMPT
+            self.assertIn("# D&O UNDERWRITING REPORT — STRUCTURE AND CONTENT INSTRUCTIONS", json_payload["system"])
+            self.assertIn("## 13. OVERALL D&O UNDERWRITER VERDICT", json_payload["system"])
+            self.assertIn("Assessment based solely on information contained in this report.", json_payload["system"])
+
+            # Ensure user message contains company and evidence
+            user_msg = json_payload["messages"][0]["content"]
+            self.assertIn("TARGET COMPANY: NVDA", user_msg)
+            self.assertIn("Extracted 10-K litigation and governance data", user_msg)
+
+    def test_custom_prompt_override(self):
+        """Verifies constructor direct_model_prompt overrides default system instruction."""
+        custom_instructions = "Custom underwriting prompt with specific guidelines."
+        pipeline = FastAzureFoundryPipeline(direct_model_prompt=custom_instructions)
+
+        mock_http_resp = MagicMock()
+        mock_http_resp.status_code = 200
+        mock_http_resp.json.return_value = {
+            "content": [{"type": "text", "text": "Custom report generated"}],
+            "usage": {"input_tokens": 300, "output_tokens": 150},
+        }
+
+        with patch("azure_agents_pipeline.fast_pipeline.AZURE_API_KEY", "sk-valid-key"), \
+             patch("httpx.Client.post") as mock_post:
+            mock_post.return_value = mock_http_resp
+
+            text, usage, model = pipeline._execute_direct_model(
+                research_output="Research data",
+                target_company="MSFT",
+            )
+
+            called_kwargs = mock_post.call_args.kwargs
+            json_payload = called_kwargs.get("json", {})
+            self.assertEqual(json_payload["system"], custom_instructions)
+
+    def test_bearer_token_provider_fallback(self):
+        """Verifies fallback to Entra ID get_bearer_token_provider when AZURE_API_KEY is not set."""
+        pipeline = FastAzureFoundryPipeline()
+        mock_http_resp = MagicMock()
+        mock_http_resp.status_code = 200
+        mock_http_resp.json.return_value = {
+            "content": [{"type": "text", "text": "Report generated via Entra token"}],
+            "usage": {"input_tokens": 400, "output_tokens": 200},
+        }
+
+        mock_token_provider = MagicMock(return_value="mock-entra-token-abc123")
+
+        with patch.dict(os.environ, {"AZURE_API_KEY": ""}), \
+             patch("azure_agents_pipeline.fast_pipeline.AZURE_API_KEY", ""), \
+             patch("azure_agents_pipeline.fast_pipeline.get_azure_credential") as mock_cred, \
+             patch("azure.identity.get_bearer_token_provider", return_value=mock_token_provider), \
+             patch("httpx.Client.post") as mock_post:
+            mock_cred.return_value = MagicMock()
+            mock_post.return_value = mock_http_resp
+
+            text, usage, model = pipeline._execute_direct_model(
+                research_output="Research data",
+                target_company="AAPL",
+            )
+
+            self.assertTrue(mock_post.called)
+            headers = mock_post.call_args.kwargs.get("headers", {})
+            self.assertEqual(headers.get("Authorization"), "Bearer mock-entra-token-abc123")
 
 
 if __name__ == "__main__":

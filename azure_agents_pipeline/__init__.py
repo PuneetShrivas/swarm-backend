@@ -16,6 +16,7 @@ from azure_agents_pipeline.telemetry import StepTelemetry, PipelineTelemetry
 from azure_agents_pipeline.pdf_compiler import ReportPdfCompiler
 from azure_agents_pipeline.pipeline import AzureFoundryAgentTrioPipeline
 from azure_agents_pipeline.fast_pipeline import FastAzureFoundryPipeline
+from azure_agents_pipeline.prompts import DIRECT_REPORT_PROMPT
 
 __all__ = [
     "DEFAULT_ENDPOINT",
@@ -26,6 +27,7 @@ __all__ = [
     "DEFAULT_DIRECT_MODEL_NAME",
     "DEFAULT_FALLBACK_MODEL_NAME",
     "DEFAULT_OUTPUT_DIR",
+    "DIRECT_REPORT_PROMPT",
     "StepTelemetry",
     "PipelineTelemetry",
     "ReportPdfCompiler",

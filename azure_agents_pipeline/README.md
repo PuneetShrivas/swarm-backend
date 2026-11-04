@@ -104,4 +104,25 @@ python azure_agents_pipeline/run_fast_pipeline.py NVDA --mode direct
 python azure_agents_pipeline/run_fast_pipeline.py MSFT --mode direct --model claude-opus-4-8
 ```
 
-3. **Telemetry JSON**: `DO_Risk_Report_<TICKER>_<TIMESTAMP>_telemetry.json` (per-step duration, token consumption, response IDs, and conversation IDs).
+### Direct Mode Senior Underwriter Instructions Prompt:
+When running Pathway 2 (Direct Model), the system automatically transmits the standardized 13-section D&O Underwriting Report prompt ([`azure_agents_pipeline/prompts.py`](file:///C:/Users/punee/OneDrive/Documents/GitHub/swarm-backend/azure_agents_pipeline/prompts.py)), instructing Claude to structure evidence across:
+- **Title**: `# COMPANY NAME`
+- **1. Executive Summary**
+- **2. Company Snapshot** (CPI, listings, share price, assets, revenue, AI exposure)
+- **3. Updates / Press Releases / News** (chronological, max 12 items, strict format)
+- **4. Financial Overview & Debt/Refinancing Profile**
+- **5. Analysts & Sentiment**
+- **6. Governance & Culture**
+- **7. Director & Officer History** (mandatory 4 roles + discretionary, 10-year horizon)
+- **8. Strategic & Operational Profile**
+- **9. Securities Class Action Risk** (Likelihood, Severity, Side A/C bands, Scenario)
+- **10. Legal, Regulatory & Claims Context**
+- **11. ESG, Cyber & Operational Exposure**
+- **12. Forward-Looking Strategic Risk**
+- **13. Overall D&O Underwriter Verdict & Band Register**
+- **Closing Statement**: `"Assessment based solely on information contained in this report."`
+
+You can optionally override this prompt with a custom markdown file:
+```bash
+python azure_agents_pipeline/run_fast_pipeline.py NVDA --mode direct --prompt-file path/to/custom_prompt.md
+```
