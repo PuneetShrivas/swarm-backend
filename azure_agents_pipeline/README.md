@@ -79,3 +79,29 @@ Each execution produces:
 1. **Official PDF Document**: `DO_Risk_Report_<TICKER>_<TIMESTAMP>.pdf` (with executive styling, metadata table, and page numbering).
 2. **Markdown Document**: `DO_Risk_Report_<TICKER>_<TIMESTAMP>.md` (raw structured output).
 3. **Telemetry JSON**: `DO_Risk_Report_<TICKER>_<TIMESTAMP>_telemetry.json` (per-step duration, token consumption, response IDs, and conversation IDs).
+
+---
+
+## 5. Fast Alternative Pipeline (`run_fast_pipeline.py`)
+
+Sends target company name to `DO-researcher`, and directly routes the preliminary output to:
+1. **Pathway 1 (Agent Path)**: `DO-report-generator` agent (bypassing validator).
+2. **Pathway 2 (Direct Model Path)**: Azure Foundry model (`claude-sonnet-4-6` or `claude-opus-4-8` via direct messages API) for rapid report synthesis.
+
+### Usage & Modes:
+
+```bash
+# Run both pathways concurrently, generate PDFs for both, and display comparative telemetry:
+python azure_agents_pipeline/run_fast_pipeline.py NVDA --mode both
+
+# Run only Pathway 1 (Researcher → Report Generator Agent):
+python azure_agents_pipeline/run_fast_pipeline.py NVDA --mode agent
+
+# Run only Pathway 2 (Researcher → Direct Azure Foundry Model):
+python azure_agents_pipeline/run_fast_pipeline.py NVDA --mode direct
+
+# Choose custom Azure Foundry model for direct pathway:
+python azure_agents_pipeline/run_fast_pipeline.py MSFT --mode direct --model claude-opus-4-8
+```
+
+3. **Telemetry JSON**: `DO_Risk_Report_<TICKER>_<TIMESTAMP>_telemetry.json` (per-step duration, token consumption, response IDs, and conversation IDs).

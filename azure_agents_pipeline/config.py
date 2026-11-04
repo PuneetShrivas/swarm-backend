@@ -27,6 +27,15 @@ DEFAULT_RESEARCHER_AGENT = os.environ.get("AZURE_RESEARCHER_AGENT", "DO-research
 DEFAULT_VALIDATOR_AGENT = os.environ.get("AZURE_VALIDATOR_AGENT", "DO-validator")
 DEFAULT_GENERATOR_AGENT = os.environ.get("AZURE_GENERATOR_AGENT", "DO-report-generator")
 
+# Direct Azure Foundry Model deployment settings
+DEFAULT_DIRECT_MODEL_ENDPOINT = os.environ.get(
+    "AZURE_FOUNDRY_ENDPOINT",
+    "https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"
+).strip()
+DEFAULT_DIRECT_MODEL_NAME = os.environ.get("AZURE_FAST_MODEL", "claude-sonnet-4-6").strip()
+DEFAULT_FALLBACK_MODEL_NAME = os.environ.get("AZURE_FALLBACK_MODEL", "claude-opus-4-8").strip()
+AZURE_API_KEY = os.environ.get("AZURE_API_KEY", "").strip()
+
 DEFAULT_OUTPUT_DIR = os.environ.get(
     "AZURE_PIPELINE_OUTPUT_DIR",
     str(_root_dir / "backend" / "artifacts")

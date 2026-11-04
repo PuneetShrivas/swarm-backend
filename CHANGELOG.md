@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-04
 
 ### Added
+- **Azure AI Foundry Fast Alternative Pipeline (`azure_agents_pipeline/fast_pipeline.py`, `run_fast_pipeline.py`)**:
+  - Implemented an alternative, high-speed multi-branch workflow using existing Azure AI Foundry project resources:
+    1. **Step 1 (`DO-researcher`)**: Sends the company name/input to the `DO-researcher` Azure AI Foundry preview agent to generate comprehensive risk findings.
+    2. **Branch 1 (`DO-report-generator` Agent)**: Directly forwards the researcher findings into the `DO-report-generator` preview agent, bypassing the validator stage to maximize throughput.
+    3. **Branch 2 (Direct Azure Foundry REST Model)**: Invokes Azure Foundry's hosted Anthropic Messages REST API directly (`claude-sonnet-4-6` with fallback to `claude-opus-4-8`) using `AZURE_API_KEY`, bypassing agent session conversation overhead for near-instant executive synthesis.
+  - **Flexible CLI Execution Modes (`run_fast_pipeline.py`)**:
+    - `--mode both` (default): Runs both pathways concurrently via `asyncio.gather()`, compiling dual PDF artifacts (`_fast_agent.pdf` and `_fast_direct.pdf`) and printing a side-by-side terminal telemetry comparison showing duration, token consumption, and percentage speedup.
+    - `--mode agent`: Runs only the direct agent branch (`DO-researcher` -> `DO-report-generator`).
+    - `--mode direct`: Runs only the fast direct model branch (`DO-researcher` -> Azure Foundry direct model).
+  - **Comprehensive Telemetry & Comparative Diagnostics (`telemetry.py`)**:
+    - Added `format_fast_comparison_summary()` rendering side-by-side execution latency, prompt/completion tokens, total tokens, speedup factor, and artifact file locations.
+  - **Automated Unit Test Suite (`backend/test_azure_fast_pipeline.py`)**:
+    - Added 5 automated tests verifying dual concurrent execution, single-branch execution, REST mock handling, and CLI argument parsing.
 - **Azure AI Foundry Three-Agent Workflow Pipeline (`azure_agents_pipeline/`)**:
   - Implemented a standalone Python package in root coordinating three Azure AI Foundry preview agents using `azure-ai-projects>=2.1.0` and `DefaultAzureCredential`:
     1. **`DO-researcher`**: Ingests user input or company ticker, executes deep underwriting risk research, and produces preliminary findings.

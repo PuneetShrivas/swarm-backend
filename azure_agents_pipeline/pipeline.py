@@ -215,7 +215,7 @@ class AzureFoundryAgentTrioPipeline:
         # 3. Save Telemetry JSON
         json_path = self.output_dir / f"{base_name}_telemetry.json"
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(telemetry.to_dict(), f, indent=2)
+            json.dump(telemetry.to_dict(), f, indent=2, default=str)
         telemetry.output_files["telemetry_json"] = str(json_path.resolve())
 
         return telemetry
