@@ -1257,6 +1257,115 @@ class TestAsyncJobManagerAndSSE(unittest.TestCase):
         self.assertIn("text/event-stream", stream_res.headers.get("content-type", ""))
 
 
+class TestAccuracyAndPipelineFixes(unittest.TestCase):
+    def test_authoritative_auditor_resolution(self):
+        """Verifies KNOWN_AUDITORS resolves PwC for NVDA and Deloitte for MSFT."""
+        from app.workflows.do_risk_report.edgar import EdgarFetcher
+        fetcher = EdgarFetcher()
+        card_nvda = fetcher.build_entity_card("NVDA")
+        self.assertEqual(card_nvda.auditor, "PricewaterhouseCoopers LLP")
+        card_msft = fetcher.build_entity_card("MSFT")
+        self.assertEqual(card_msft.auditor, "Deloitte & Touche LLP")
+        card_aapl = fetcher.build_entity_card("AAPL")
+        self.assertEqual(card_aapl.auditor, "Ernst & Young LLP")
+
+    def test_xbrl_full_metric_extraction(self):
+        """Verifies deterministic extraction of OCF, Current Assets, Current Liab, Equity, and Working Capital."""
+        from app.workflows.do_risk_report.edgar import EdgarFetcher
+        fetcher = EdgarFetcher()
+        facts = fetcher.fetch_company_facts("0001045810")  # NVDA
+        metrics = fetcher.extract_xbrl_metrics(facts)
+        self.assertIn("operating_cash_flow", metrics)
+        self.assertIn("prior_operating_cash_flow", metrics)
+        self.assertIn("current_assets", metrics)
+        self.assertIn("current_liabilities", metrics)
+        self.assertIn("total_equity", metrics)
+        self.assertIn("working_capital", metrics)
+        self.assertGreater(metrics["operating_cash_flow"], 1e10)
+        self.assertEqual(metrics["working_capital"], metrics["current_assets"] - metrics["current_liabilities"])
+
+    def test_ledger_financial_overview_evidence_completeness(self):
+        """Verifies EvidenceLedger contains all 6 core balance sheet / cash flow evidence items."""
+        from app.workflows.do_risk_report.edgar import EdgarFetcher
+        from app.workflows.do_risk_report.ledger import EvidenceLedger
+        fetcher = EdgarFetcher()
+        card = fetcher.build_entity_card("NVDA")
+        ledger = EvidenceLedger()
+        fetcher.populate_edgar_ledger(card, ledger)
+        fin_items = ledger.for_section("financial_overview")
+        claims_text = " ".join(item.claim for item in fin_items)
+        self.assertIn("Cash flow from operations", claims_text)
+        self.assertIn("Current assets", claims_text)
+        self.assertIn("Current liabilities", claims_text)
+        self.assertIn("Total stockholders' equity", claims_text)
+        self.assertIn("Net working capital", claims_text)
+        self.assertIn("PricewaterhouseCoopers LLP", claims_text)
+
+    def test_validator_purges_prohibited_retention_commentary(self):
+        """Verifies prohibited dollar retention commentary ($25M–$50M retention) is purged."""
+        from app.workflows.do_risk_report.validator import ValidationAgent
+        agent = ValidationAgent(current_date="2026-11-03")
+        report = (
+            "### SECURITIES CLASS ACTION RISK\n"
+            "- Attachment recommendation: $25M–$50M retention recommended based on enterprise market capitalization.\n"
+            "- Side A: Contained\n"
+            "- Side C: Contained\n"
+        )
+        corrected = agent.apply_deterministic_corrections(report)
+        self.assertNotIn("$25M–$50M retention", corrected)
+        self.assertNotIn("$25M", corrected)
+        self.assertIn("Tower Attachment", corrected)
+
+    def test_validator_enforces_single_band_and_strips_ai_from_snapshot_conclusion(self):
+        """Verifies dual bands collapse to single dominant band and AI is purged from snapshot conclusion."""
+        from app.workflows.do_risk_report.validator import ValidationAgent
+        agent = ValidationAgent(current_date="2026-11-03")
+        report = (
+            "### COMPANY SNAPSHOT\n"
+            "- Legal name: NVIDIA Corporation\n"
+            "- Market cap: $4.88T vs $5.25T as of November 02, 2026\n"
+            "- AI Exposure to revenue and valuations: Material enterprise silicon ecosystem\n"
+            "- Conclusion:\n"
+            "  * AI concentration and market dependence creates elevated valuation volatility\n"
+            "  * Core filings verified\n"
+            "  * Elevated to High-Volatility\n\n"
+            "### FINANCIAL OVERVIEW\n"
+            "- Revenue: $100B\n"
+        )
+        corrected = agent.apply_deterministic_corrections(report)
+        self.assertNotIn("Elevated to High-Volatility", corrected)
+        self.assertIn("High-Volatility", corrected)
+        self.assertNotIn("AI concentration", corrected)
+        self.assertIn("Market cap: $4.88T as of November 02, 2026", corrected)
+
+    def test_anti_contamination_guard_raises_in_live_mode(self):
+        """Verifies roles.py raises RuntimeError when TESTING != 'true' and provider fails."""
+        import asyncio
+        import os
+        from app.workflows.do_risk_report.roles import run_role
+
+        old_testing = os.environ.get("TESTING")
+        old_azure = os.environ.get("AZURE_API_KEY")
+        try:
+            os.environ["TESTING"] = "false"
+            os.environ["AZURE_API_KEY"] = "your-invalid-key"
+            loop = asyncio.new_event_loop()
+            with self.assertRaises(RuntimeError):
+                loop.run_until_complete(
+                    run_role("draft", "TARGET COMPANY: NVIDIA", provider_override="azure")
+                )
+            loop.close()
+        finally:
+            if old_testing is not None:
+                os.environ["TESTING"] = old_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if old_azure is not None:
+                os.environ["AZURE_API_KEY"] = old_azure
+            else:
+                os.environ.pop("AZURE_API_KEY", None)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -47,18 +47,18 @@ PROVIDER_MODELS: Dict[str, Dict[str, str]] = {
         "reasoning": os.environ.get("ITERACOMPUTE_REASONING_MODEL", os.environ.get("ITERACOMPUTE_MODEL", "qwen/qwen3.8-27b")),
     },
     "azure": {
-        "fast": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
-        "medium": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "fast": os.environ.get("AZURE_FAST_MODEL", "claude-sonnet-4-6"),
+        "medium": os.environ.get("AZURE_MEDIUM_MODEL", "claude-sonnet-4-6"),
         "reasoning": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
     },
     "azure-foundry": {
-        "fast": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
-        "medium": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "fast": os.environ.get("AZURE_FAST_MODEL", "claude-sonnet-4-6"),
+        "medium": os.environ.get("AZURE_MEDIUM_MODEL", "claude-sonnet-4-6"),
         "reasoning": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
     },
     "foundry": {
-        "fast": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
-        "medium": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
+        "fast": os.environ.get("AZURE_FAST_MODEL", "claude-sonnet-4-6"),
+        "medium": os.environ.get("AZURE_MEDIUM_MODEL", "claude-sonnet-4-6"),
         "reasoning": os.environ.get("AZURE_MODEL", "claude-opus-4-8"),
     },
 }
@@ -112,6 +112,10 @@ def get_fallback_model() -> Optional[str]:
     return ACTIVE_FALLBACK_MODEL
 
 
+# Global concurrency semaphore for Azure Foundry to prevent TPM exhaustion
+AZURE_SEMAPHORE = asyncio.Semaphore(int(os.environ.get("AZURE_MAX_CONCURRENCY", "2")))
+
+
 async def _execute_azure_chat(
     model: str,
     system_prompt: str,
@@ -119,7 +123,7 @@ async def _execute_azure_chat(
     temp: float,
     max_tokens: int,
 ) -> str:
-    """Executes a chat generation with Azure Foundry Anthropic endpoint."""
+    """Executes a chat generation with Azure Foundry Anthropic endpoint with bounded concurrency."""
     api_key = os.environ.get("AZURE_API_KEY")
     if not api_key:
         raise RuntimeError("AZURE_API_KEY is not configured.")
@@ -146,15 +150,16 @@ async def _execute_azure_chat(
     }
 
     import httpx
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        r = await client.post(endpoint, headers=headers, json=payload)
-        if r.status_code != 200:
-            raise RuntimeError(f"Azure Foundry error {r.status_code}: {r.text}")
-        data = r.json()
-        content_items = data.get("content", [])
-        if content_items and isinstance(content_items, list):
-            return content_items[0].get("text", "")
-        return ""
+    async with AZURE_SEMAPHORE:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            r = await client.post(endpoint, headers=headers, json=payload)
+            if r.status_code != 200:
+                raise RuntimeError(f"Azure Foundry error {r.status_code}: {r.text}")
+            data = r.json()
+            content_items = data.get("content", [])
+            if content_items and isinstance(content_items, list):
+                return content_items[0].get("text", "")
+            return ""
 
 
 async def _execute_iteracompute_chat(
@@ -389,6 +394,7 @@ async def run_role(
             models_sequence.append(active_fallback)
 
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
+        last_gemini_error = ""
         for m_idx, current_model in enumerate(models_sequence):
             is_fallback = (m_idx > 0)
             max_attempts = 2 if len(models_sequence) > 1 else 3
@@ -408,6 +414,7 @@ async def run_role(
                         return parsed
                     break
                 except Exception as e:
+                    last_gemini_error = str(e)
                     err_msg = str(e).lower()
                     if ("rate limit" in err_msg or "429" in err_msg) and not is_fallback and len(models_sequence) > 1:
                         print(f"[RATE LIMIT 429] Role '{role}' hit rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
@@ -417,19 +424,24 @@ async def run_role(
                         continue
                     print(f"Role '{role}' Gemini execution note ({current_model}): {e}")
                     break
-        return _generate_mock_role_output(role, user_input)
+        if is_testing:
+            return _generate_mock_role_output(role, user_input)
+        raise RuntimeError(f"Role '{role}' Gemini execution failed across models {models_sequence}: {last_gemini_error}")
 
     # Dispatch to IteraCompute (OpenAI-compatible)
     if active_prov in ["iteracompute", "itera"]:
         itera_key = os.environ.get("ITERACOMPUTE_API_KEY")
         if not itera_key or itera_key.startswith("your-") or itera_key.startswith("test-"):
-            return _generate_mock_role_output(role, user_input)
+            if is_testing:
+                return _generate_mock_role_output(role, user_input)
+            raise RuntimeError("ITERACOMPUTE_API_KEY is not configured or invalid.")
 
         models_sequence = [selected_model]
         if active_fallback and active_fallback != selected_model:
             models_sequence.append(active_fallback)
 
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
+        last_itera_error = ""
         for m_idx, current_model in enumerate(models_sequence):
             is_fallback = (m_idx > 0)
             max_attempts = 2 if len(models_sequence) > 1 else 3
@@ -449,6 +461,7 @@ async def run_role(
                         return parsed
                     break
                 except Exception as e:
+                    last_itera_error = str(e)
                     err_msg = str(e).lower()
                     if ("rate limit" in err_msg or "429" in err_msg) and not is_fallback and len(models_sequence) > 1:
                         print(f"[RATE LIMIT 429] Role '{role}' hit rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
@@ -458,19 +471,24 @@ async def run_role(
                         continue
                     print(f"Role '{role}' IteraCompute execution note ({current_model}): {e}")
                     break
-        return _generate_mock_role_output(role, user_input)
+        if is_testing:
+            return _generate_mock_role_output(role, user_input)
+        raise RuntimeError(f"Role '{role}' IteraCompute execution failed across models {models_sequence}: {last_itera_error}")
 
     # Dispatch to Azure Foundry (Anthropic claude-opus-4-8 / claude-sonnet-4-6 fallback)
     if active_prov in ["azure", "azure-foundry", "foundry"]:
         azure_key = os.environ.get("AZURE_API_KEY")
         if not azure_key or azure_key.startswith("your-") or azure_key.startswith("test-"):
-            return _generate_mock_role_output(role, user_input)
+            if is_testing:
+                return _generate_mock_role_output(role, user_input)
+            raise RuntimeError("AZURE_API_KEY is not configured or invalid.")
 
         models_sequence = [selected_model]
         if active_fallback and active_fallback != selected_model:
             models_sequence.append(active_fallback)
 
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
+        last_azure_error = ""
         for m_idx, current_model in enumerate(models_sequence):
             is_fallback = (m_idx > 0)
             max_attempts = 2 if len(models_sequence) > 1 else 3
@@ -490,6 +508,7 @@ async def run_role(
                         return parsed
                     break
                 except Exception as e:
+                    last_azure_error = str(e)
                     err_msg = str(e).lower()
                     if ("rate limit" in err_msg or "429" in err_msg or "token" in err_msg) and not is_fallback and len(models_sequence) > 1:
                         print(f"[RATE LIMIT 429] Role '{role}' hit TPM rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
@@ -499,18 +518,23 @@ async def run_role(
                         continue
                     print(f"Role '{role}' Azure Foundry execution note ({current_model}): {e}")
                     break
-        return _generate_mock_role_output(role, user_input)
+        if is_testing:
+            return _generate_mock_role_output(role, user_input)
+        raise RuntimeError(f"Role '{role}' Azure Foundry execution failed across models {models_sequence}: {last_azure_error}")
 
     # Dispatch to Groq LPUs (gpt-oss or qwen)
     groq_client, _ = get_groq_client()
     if not groq_client or not is_groq_configured():
-        return _generate_mock_role_output(role, user_input)
+        if is_testing:
+            return _generate_mock_role_output(role, user_input)
+        raise RuntimeError("Groq client is not configured.")
 
     models_sequence = [selected_model]
     if active_fallback and active_fallback != selected_model:
         models_sequence.append(active_fallback)
 
     # Live Groq API Execution with retry for transient rate limits and fallback failover
+    last_groq_error = ""
     for m_idx, current_model in enumerate(models_sequence):
         is_fallback = (m_idx > 0)
         max_attempts = 2 if len(models_sequence) > 1 else 3
@@ -531,6 +555,7 @@ async def run_role(
                     return parsed
                 break
             except Exception as e:
+                last_groq_error = str(e)
                 err_msg = str(e).lower()
                 if ("rate limit" in err_msg or "429" in err_msg) and not is_fallback and len(models_sequence) > 1:
                     print(f"[RATE LIMIT 429] Role '{role}' hit Groq rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
@@ -541,8 +566,10 @@ async def run_role(
                 print(f"Role '{role}' Groq execution note ({current_model}): {e}")
                 break
 
-    # Fallback to deterministic mock
-    return _generate_mock_role_output(role, user_input)
+    # Fallback to deterministic mock in test mode only
+    if is_testing:
+        return _generate_mock_role_output(role, user_input)
+    raise RuntimeError(f"Role '{role}' Groq execution failed across models {models_sequence}: {last_groq_error}")
 
 
 async def run_role_with_timings(
@@ -678,166 +705,206 @@ def _generate_mock_draft(user_input: str) -> Dict[str, Any]:
     ticker = tk_match.group(1).strip() if tk_match else "TKR"
     cik_match = re.search(r"CIK:\s*([^,\)\n]+)", user_input)
     cik = cik_match.group(1).strip() if cik_match else "0000000000"
+    dom_match = re.search(r"Domicile:\s*([^,\)\n]+)", user_input)
+    domicile = dom_match.group(1).strip() if dom_match else "United States"
+    ex_match = re.search(r"Exchange:\s*([^,\)\n]+)", user_input)
+    exchange = ex_match.group(1).strip() if ex_match else "NASDAQ"
+
+    slug_match = re.search(r"SECTION SLUG:\s*([a-z0-9_]+)", user_input, re.IGNORECASE)
+    slug = slug_match.group(1).lower().strip() if slug_match else ""
+
+    header_match = re.search(r"SECTION HEADER:\s*###\s*(.+)", user_input, re.IGNORECASE)
+    header = header_match.group(1).strip().lower() if header_match else ""
 
     u_lower = user_input.lower()
 
-    if "snapshot" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 12)]
+    if slug == "company_snapshot" or "company snapshot" in header or ("snapshot" in u_lower and "section name: company_snapshot" in u_lower):
+        citations = [f"E{i:03d}" for i in range(1, 15)]
         text = (
             f"### COMPANY SNAPSHOT\n"
-            f"- Legal Name: {co_name} [E001]\n"
-            f"- Ticker: {ticker} (Primary Exchange: NASDAQ Global Select Market) [E001]\n"
-            f"- CIK: {cik} [E001]\n"
-            f"- Former Names: None in trailing 10 years [E001]\n"
-            f"- Country of Domicile: United States (Transparency International CPI: 69/100, rank 24) [E002]\n"
-            f"- Share Price & 52-Week Range: $180.25 (52-week trading range: $164.08 – $237.23) [E003]\n"
-            f"- Market Capitalization & Free Float: $2.85 Trillion; free float 99.8% (institutional ownership 60.5%) [E003]\n"
-            f"- Trading Liquidity: 30-day average daily trading volume 48.5 million shares [E004]\n"
-            f"- Primary Business Segment & Revenue Model: Consumer electronics hardware, enterprise software platforms, and digital subscription services [E004]\n"
-            f"- Trailing Twelve Month Revenue & Gross Margins: $383.29 Billion net sales; gross margin 44.1% [E005]\n"
-            f"- Cash & Liquid Assets: $29.97 Billion cash and equivalents ($61.56 Billion total liquid investments) [E006]\n"
-            f"- Capital Structure & Long-Term Debt: $101.3 Billion total debt; Debt-to-Equity ratio 1.63x [E006]\n"
-            f"- Credit Agency Ratings: S&P: AA+ (Stable); Moody's: Aaa (Stable); Fitch: AAA (Stable) [E007]\n"
-            f"- Headcount & Global Footprint: Approximately 161,000 full-time equivalent employees across 52 countries [E008]\n"
-            f"- Independent Auditor & Audit Tenure: Ernst & Young LLP, serving as independent auditor since 2009 (15-year tenure) [E009]\n"
-            f"- AI Exposure Materiality: Material to enterprise silicon architecture, Siri intelligence pipeline, and developer frameworks; estimated at 18.5% of annual R&D expenditure [E010]\n"
-            f"- Direct Exposure to High-Risk Verticals: Crypto/Web3: Zero direct exposure; Cannabis: Zero direct exposure; Coal/Fossil Extraction: Zero direct exposure [E011]\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
+            f"- Legal name: {co_name} [E001]; incorporated under the laws of the State of Delaware; SEC CIK: {cik}; primary trading exchange: {exchange} [E001]\n"
+            f"- Business description: {co_name} operates across core technology, infrastructure, enterprise computing platforms, and advanced software ecosystems [E001]\n"
+            f"- HQ + footprint: Corporate headquarters located in {domicile}; supported by global administrative hubs, technical design facilities, and regional commercial operations [E002]\n"
+            f"- U.S. Exposure: Domiciled and organized under United States jurisdiction; primary executive management, core intellectual property, and SEC reporting framework reside in the U.S. [E002]\n"
+            f"- Country of domicile: {domicile} — single sovereign legal registration and regulatory domicile [E002]\n"
+            f"- Corruption Perception Index (CPI) Score: United States — 69/100, rank 24, CPI 2023 (source: Transparency International) [E003]\n"
+            f"- Listing(s) + ticker(s): Common stock registered under Section 12(b) of the Securities Exchange Act of 1934, traded on {exchange} under ticker symbol {ticker} [E001]\n"
+            f"- Market cap: $2.50 trillion as of November 02, 2026 based on official exchange closing price [E004]\n"
+            f"- Share price: $185.50 at market close on November 02, 2026 vs $142.10 one year prior (+30.5% 52-week change) [E004]\n"
+            f"- Total Assets: $150.00 billion as reported in the most recent consolidated regulatory balance sheet filing [E005]\n"
+            f"- Revenue: Latest reported fiscal year consolidated revenue of $120.00 billion reflecting robust annual operating expansion [E006]\n"
+            f"- Capital structure: Conservative capital structure comprising $15.0B in senior unsecured notes and extensive stockholders' equity cushion [E006]\n"
+            f"- Trading liquidity: High average daily trading volume with deep institutional market liquidity on {exchange} [E004]\n"
+            f"- Analyst sentiment (most recent 3–6 months): Overwhelmingly constructive consensus across major institutional brokerages [E007]\n"
+            f"- Governance snapshot: Large accelerated filer governed by an independent board of directors with standing oversight committees [E008]\n"
+            f"- Exposure to crypto, cannabis, or coal: Not found in public disclosures / Not publicly available [E009]\n"
+            f"- AI Exposure to revenue and valuations: Material to enterprise platform architecture, accelerated computing systems, and developer software ecosystems [E010]\n"
+            f"- Conclusion:\n"
+            f"  - Core corporate standing, listing integrity, and public regulatory disclosures fully verified across SEC EDGAR filings [E001]\n"
+            f"  - Contained"
         )
-    elif "news" in u_lower or "updates" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 13)]
+    elif slug == "news_updates" or "updates" in header or "news & recent developments" in header or "updates / press releases / news" in header:
+        citations = [f"E{i:03d}" for i in range(1, 12)]
         text = (
-            f"### NEWS & RECENT DEVELOPMENTS (TRAILING 12 MONTHS)\n"
-            f"- 2024-10-31: Reported fourth-quarter fiscal results meeting consensus expectations with quarterly revenue of $94.9B [E001].\n"
-            f"- 2024-09-20: Completed worldwide commercial rollout of next-generation flagship smartphone and wearable product lines [E002].\n"
-            f"- 2024-08-01: Disclosed third-quarter fiscal revenue of $85.8B with Services segment setting an all-time revenue record [E003].\n"
-            f"- 2024-06-10: Unveiled on-device generative AI architecture and enterprise privacy architecture at annual developer conference [E004].\n"
-            f"- 2024-05-02: Board of directors authorized an additional $110B share repurchase program and declared increased cash dividend [E005].\n"
-            f"- 2024-03-21: US Department of Justice filed civil antitrust lawsuit concerning smartphone market practices; company announced rigorous defense [E006].\n"
-            f"- 2024-02-01: Reported first-quarter fiscal revenue of $119.6B, returning to top-line growth across major geographic regions [E007].\n"
-            f"- 2023-12-14: Issued European regulatory compliance update regarding Digital Markets Act interoperability requirements [E008].\n"
-            f"- 2023-11-02: Filed Annual Report on Form 10-K confirming zero accounting restatements and unqualified internal controls opinion [E009].\n"
-            f"- Adverse Securities Litigation Filings: None filed during trailing 12 months; historical legacy dockets remain inactive [E010].\n"
-            f"- Independent Auditor Changes: Checked: Unchanged. Ernst & Young LLP continues as independent registered public accounting firm [E011].\n"
-            f"- Executive Departures & Governance Shakes: Checked: Stable C-suite; orderly CFO succession planned with internal promotion [E012].\n"
+            f"### UPDATES / PRESS RELEASES / NEWS\n"
+            f"- 15-Aug-2026 - {co_name} reported quarterly earnings meeting consensus expectations with top-line growth across core enterprise platforms - [Guidance/Earnings] - Confirms operating execution and revenue trajectory - SEC Form 8-K [E001]\n"
+            f"- 10-May-2026 - Board of directors authorized expanded share repurchase program and declared regular quarterly cash dividend - [Capital Allocation] - Demonstrates capital return discipline and strong liquidity buffer - Company Press Release [E002]\n"
+            f"- 28-Feb-2026 - Filed Annual Report on Form 10-K confirming zero accounting restatements and robust internal controls over financial reporting - [Periodic Filing] - Confirms financial reporting integrity and clean audit opinion - SEC Form 10-K [E003]\n"
+            f"- 14-Jan-2026 - Announced next-generation enterprise hardware and software architecture roadmap at industry symposium - [Product Innovation] - Reaffirms technological leadership and competitive moat - Press Release [E004]\n"
+            f"- Adverse Securities Litigation Filings: None filed during trailing 12 months; historical legacy dockets remain inactive or dismissed [E005]\n"
+            f"- Independent Auditor Changes: Checked: Unchanged. Independent registered public accounting firm continues with unqualified audit opinion [E006]\n"
+            f"- Executive Departures & Governance Shakes: Checked: Stable C-suite tenure with zero unplanned or involuntary executive officer departures [E007]\n"
             f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
         )
-    elif "financial" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 9)]
+    elif slug == "financial_overview" or "financial" in header:
+        citations = [f"E{i:03d}" for i in range(1, 15)]
         text = (
-            f"### FINANCIAL OVERVIEW & CREDIT HEALTH\n"
-            f"- Revenue Trajectory (Trailing 4 Years):\n"
-            f"  * FY2023: $383,285 Million (CY2023) [E001]\n"
-            f"  * FY2022: $394,328 Million (CY2022) [E001]\n"
-            f"  * FY2021: $365,817 Million (CY2021) [E001]\n"
-            f"  * FY2020: $274,515 Million (CY2020) [E001]\n"
-            f"- Operating Cash Flow & FCF Conversion: Operating cash flow generated $110.54B in FY2023; free cash flow conversion rate of 92.4% demonstrates extraordinary cash generation capability [E002].\n"
-            f"- Balance Sheet Cash & Liquidity Reserves: Cash and cash equivalents of $29.97B; marketable securities portfolio of $31.59B; total enterprise liquidity stands at $61.56B [E003].\n"
-            f"- Debt Maturity Schedule & Refinancing Profile: Total outstanding debt of $101.3B; $10.5B scheduled to mature within 12 months; weighted average debt maturity is 8.4 years with fixed-rate coupon averaging 3.2% [E004].\n"
-            f"- Credit Agency Ratings & Outlook: Standard & Poor's affirms AA+ (Stable); Moody's affirms Aaa (Stable); Fitch affirms AAA (Stable); unconstrained access to tier-1 commercial paper markets [E005].\n"
-            f"- Financial Covenants & Facility Capacity: $10B undrawn committed revolving credit facility with zero restrictive financial covenants [E006].\n"
-            f"- Independent Auditor Assessment & Internal Controls: Ernst & Young LLP rendered an unqualified audit opinion for the most recent fiscal year with zero material weaknesses and zero significant deficiencies identified [E007].\n"
-            f"- Going Concern Assessment: Negative; risk of financial distress or insolvency is negligible under stressed liquidity testing [E008].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
+            f"### FINANCIAL OVERVIEW\n"
+            f"Snapshot (Reporting Period: FY2026, Currency: USD): Revenue $120.00B [E001] | Cash Flow from Operations $35.00B (prior year: $28.00B) [E002] | Total assets $150.00B [E003] | Total liabilities $45.00B [E004] | Current assets $60.00B [E005] | Current liabilities $20.00B [E006] | Cash & equivalents $25.00B [E007] | Net worth $105.00B [E008] | Working capital $40.00B [E009]\n"
+            f"\n"
+            f"- Revenue trend: FY2026 $120.00B | FY2025 $95.00B | FY2024 $75.00B | FY2023 $60.00B representing sustained multi-year top-line momentum [E001]\n"
+            f"- Profitability durability: Operating margins sustained above 50% across trailing fiscal periods with exceptional cash conversion efficiency [E002]\n"
+            f"- Cash & liquidity: Total enterprise cash and marketable securities of $25.00B provide exceptional balance sheet fortress liquidity [E007]\n"
+            f"- Leverage + refinancing: Total debt $15.0B; staggered maturity schedule with interest coverage ratio exceeding 25x operating earnings [E004]\n"
+            f"- Earnings quality: Free cash flow conversion exceeding 90% supports reported net earnings with zero aggressive revenue recognition signs [E002]\n"
+            f"- Balance sheet flexibility: Total stockholders' equity of $105.00B and positive working capital of $40.00B ensure substantial underwriting buffer [E008][E009]\n"
+            f"- Credit rating: Investment grade senior unsecured ratings: S&P: AA (Stable); Moody's: Aa2 (Stable) [E007]\n"
+            f"- Macro resilience: Diversified enterprise end-markets and global customer base provide durability against cyclical macroeconomic headwinds [E001]\n"
+            f"- Auditor assessment: Independent registered public accounting firm rendered an unqualified audit opinion with zero material weaknesses in internal control [E003]\n"
+            f"- Debt & Refinancing Profile (Reporting Period: FY2026, Currency: USD)\n"
+            f"  * Total debt (gross): $15.0B | Maturities: <12m $1.5B | Year 2 $2.0B | Year 3 $2.5B | Thereafter $9.0B\n"
+            f"  * Revolving credit facilities: $5.0B undrawn committed facility | Commercial paper: active tier-1 access | Interest structure: 90% fixed, 10% floating | Coupon range: 1.50% - 3.85% | Covenants: standard non-restrictive negative pledges\n"
+            f"- Conclusion:\n"
+            f"  * Exceptionally strong balance sheet fundamentals and cash generation profile support underwriting stability [E001]\n"
+            f"  * Contained"
         )
-    elif "analyst" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 6)]
-        text = (
-            f"### ANALYST CONSENSUS & MARKET VOLATILITY\n"
-            f"- Wall Street Analyst Ratings Breakdown: 52 covering research analysts; 38 Buy / Overweight ratings (73.1%), 11 Hold / Neutral ratings (21.1%), 3 Sell / Underperform ratings (5.8%) [E001].\n"
-            f"- Consensus Mean Price Target & Upside: 12-month mean target price of $235.00 (range: $180.00 – $275.00), representing an implied potential upside of +14.2% from current market quote [E002].\n"
-            f"- Stock Beta & Relative Volatility: 5-year monthly Beta of 1.08 relative to S&P 500; 30-day implied volatility index of 19.4%, tracking at the median for mega-cap technology peers [E003].\n"
-            f"- Short Interest & Squeeze Vulnerability: Total short interest of 112.4 million shares (0.72% of total public float); days-to-cover ratio of 2.3 days; institutional stock loan borrow fee 0.25% per annum [E004].\n"
-            f"- Recent Upgrades / Downgrades: Major brokerage firms maintained constructive overweight stances citing expanding Services margin contribution and ecosystem stickiness [E005].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
-        )
-    elif "governance" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 8)]
-        text = (
-            f"### GOVERNANCE, BOARD INTEGRITY & CULTURE\n"
-            f"- Board Composition & Independence: 9 active directors; 8 independent directors (88.9% independence level), exceeding NYSE/NASDAQ corporate governance listing requirements [E001].\n"
-            f"- Board Leadership & Chair/CEO Duality: Separate independent Board Chair and Chief Executive Officer positions maintained continuously since 2011 [E002].\n"
-            f"- 5-Year Governance Drift & Refresh Cadence: Orderly succession framework demonstrated by the addition of 2 independent directors with cybersecurity and retail logistics expertise in trailing 36 months; zero contested proxy ballots [E003].\n"
-            f"- Audit Committee Expertise & Financial Sophistication: 4 audit committee members; all certified independent financial experts under SEC Regulation S-K Item 407(d)(5) [E004].\n"
-            f"- Auditor Independence & Non-Audit Fee Ratio: Non-audit service fees represented less than 6.5% of total fees paid to Ernst & Young LLP in FY2023, preserving full auditor independence [E005].\n"
-            f"- Executive Compensation & Mandatory Clawback Provisions: Fully compliant SEC Rule 10D-1 clawback policy adopted and enforced, covering incentive compensation in the event of an accounting restatement [E006].\n"
-            f"- Insider Stock Sales & Rule 10b5-1 Disciplines: Executive officers and directors execute equity disposals strictly under pre-established Rule 10b5-1 trading plans with mandatory 90-day cooling-off windows [E007].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
-        )
-    elif "director" in u_lower or "officer" in u_lower:
+    elif slug == "analysts" or "analyst" in header:
         citations = [f"E{i:03d}" for i in range(1, 10)]
         text = (
-            f"### DIRECTOR & OFFICER REGULATORY & LITIGATION HISTORY\n"
-            f"- Chief Executive Officer (CEO): 14 years tenure as CEO; no prior securities litigation judgments, no SEC enforcement orders, and no civil fraud findings on record [E001].\n"
-            f"- Chief Financial Officer (CFO): 10 years tenure as CFO; active CPA license in good standing; zero regulatory sanctions or restatements under financial stewardship [E002].\n"
-            f"- Independent Board Chair: Former Fortune 50 CEO; extensive public board governance experience; zero adverse civil or regulatory dockets [E003].\n"
-            f"- Audit Committee Chair: Former major public accounting firm managing partner; clean regulatory background with SEC, PCAOB, and state accountancy boards [E004].\n"
-            f"- Compensation Committee Chair: 8 years board service; zero shareholder derivative actions or executive pay litigation [E005].\n"
-            f"- Nominating & Corporate Governance Chair: Distinguished legal and corporate governance scholar; zero adverse disclosures [E006].\n"
-            f"- General Counsel & Corporate Secretary: Active state bar membership in good standing; former federal regulatory official; clean professional record [E007].\n"
-            f"- Chief Operating Officer (COO): 8 years executive tenure; oversight of global supply chain operations; zero individual litigation liabilities [E008].\n"
-            f"- SEC Officer/Director Disqualification Verification: Systematic search of SEC Bad Actor disqualification lists under Rule 506(d) and SEC enforcement releases returned zero matches [E009].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
+            f"### ANALYSTS\n"
+            f"- Wall Street Analyst Ratings Breakdown: 45 covering research analysts; 38 Buy (84.4%), 6 Hold (13.3%), 1 Sell (2.2%) [E001]\n"
+            f"- Consensus Mean Price Target: $220.00 (range: $175.00 – $280.00), representing implied 12-month upside of +18.6% [E002]\n"
+            f"- Stock Beta & Relative Volatility: 5-year monthly Beta of 1.25; 52-week trading range $135.00 – $210.00 reflecting normal sector beta [E003]\n"
+            f"- Short Interest: 1.1% of public float with days-to-cover ratio of 1.8 days, indicating low short seller scrutiny [E004]\n"
+            f"- Recent Upgrades / Downgrades: Major Wall Street brokerages reiterate overweight/buy stances citing multi-year enterprise demand visibility [E005]\n"
+            f"- Valuation Multiples: Forward P/E of 28.5x and EV/EBITDA of 22.0x reflect premium technology sector valuation grounded in fundamental cash flow [E006]\n"
+            f"- Conclusion:\n"
+            f"  * Overwhelmingly constructive institutional consensus conviction with negligible short pressure and healthy price discovery [E001]\n"
+            f"  * Contained"
         )
-    elif "strategic" in u_lower or "operational profile" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 7)]
+    elif slug == "governance_culture" or "governance" in header:
+        citations = [f"E{i:03d}" for i in range(1, 12)]
         text = (
-            f"### STRATEGIC & OPERATIONAL RISK PROFILE\n"
-            f"- Competitive Moat & Sector Market Share: Dominant position in high-end global smartphone market (over 50% US market share) and highly profitable software ecosystem with 2.2B active device install base [E001].\n"
-            f"- Customer Concentration Risk: Highly diversified consumer base; top 5 retail distribution and telecom carrier partners account for less than 12% of total consolidated revenue [E002].\n"
-            f"- Supplier Concentration & Single-Source Foundry Dependency: Critical operational dependency on Taiwan Semiconductor Manufacturing Company (TSMC) for proprietary advanced silicon fabrication represents a high-impact geographic supply chain choke point [E003].\n"
-            f"- Specialized Manufacturing & Assembly Concentration: Assembly operations concentrated in Foxconn and Luxshare facilities located in East and Southeast Asia; geographic diversification underway into India and Vietnam [E004].\n"
-            f"- Key-Person Succession Vulnerabilities: Robust deep bench of executive leadership; documented emergency and long-term executive succession management protocols reviewed annually by the board [E005].\n"
-            f"- Geopolitical & Export Control Exposure: Full compliance with US Department of Commerce Bureau of Industry and Security (BIS) export regulations; trade tariffs and semiconductor equipment export rules monitored continuously [E006].\n"
-            f"- Final Section Risk Band: Elevated (driven by geographic semiconductor foundry concentration) (Data Confidence: Strong)"
+            f"### GOVERNANCE & CULTURE\n"
+            f"- Board Independence: 11 active directors; 10 independent directors (90.9% independence level) under exchange listing standards [E001]\n"
+            f"- Board Leadership Structure: Lead Independent Director model ensures robust oversight independent of executive management [E002]\n"
+            f"- 5-Year Governance Drift: Fully declassified board with annual elections for all directors, majority voting standard, and active refreshment [E003]\n"
+            f"- Audit Committee Strength: All audit committee members designated as financial experts under SEC regulations; meets regularly in executive session [E004]\n"
+            f"- CEO/CFO Turnover: Stable executive stewardship with long-tenured leadership and zero unplanned executive officer turnover [E005]\n"
+            f"- Related-Party/Complexity: Zero material related-party transactions reported in recent annual proxy filings [E006]\n"
+            f"- Disclosure Discipline: Transparent corporate disclosures with active board-level risk management and formal clawback policies [E007]\n"
+            f"- Committee Composition: Standing Compensation, Nominating, and Audit Committees composed 100% of independent directors [E008]\n"
+            f"- Conclusion:\n"
+            f"  * Mature governance infrastructure, high board independence, and conservative structural oversight safeguards [E001]\n"
+            f"  * Contained"
         )
-    elif "securities" in u_lower or "class action" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 7)]
+    elif slug == "director_officer_history" or "director" in header or "officer" in header:
+        citations = [f"E{i:03d}" for i in range(1, 10)]
         text = (
-            f"### SECURITIES CLASS ACTION RISK & CARRIER EXPOSURE\n"
-            f"- Stanford Securities Class Action Clearinghouse Review: Zero active securities class action complaints pending in federal or state courts; historical 2019 disclosure suit dismissed with prejudice at pleading stage [E001].\n"
-            f"- Shareholder Derivative Litigation Docket: No active derivative actions pending in Delaware Court of Chancery or federal district courts alleging breach of fiduciary duty or waste [E002].\n"
-            f"- Financial Statement Restatements: Trailing 7-year audit confirms zero Form 8-K Item 4.02 non-reliance disclosures; no Big R or Little r restatements filed [E003].\n"
-            f"- Stock Drop Vulnerability & Disclosure Discipline: Rigorous quarterly guidance framing and conservative disclosures have insulated target entity from post-earnings securities litigation [E004].\n"
-            f"- Side A Individual Exposure Analysis: Individual directors and officers protected by comprehensive corporate indemnification bylaws backed by balance sheet cash; Side A non-indemnifiable exposure risk is Contained [E005].\n"
-            f"- Side C Entity Coverage & Tower Interaction: Substantial primary retention ($25M–$50M) shields excess D&O insurance tower layers; carrier loss attachment probability is remote [E006].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
+            f"### DIRECTOR & OFFICER HISTORY\n"
+            f"- Chief Executive Officer (CEO): Active executive tenure; exemplary corporate background with zero civil fraud findings or regulatory reprimands [E001]\n"
+            f"- Chief Financial Officer (CFO): Active financial stewardship; clean regulatory record with zero historical restatements or disclosure inquiries [E002]\n"
+            f"- Lead Independent Director: Experienced public company governance leader; clean litigation and regulatory background [E003]\n"
+            f"- Audit Committee Chair: Former partner at a major public accounting firm; clean regulatory and professional record [E004]\n"
+            f"- SEC Officer/Director Disqualification Verification: Systematic search returned zero disqualifications under Rule 506(d) or SEC enforcement dockets [E005]\n"
+            f"- Professional Backgrounds: All executive officers and directors demonstrate extensive industry tenure and high reputational standing [E006]\n"
+            f"- No matters identified within scope for any individual reviewed [E001]\n"
+            f"- Conclusion:\n"
+            f"  * Executive leadership record is clean with zero adverse regulatory orders, civil judgments, or disqualifying events [E001]\n"
+            f"  * Contained"
         )
-    elif "legal" in u_lower or "regulatory claims" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 6)]
+    elif slug == "strategic_operational_profile" or "strategic" in header:
+        citations = [f"E{i:03d}" for i in range(1, 10)]
         text = (
-            f"### LEGAL, REGULATORY & ENFORCEMENT CLAIMS\n"
-            f"- Federal Civil Docket Review (CourtListener / PACER): Trailing 24 months discloses active commercial patent litigation and antitrust challenges; zero default judgments or contempt orders [E001].\n"
-            f"- Department of Justice (DOJ) Civil Antitrust Litigation: Ongoing civil antitrust complaint filed in District of New Jersey regarding smartphone ecosystem integration; company is litigating without settlement discussions [E002].\n"
-            f"- European Commission Regulatory Inquiries: Regulatory scrutiny under Digital Markets Act (DMA) regarding alternative app marketplaces; technical compliance architecture implemented [E003].\n"
-            f"- SEC Formal Orders & Subpoenas: Form 10-K Item 3 disclosures confirm zero active SEC formal investigation orders, Wells Notices, or accounting subpoenas [E004].\n"
-            f"- Whistleblower Claims & Sanctions Enforcement: Zero reported OSHA/SEC whistleblower retaliation claims; zero Office of Foreign Assets Control (OFAC) penalties or sanctions violations [E005].\n"
-            f"- Final Section Risk Band: Elevated (driven by active DOJ and European antitrust regulatory litigation) (Data Confidence: Strong)"
+            f"### STRATEGIC & OPERATIONAL PROFILE\n"
+            f"- Sector Position: Leading global market position in core enterprise technology and infrastructure platforms supported by proprietary moats [E001]\n"
+            f"- Execution Capability: Proven manufacturing scale, disciplined capital expenditure allocation, and rigorous operational control [E002]\n"
+            f"- Concentration Risk: Broad enterprise customer base with top commercial accounts diversified across industries and geographic regions [E003]\n"
+            f"- Regulatory Exposure: Fully compliant with international trade regulations, export licensing frameworks, and global standards [E004]\n"
+            f"- Key-Man Dependency: Experienced management bench supported by formal board-supervised executive succession planning frameworks [E005]\n"
+            f"- Cyber/Operational Risk: Robust enterprise cybersecurity architecture, ISO-certified protocols, and continuous disaster recovery planning [E006]\n"
+            f"- R&D Investment: Material multi-billion annual reinvestment into proprietary software, silicon development, and intellectual property [E007]\n"
+            f"- Conclusion:\n"
+            f"  * Resilient competitive positioning, deep technological moats, and diversified operational relationships [E001]\n"
+            f"  * Contained"
         )
-    elif "esg" in u_lower or "cyber" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 6)]
+    elif slug == "securities_class_action_risk" or "securities" in header or "class action" in header:
+        citations = [f"E{i:03d}" for i in range(1, 12)]
         text = (
-            f"### ESG, CYBERSECURITY & OPERATIONAL DISRUPTIONS\n"
-            f"- SEC Item 1.05 Cybersecurity Filings: Zero Form 8-K disclosures filed under mandatory cybersecurity disclosure regulations; no material cyber incidents experienced in trailing 24 months [E001].\n"
-            f"- Ransomware & Consumer Data Exfiltration History: No unauthorized network intrusions, ransomware compromises, or customer privacy breaches reported in public dockets or regulatory notifications [E002].\n"
-            f"- Environmental Compliance & Toxic Emissions: Zero EPA administrative orders or hazardous substance penalties exceeding SEC disclosure thresholds; 100% renewable electricity achieved for global corporate operations [E003].\n"
-            f"- Occupational Safety & Supplier Labor Standards: Comprehensive Supplier Code of Conduct enforced with over 1,000 annual independent supplier facility audits; zero OSHA willful safety citations [E004].\n"
-            f"- Consumer Product Safety & Product Recalls: Negligible recall history; no CPSC mandatory stop-sale orders or safety hazard recalls in trailing 36 months [E005].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
+            f"### SECURITIES CLASS ACTION RISK\n"
+            f"JURISDICTION - ONE LINE. Primary listing on {exchange} with deep US domestic investor base; US federal securities jurisdiction applies directly. [E001]\n"
+            f"LIKELIHOOD\n"
+            f"- Stable financial reporting history and consistent quarterly guidance framing mitigate event-driven stock drop vulnerability across market cycles. [E002]\n"
+            f"- Zero accounting restatements, formal SEC inquiries, or auditor disagreements in trailing 36 months constrain plaintiff bar traction. [E003]\n"
+            f"- Band: Contained\n"
+            f"MOST LIKELY ALLEGATION TYPE. If a claim were brought, the most likely theory would be event-driven disclosure around supply chain delivery timelines or customer milestone dependencies. [E004]\n"
+            f"SEVERITY IF BROUGHT\n"
+            f"- Substantial public market capitalization provides deep free float, but absence of historical multi-day share price collapse bounds theoretical aggregate damages. [E005]\n"
+            f"- Band: Contained\n"
+            f"SIDE A / SIDE C EXPOSURE\n"
+            f"- Side C: Substantial US institutional investor base and high market liquidity — Band: Contained [E006]\n"
+            f"- Side A: Robust corporate balance sheet liquidity, broad indemnification bylaws, and negligible insolvency risk — Band: Contained [E007]\n"
+            f"TOWER INTERACTION. Where a realistic claim attaches and how far it burns: primary layer attachment remote; Side A breach: Remote given fortress liquidity reserves and clean governance history. [E008]\n"
+            f"SCENARIO, MAX 2 LINES. Severe operational delivery disruption triggers unexpected quarterly revenue miss > plaintiffs allege disclosure lag > commercial resolution contained below excess tower. [E009]\n"
+            f"CONCLUSION: Core disclosure disciplines, conservative guidance, and fortress balance sheet strength insulate target from systemic securities class action claims. Final band: Contained (data confidence: Strong)."
         )
-    elif "forward" in u_lower:
-        citations = [f"E{i:03d}" for i in range(1, 6)]
+    elif slug == "legal_regulatory_claims" or "legal" in header or "claims" in header:
+        citations = [f"E{i:03d}" for i in range(1, 10)]
         text = (
-            f"### FORWARD-LOOKING STRATEGIC RISK & MACRO CATALYSTS\n"
-            f"- Near-Term Regulatory Catalysts: European Digital Markets Act compliance deadlines and preliminary hearing calendar for US DOJ antitrust litigation represent primary external catalysts [E001].\n"
-            f"- Macroeconomic & Currency Sensitivities: Foreign exchange headwinds managed via active hedging programs; consumer upgrade cycle resilience demonstrated across international territories [E002].\n"
-            f"- Geopolitical Trade Policy & Tariff Exposure: Potential alterations in US trade policies regarding East Asian manufacturing corridors actively addressed through supply chain geographical diversification into India and Vietnam [E003].\n"
-            f"- AI Product Transition & Silicon Roadmap: Multi-year architectural rollout of proprietary neural processing units and on-device machine learning models protects enterprise moat [E004].\n"
-            f"- Gross Margin Trajectory: Public guidance projects forward gross margins between 43.5% and 44.5%, sustaining strong operating cash flow buffer [E005].\n"
-            f"- Final Section Risk Band: Contained (Data Confidence: Strong)"
+            f"### LEGAL, REGULATORY & CLAIMS CONTEXT\n"
+            f"- Federal Civil Docket Review (CourtListener / PACER): Trailing 24 months discloses ordinary-course commercial contract and intellectual property litigation; zero default judgments or contempt orders [E001]\n"
+            f"- Regulatory Enforcement & Orders: Form 10-K Item 3 disclosures confirm zero active SEC formal investigation orders, Wells Notices, or accounting subpoenas [E002]\n"
+            f"- Antitrust & Competition Inquiries: No formal adverse adjudications or blocking injunctions issued by domestic or international antitrust authorities [E003]\n"
+            f"- Whistleblower Claims & Sanctions Enforcement: Zero reported OSHA/SEC whistleblower retaliation claims; zero Office of Foreign Assets Control (OFAC) penalties or sanctions violations [E004]\n"
+            f"- US Exposure: Primary corporate and operational activities centered in US federal jurisdiction; governed by federal judicial standards [E005]\n"
+            f"- Sanctions: Zero operational exposure to sanctioned territories, blocked persons, or restricted foreign entities [E006]\n"
+            f"- Intellectual Property Litigation: Defense of core proprietary patents handled as normal-course operational overhead without material financial exposure [E007]\n"
+            f"- Conclusion:\n"
+            f"  * Legal and regulatory claims remain within normal commercial bounds with no systemic D&O loss vector identified [E001]\n"
+            f"  * Contained"
+        )
+    elif slug == "esg_cyber_operational" or "esg" in header or "cyber" in header:
+        citations = [f"E{i:03d}" for i in range(1, 10)]
+        text = (
+            f"### ESG, CYBER & OPERATIONAL EXPOSURE\n"
+            f"- ESG Controversy Velocity: Zero material toxic release violations or hazardous substance enforcement actions exceeding SEC disclosure thresholds [E001]\n"
+            f"- Cyber Disclosure Quality: Item 1C compliant cybersecurity risk disclosures with board-level oversight; zero material 8-K Item 1.05 breach notifications [E002]\n"
+            f"- Product/Safety Exposure: Negligible product liability or safety hazard recall history in public regulatory databases [E003]\n"
+            f"- Supply Chain Fragility: Multi-vendor sourcing strategy reduces single-point manufacturing bottlenecks and operational exposure [E004]\n"
+            f"- Data Privacy & Compliance: Full adherence to global data privacy regulations and security certifications [E005]\n"
+            f"- Operational Continuity: Redundant enterprise infrastructure and multi-zone data center configurations maintain operational resilience [E006]\n"
+            f"- Conclusion:\n"
+            f"  * Manageable ESG profile, mature cybersecurity governance structure, and reliable business continuity architecture [E001]\n"
+            f"  * Contained"
+        )
+    elif slug == "forward_looking_risk" or "forward" in header:
+        citations = [f"E{i:03d}" for i in range(1, 10)]
+        text = (
+            f"### FORWARD-LOOKING STRATEGIC RISK\n"
+            f"- Near-Term Catalysts: Upcoming product cycle introductions, architecture refreshes, and enterprise platform expansion [E001]\n"
+            f"- Macro/Sector Pressure: Global hardware and enterprise infrastructure demand cycles managed through disciplined supply chain planning [E002]\n"
+            f"- Execution Vulnerabilities: Complex multi-tier supply chain execution remains primary operational dependency [E003]\n"
+            f"- Regulatory Shifts: Continual monitoring of global trade policies, export licensing frameworks, and international tariff developments [E004]\n"
+            f"- Capital Allocation: Disciplined capital expenditure deployment balancing growth investments with programmatic shareholder returns [E005]\n"
+            f"- Technological Moat: Substantial ongoing investments in proprietary software layers and architectures sustain competitive barriers [E006]\n"
+            f"- Conclusion:\n"
+            f"  * Strategic execution capabilities and diversified enterprise end-markets provide durable forward resilience [E001]\n"
+            f"  * Contained"
         )
     else:
         citations = ["E001", "E002"]
         text = f"### {user_input[:40].strip()}\n- Core disclosures verified in primary SEC filings [E001].\n- Operational performance aligns with standard corporate parameters [E002].\n- Final Section Risk Band: Contained (Data Confidence: Strong)"
+
+    return {"section_text": text, "citations": citations}
 
     return {"section_text": text, "citations": citations}

@@ -99,10 +99,12 @@ def extract_section_queries(title: str, text: str) -> List[str]:
 
     if slug == "company_snapshot":
         queries = [
+            "{company} {ticker} official closing market capitalization share price primary exchange",
             "{company} {ticker} market cap share price 52 week range current month",
             "{company} business description headquarters US operations country of domicile",
             "{company} capital structure debt to equity trading liquidity analyst rating",
             "{company} AI exposure material to revenue valuation margins concentration risk",
+            "{company} {ticker} cryptocurrency mining GPU crypto demand sales disclosure SEC settlement",
             "{company} exposure crypto cannabis coal",
         ]
     elif slug == "news_updates":
@@ -117,7 +119,8 @@ def extract_section_queries(title: str, text: str) -> List[str]:
         queries = [
             "{company} annual report 10-K revenue trend balance sheet cash liquidity operating cash flow",
             "{company} credit rating S&P Moody's Fitch senior debt outlook",
-            "{company} debt maturity profile credit facilities revolving commercial paper covenants",
+            "{company} 10-K note debt maturity schedule interest structure coupon revolving credit facility covenants indentures",
+            "{company} Form 10-K cash flow from operations working capital current assets current liabilities total equity",
             "{company} auditor assessment material weakness going concern internal controls",
         ]
     elif slug == "analysts":
@@ -246,10 +249,38 @@ def parse_prompt_sections(prompt_text: str) -> Tuple[str, List[SectionSpec]]:
             if line.strip() and not line.strip().isupper() and len(line.strip()) < 80
         ][:15]
 
+        # Reinforce section-specific mandatory underwriter negative constraints
+        sec_constraints = ""
+        if sec_name == "company_snapshot":
+            sec_constraints = (
+                "\n\nCRITICAL CONSTRAINTS FOR COMPANY SNAPSHOT:\n"
+                "- Conclude with EXACTLY ONE single band from {Contained, Elevated, High-Volatility}. Do NOT output dual bands like 'Elevated to High-Volatility'.\n"
+                "- Do NOT include AI exposure or AI concentration analysis in the conclusion bullets (AI belongs strictly in the AI Exposure bullet).\n"
+                "- Resolve market cap to a single official date-stamped quote; do not output two conflicting figures."
+            )
+        elif sec_name == "financial_overview":
+            sec_constraints = (
+                "\n\nCRITICAL CONSTRAINTS FOR FINANCIAL OVERVIEW:\n"
+                "- Extract Operating Cash Flow (and comparative prior year), Current Assets, Current Liabilities, Total Equity (Net Worth), and Working Capital from primary SEC filings.\n"
+                "- Clearly identify auditor firm name from 10-K signature block / proxy statement."
+            )
+        elif sec_name == "securities_class_action_risk":
+            sec_constraints = (
+                "\n\nCRITICAL CONSTRAINTS FOR SECURITIES CLASS ACTION RISK:\n"
+                "- PROHIBITED: Do NOT suggest or discuss specific dollar retention amounts or pricing numbers (e.g. do NOT state '$25M–$50M retention').\n"
+                "- Confine underwriter assessment strictly to attachment feasibility, Side A/Side C loss vectors, tower interaction (primary vs mid vs high excess), and procedural hurdles."
+            )
+        elif sec_name == "news_updates":
+            sec_constraints = (
+                "\n\nCRITICAL CONSTRAINTS FOR NEWS & RECENT DEVELOPMENTS:\n"
+                "- STRICT 12-MONTH CUTOFF: Every single event bullet MUST have occurred within the trailing 12 months from the analysis date.\n"
+                "- Purge all events prior to that 12-month calendar window unless a formal new docket/disclosure event occurred inside the window."
+            )
+
         section_specs.append(SectionSpec(
             name=sec_name,
             title=sec_title,
-            section_prompt=sec_body,
+            section_prompt=(sec_body + sec_constraints).strip(),
             required_fields=req_fields,
             static_queries=queries,
             workstream=workstream,

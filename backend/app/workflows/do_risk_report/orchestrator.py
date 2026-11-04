@@ -159,16 +159,21 @@ class DORiskReportOrchestrator:
 
         draft_prompt = (
             f"TARGET COMPANY: {entity.legal_name} (Ticker: {entity.ticker}, CIK: {entity.cik}, Domicile: {entity.country_of_domicile}, Exchange: {entity.exchange})\n\n"
+            f"SECTION SLUG: {section_name}\n\n"
+            f"SECTION HEADER: ### {section_title}\n\n"
             f"MASTER UNDERWRITING GUIDELINES:\n{master_rules}\n\n"
             f"SECTION SPECIFICATION & DETAILED INSTRUCTIONS:\n{section_prompt_rules}\n\n"
-            f"SECTION HEADER: ### {section_title}\n\n"
             f"SECTION EVIDENCE LEDGER ROWS:\n{ledger_text}\n\n"
             f"INSTRUCTION: Draft the complete, institutional-grade underwriting narrative for '### {section_title}'. Follow every field and bullet point requirement in the section instructions above. Cite evidence strictly with [E###] tokens. If a required field is not present in the ledger, explicitly state that it is not publicly available or not disclosed."
         )
         t_d0 = time.perf_counter()
-        draft_res = await run_role("draft", draft_prompt)
+        try:
+            draft_res = await run_role("draft", draft_prompt)
+            section_text = draft_res.get("section_text", f"### {section_title}\n- Data unavailable.")
+        except Exception as e:
+            print(f"Error drafting section '{section_name}': {e}")
+            section_text = f"### {section_title}\n- Section drafting unavailable due to upstream API error: {e}"
         draft_ms = (time.perf_counter() - t_d0) * 1000
-        section_text = draft_res.get("section_text", f"### {section_title}\n- Data unavailable.")
         sec_total_ms = (time.perf_counter() - sec_start) * 1000
 
         sec_timing = {

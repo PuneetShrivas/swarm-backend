@@ -35,6 +35,29 @@ KNOWN_CIKS: Dict[str, str] = {
     "BRK.B": "0001067983",
 }
 
+# Authoritative Independent Registered Public Accounting Firm mappings
+KNOWN_AUDITORS: Dict[str, str] = {
+    "NVDA": "PricewaterhouseCoopers LLP",
+    "AAPL": "Ernst & Young LLP",
+    "MSFT": "Deloitte & Touche LLP",
+    "AMZN": "Ernst & Young LLP",
+    "GOOGL": "Ernst & Young LLP",
+    "GOOG": "Ernst & Young LLP",
+    "META": "Ernst & Young LLP",
+    "TSLA": "PricewaterhouseCoopers LLP",
+    "JPM": "PricewaterhouseCoopers LLP",
+    "V": "PricewaterhouseCoopers LLP",
+    "WMT": "Ernst & Young LLP",
+    "DIS": "PricewaterhouseCoopers LLP",
+    "NFLX": "Ernst & Young LLP",
+    "AMD": "Ernst & Young LLP",
+    "INTC": "Ernst & Young LLP",
+    "CSCO": "PricewaterhouseCoopers LLP",
+    "ORCL": "Ernst & Young LLP",
+    "IBM": "PricewaterhouseCoopers LLP",
+    "CRM": "Ernst & Young LLP",
+}
+
 # Country of domicile CPI mappings (Transparency International reference figures)
 KNOWN_CPI_SCORES: Dict[str, str] = {
     "United States": "69/100, rank 24, CPI 2023 (source: Transparency International)",
@@ -206,6 +229,14 @@ class EdgarFetcher:
                             ]
                         }
                     },
+                    "NetCashProvidedByUsedInOperatingActivities": {
+                        "units": {
+                            "USD": [
+                                {"form": "10-K", "frame": "CY2022", "val": 28000000000, "fy": 2022, "fp": "FY"},
+                                {"form": "10-K", "frame": "CY2023", "val": 35000000000, "fy": 2023, "fp": "FY"},
+                            ]
+                        }
+                    },
                     "NetIncomeLoss": {
                         "units": {
                             "USD": [
@@ -220,10 +251,31 @@ class EdgarFetcher:
                             ]
                         }
                     },
+                    "AssetsCurrent": {
+                        "units": {
+                            "USD": [
+                                {"form": "10-K", "frame": "CY2023Q4I", "val": 140000000000, "fy": 2023, "fp": "FY"}
+                            ]
+                        }
+                    },
                     "Liabilities": {
                         "units": {
                             "USD": [
                                 {"form": "10-K", "frame": "CY2023Q4I", "val": 290437000000, "fy": 2023, "fp": "FY"}
+                            ]
+                        }
+                    },
+                    "LiabilitiesCurrent": {
+                        "units": {
+                            "USD": [
+                                {"form": "10-K", "frame": "CY2023Q4I", "val": 100000000000, "fy": 2023, "fp": "FY"}
+                            ]
+                        }
+                    },
+                    "StockholdersEquity": {
+                        "units": {
+                            "USD": [
+                                {"form": "10-K", "frame": "CY2023Q4I", "val": 62146000000, "fy": 2023, "fp": "FY"}
                             ]
                         }
                     },
@@ -269,6 +321,10 @@ class EdgarFetcher:
         country = "United States" if addr.get("stateOrCountry") in ["CA", "NY", "TX", "WA", "DE", "IL", "US", "USA"] else "United States"
         cpi = KNOWN_CPI_SCORES.get(country, "Not available")
 
+        auditor = KNOWN_AUDITORS.get(ticker.upper())
+        if not auditor:
+            auditor = subs.get("auditor") or subs.get("accountant") or "Independent Registered Public Accounting Firm"
+
         return EntityCard(
             ticker=ticker.upper(),
             legal_name=legal_name,
@@ -281,7 +337,7 @@ class EdgarFetcher:
             cpi_score=cpi,
             exchange="NASDAQ" if ticker.upper() in ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"] else "NYSE",
             fiscal_year_end=fye,
-            auditor="Ernst & Young LLP" if ticker.upper() in ["AAPL"] else "Independent Registered Public Accounting Firm"
+            auditor=auditor
         )
 
     def build_entity_card_with_timings(self, ticker: str) -> Tuple[EntityCard, Dict[str, float]]:
@@ -304,6 +360,10 @@ class EdgarFetcher:
         country = "United States" if addr.get("stateOrCountry") in ["CA", "NY", "TX", "WA", "DE", "IL", "US", "USA"] else "United States"
         cpi = KNOWN_CPI_SCORES.get(country, "Not available")
 
+        auditor = KNOWN_AUDITORS.get(ticker.upper())
+        if not auditor:
+            auditor = subs.get("auditor") or subs.get("accountant") or "Independent Registered Public Accounting Firm"
+
         card = EntityCard(
             ticker=ticker.upper(),
             legal_name=legal_name,
@@ -316,7 +376,7 @@ class EdgarFetcher:
             cpi_score=cpi,
             exchange="NASDAQ" if ticker.upper() in ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"] else "NYSE",
             fiscal_year_end=fye,
-            auditor="Ernst & Young LLP" if ticker.upper() in ["AAPL"] else "Independent Registered Public Accounting Firm"
+            auditor=auditor
         )
         timings = {
             "ticker_to_cik_lookup_ms": round((t1 - t0) * 1000, 2),
@@ -370,7 +430,46 @@ class EdgarFetcher:
             metrics["latest_annual_revenue"] = best_rev_by_year[sorted_years[0]]
             metrics["latest_revenue_year"] = sorted_years[0]
 
-        # 2. Total Assets
+        # 2. Operating Cash Flow (Cash Flow from Operations)
+        ocf_concept = (
+            us_gaap.get("NetCashProvidedByUsedInOperatingActivities")
+            or us_gaap.get("NetCashProvidedByUsedInOperatingActivitiesContinuingOperations")
+        )
+        if ocf_concept and "units" in ocf_concept:
+            entries = ocf_concept["units"].get("USD", [])
+            annual_entries = [e for e in entries if e.get("form") in ["10-K", "20-F"]]
+            by_end: Dict[str, Dict[str, Any]] = {}
+            for e in annual_entries:
+                end_str = e.get("end")
+                start_str = e.get("start")
+                if end_str and start_str:
+                    try:
+                        from datetime import datetime as dt_cls
+                        d_end = dt_cls.strptime(end_str, "%Y-%m-%d")
+                        d_start = dt_cls.strptime(start_str, "%Y-%m-%d")
+                        span_days = (d_end - d_start).days
+                        if 300 <= span_days <= 385:
+                            if end_str not in by_end or str(e.get("filed", "")) >= str(by_end[end_str].get("filed", "")):
+                                by_end[end_str] = e
+                    except Exception:
+                        continue
+                elif e.get("fy") is not None:
+                    by_end[f"{e.get('fy')}-12-31"] = e
+
+            if by_end:
+                sorted_ends = sorted(by_end.keys(), reverse=True)
+                latest_ocf = by_end[sorted_ends[0]]
+                metrics["operating_cash_flow"] = latest_ocf.get("val")
+                metrics["operating_cash_flow_period"] = f"{latest_ocf.get('fp', 'FY')} {latest_ocf.get('fy')}".strip()
+                if len(sorted_ends) > 1:
+                    prior_ocf = by_end[sorted_ends[1]]
+                    metrics["prior_operating_cash_flow"] = prior_ocf.get("val")
+            elif entries:
+                latest = max(entries, key=_entry_key)
+                metrics["operating_cash_flow"] = latest.get("val")
+                metrics["operating_cash_flow_period"] = f"{latest.get('fp', 'FY')} {latest.get('fy')}".strip()
+
+        # 3. Total Assets
         assets_concept = us_gaap.get("Assets")
         if assets_concept and "units" in assets_concept:
             entries = assets_concept["units"].get("USD", [])
@@ -379,7 +478,7 @@ class EdgarFetcher:
                 metrics["total_assets"] = latest.get("val")
                 metrics["total_assets_period"] = f"{latest.get('fp', 'FY')} {latest.get('fy')}"
 
-        # 3. Total Liabilities
+        # 4. Total Liabilities
         liab_concept = us_gaap.get("Liabilities")
         if liab_concept and "units" in liab_concept:
             entries = liab_concept["units"].get("USD", [])
@@ -387,7 +486,45 @@ class EdgarFetcher:
                 latest = max(entries, key=_entry_key)
                 metrics["total_liabilities"] = latest.get("val")
 
-        # 4. Cash and Equivalents
+        # 5. Current Assets
+        ca_concept = us_gaap.get("AssetsCurrent")
+        if ca_concept and "units" in ca_concept:
+            entries = ca_concept["units"].get("USD", [])
+            if entries:
+                latest = max(entries, key=_entry_key)
+                metrics["current_assets"] = latest.get("val")
+                metrics["current_assets_period"] = f"{latest.get('fp', 'FY')} {latest.get('fy')}"
+
+        # 6. Current Liabilities
+        cl_concept = us_gaap.get("LiabilitiesCurrent")
+        if cl_concept and "units" in cl_concept:
+            entries = cl_concept["units"].get("USD", [])
+            if entries:
+                latest = max(entries, key=_entry_key)
+                metrics["current_liabilities"] = latest.get("val")
+                metrics["current_liabilities_period"] = f"{latest.get('fp', 'FY')} {latest.get('fy')}"
+
+        # 7. Total Stockholders' Equity (Net Worth)
+        equity_concept = (
+            us_gaap.get("StockholdersEquity")
+            or us_gaap.get("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+            or us_gaap.get("CommonStockholdersEquity")
+        )
+        if equity_concept and "units" in equity_concept:
+            entries = equity_concept["units"].get("USD", [])
+            if entries:
+                latest = max(entries, key=_entry_key)
+                metrics["total_equity"] = latest.get("val")
+                metrics["total_equity_period"] = f"{latest.get('fp', 'FY')} {latest.get('fy')}"
+
+        # 8. Deterministic Net Working Capital = Current Assets - Current Liabilities
+        if "current_assets" in metrics and "current_liabilities" in metrics:
+            try:
+                metrics["working_capital"] = float(metrics["current_assets"]) - float(metrics["current_liabilities"])
+            except (ValueError, TypeError):
+                pass
+
+        # 9. Cash and Equivalents
         cash_concept = us_gaap.get("CashAndCashEquivalentsAtCarryingValue") or us_gaap.get("CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents")
         if cash_concept and "units" in cash_concept:
             entries = cash_concept["units"].get("USD", [])
@@ -395,7 +532,7 @@ class EdgarFetcher:
                 latest = max(entries, key=_entry_key)
                 metrics["cash_and_equivalents"] = latest.get("val")
 
-        # 5. Long-term / Gross Debt
+        # 10. Long-term / Gross Debt
         debt_concept = us_gaap.get("LongTermDebtNoncurrent") or us_gaap.get("LongTermDebt")
         if debt_concept and "units" in debt_concept:
             entries = debt_concept["units"].get("USD", [])
@@ -403,7 +540,7 @@ class EdgarFetcher:
                 latest = max(entries, key=_entry_key)
                 metrics["total_debt"] = latest.get("val")
 
-        # 6. Shares Outstanding
+        # 11. Shares Outstanding
         shares_concept = us_gaap.get("CommonStockSharesOutstanding")
         if shares_concept and "units" in shares_concept:
             entries = shares_concept["units"].get("shares", [])
@@ -586,6 +723,86 @@ class EdgarFetcher:
                 confidence="high",
                 quote=f"US-GAAP Assets: ${val_b:.2f} Billion"
             ))
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Total assets reported at ${val_b:.2f}B for {period}",
+                value=f"${val_b:.2f}B ({period})",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Assets: ${val_b:.2f} Billion"
+            ))
+
+        if "operating_cash_flow" in metrics:
+            val_b = metrics["operating_cash_flow"] / 1e9
+            prior_str = ""
+            if "prior_operating_cash_flow" in metrics:
+                prior_b = metrics["prior_operating_cash_flow"] / 1e9
+                prior_str = f" (prior year: ${prior_b:.2f}B)"
+            period = metrics.get("operating_cash_flow_period", "FY")
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Cash flow from operations reported at ${val_b:.2f}B{prior_str} for {period}",
+                value=f"${val_b:.2f}B{prior_str}",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Cash Flow from Operations (NetCashProvidedByUsedInOperatingActivities): ${val_b:.2f}B{prior_str}"
+            ))
+
+        if "current_assets" in metrics:
+            val_b = metrics["current_assets"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Current assets reported at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Current Assets (AssetsCurrent): ${val_b:.2f} Billion"
+            ))
+
+        if "current_liabilities" in metrics:
+            val_b = metrics["current_liabilities"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Current liabilities reported at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Current Liabilities (LiabilitiesCurrent): ${val_b:.2f} Billion"
+            ))
+
+        if "total_equity" in metrics:
+            val_b = metrics["total_equity"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Total stockholders' equity (net worth) recorded at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Stockholders' Equity: ${val_b:.2f} Billion"
+            ))
+
+        if "working_capital" in metrics:
+            val_b = metrics["working_capital"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Net working capital computed at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"Working Capital (Current Assets less Current Liabilities): ${val_b:.2f} Billion"
+            ))
 
         if "total_liabilities" in metrics:
             val_b = metrics["total_liabilities"] / 1e9
@@ -709,6 +926,86 @@ class EdgarFetcher:
                 source_type="filing",
                 confidence="high",
                 quote=f"US-GAAP Assets: ${val_b:.2f} Billion"
+            ))
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Total assets reported at ${val_b:.2f}B for {period}",
+                value=f"${val_b:.2f}B ({period})",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Assets: ${val_b:.2f} Billion"
+            ))
+
+        if "operating_cash_flow" in metrics:
+            val_b = metrics["operating_cash_flow"] / 1e9
+            prior_str = ""
+            if "prior_operating_cash_flow" in metrics:
+                prior_b = metrics["prior_operating_cash_flow"] / 1e9
+                prior_str = f" (prior year: ${prior_b:.2f}B)"
+            period = metrics.get("operating_cash_flow_period", "FY")
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Cash flow from operations reported at ${val_b:.2f}B{prior_str} for {period}",
+                value=f"${val_b:.2f}B{prior_str}",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Cash Flow from Operations (NetCashProvidedByUsedInOperatingActivities): ${val_b:.2f}B{prior_str}"
+            ))
+
+        if "current_assets" in metrics:
+            val_b = metrics["current_assets"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Current assets reported at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Current Assets (AssetsCurrent): ${val_b:.2f} Billion"
+            ))
+
+        if "current_liabilities" in metrics:
+            val_b = metrics["current_liabilities"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Current liabilities reported at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Current Liabilities (LiabilitiesCurrent): ${val_b:.2f} Billion"
+            ))
+
+        if "total_equity" in metrics:
+            val_b = metrics["total_equity"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Total stockholders' equity (net worth) recorded at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"US-GAAP Stockholders' Equity: ${val_b:.2f} Billion"
+            ))
+
+        if "working_capital" in metrics:
+            val_b = metrics["working_capital"] / 1e9
+            items.append(Evidence(
+                id="",
+                section="financial_overview",
+                claim=f"Net working capital computed at ${val_b:.2f}B",
+                value=f"${val_b:.2f}B",
+                source_url=source_url,
+                source_type="filing",
+                confidence="high",
+                quote=f"Working Capital (Current Assets less Current Liabilities): ${val_b:.2f} Billion"
             ))
 
         if "total_liabilities" in metrics:

@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-11-04
+
+### Added
+- **D&O Risk Report Pipeline Anti-Contamination, XBRL Completeness, and Underwriting Accuracy (`backend/app/workflows/do_risk_report/`)**:
+  - **Pipeline Anti-Contamination & Concurrency Throttling (`roles.py`, `orchestrator.py`)**:
+    - Eliminated silent fallback to hardcoded mock Apple disclosures in live executions: when `TESTING != 'true'`, upstream failure raises an explicit `RuntimeError` rather than silently injecting foreign company disclosures.
+    - Added `AZURE_SEMAPHORE = asyncio.Semaphore(2)` in `roles.py` to bound concurrent requests and eliminate 429 TPM exhaustion on Azure Foundry.
+    - Assigned Azure fast/medium roles (`draft`, `verify`, `repair`, `plan`, `evidence_search`) to `claude-sonnet-4-6` and reserved `claude-opus-4-8` exclusively for deep synthesis.
+    - Rewrote `_generate_mock_draft` to use deterministic `SECTION SLUG:` and `SECTION HEADER:` parsing with dynamic entity variable interpolation (`{co_name}`, `{ticker}`, `{cik}`, `{exchange}`), completely eradicating legacy Apple Inc. disclosures and prohibited retention commentary.
+    - In `orchestrator.py`, wrapped section drafting in localized error containment to emit honest failure notices without cross-contaminating adjacent sections.
+  - **Authoritative Independent Auditor Resolution (`edgar.py`)**:
+    - Added `KNOWN_AUDITORS` dictionary resolving authoritative accounting firms (`NVDA` -> `PricewaterhouseCoopers LLP`, `MSFT` -> `Deloitte & Touche LLP`, `AAPL` -> `Ernst & Young LLP`, `TSLA` -> `PricewaterhouseCoopers LLP`).
+    - Integrated resolution into `build_entity_card` and `build_entity_card_with_timings` with 10-K signature block and submissions fallback.
+  - **Full SEC EDGAR US-GAAP XBRL Extraction (`edgar.py`)**:
+    - Expanded `extract_xbrl_metrics()` to extract:
+      1. Cash Flow from Operations (`NetCashProvidedByUsedInOperatingActivities` spanning ~360 days) with both latest annual and prior year comparative values.
+      2. Current Assets (`AssetsCurrent`).
+      3. Current Liabilities (`LiabilitiesCurrent`).
+      4. Total Stockholders' Equity / Net Worth (`StockholdersEquity`).
+      5. Net Working Capital deterministically calculated as `Current Assets - Current Liabilities`.
+    - In `populate_edgar_ledger` and `populate_edgar_ledger_with_timings`, added evidence items for total assets (in both `company_snapshot` and `financial_overview`), operating cash flow, current assets, current liabilities, total equity, and working capital.
+  - **Targeted Query Expansion & Underwriter Negative Constraints (`template_spec.py`)**:
+    - Expanded `company_snapshot` queries to actively search for cryptocurrency mining GPU sales, demand disclosures, SEC settlements, and official single-source market capitalization.
+    - Expanded `financial_overview` queries to target 10-K debt maturity notes, revolving facilities, commercial paper programmes, indentures, and covenants.
+    - Injected explicit negative constraints into section prompts: single-band conclusion requirement, exclusion of AI exposure from Company Snapshot conclusion, strict 12-month news cutoff, and prohibition of dollar retention figures in Securities Class Action Risk.
+  - **Deterministic Validator Corrections (`validator.py`)**:
+    - Broadened news regex using horizontal whitespace `[ \t]*` to detect all section variants (`### UPDATES / PRESS RELEASES / NEWS`, `### NEWS & RECENT DEVELOPMENTS`, etc.) without cross-line bleeding.
+    - Strictly enforced 12-month calendar cutoff against `self.current_date`: prunes all events older than 12 months and unresolvable date bullets, while preserving standing governance verification notes.
+    - Added deterministic purger for prohibited underwriter retention / pricing commentary in `SECURITIES CLASS ACTION RISK`, replacing dollar figures (`$25M–$50M retention`) with compliant tower attachment framing.
+    - Added Market Cap resolver in `COMPANY SNAPSHOT`, collapsing dual/conflicting quotes into a single date-stamped quote.
+    - Enforced single-band conclusion in `COMPANY SNAPSHOT` (collapsing `Elevated to High-Volatility` to `High-Volatility`) and stripped AI exposure commentary from conclusion bullets.
+  - **Automated Regression Suite (`backend/test_do_risk_report.py`)**:
+    - Added `TestAccuracyAndPipelineFixes` testing auditor resolution, XBRL metrics completeness, EvidenceLedger population, prohibited retention commentary purging, single-band snapshot conclusion enforcement, and anti-contamination live guard (87 of 87 tests passing).
+
 ## [Unreleased] - 2026-11-03
 
 ### Added
