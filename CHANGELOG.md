@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-04
 
 ### Added
+- **Azure Foundry Multi-Round Retry & Visual Cooldown Progress (`backend/app/workflows/do_risk_report/roles.py`)**:
+  - Replaced immediate `RuntimeError` termination on model sequence failure with an outer multi-round retry loop (`AZURE_MAX_RETRY_ROUNDS`, default: 5).
+  - Added transient error detection (`is_retryable`) automatically identifying 429 TPM exhaustion, quota limits, timeouts, and 5xx server errors; non-transient errors (e.g. 401 Unauthorized) abort immediately.
+  - Implemented real-time progressive terminal output emitting progress bar, elapsed time, and countdown in seconds every 5 seconds (`AZURE_RETRY_WAIT_SECONDS`, default: 25s base wait with +10s incremental backoff per round).
+  - Preserved testing mode fast-path (`is_testing == True` uses a single pass) so test suites execute without delay.
 - **D&O Risk Report Pipeline Anti-Contamination, XBRL Completeness, and Underwriting Accuracy (`backend/app/workflows/do_risk_report/`)**:
   - **Pipeline Anti-Contamination & Concurrency Throttling (`roles.py`, `orchestrator.py`)**:
     - Eliminated silent fallback to hardcoded mock Apple disclosures in live executions: when `TESTING != 'true'`, upstream failure raises an explicit `RuntimeError` rather than silently injecting foreign company disclosures.

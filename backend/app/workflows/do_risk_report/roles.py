@@ -489,38 +489,86 @@ async def run_role(
 
         system_p = cfg["system"] + "\n\nRespond ONLY with a valid JSON object matching the required schema."
         last_azure_error = ""
-        for m_idx, current_model in enumerate(models_sequence):
-            is_fallback = (m_idx > 0)
-            max_attempts = 2 if len(models_sequence) > 1 else 3
-            for attempt in range(max_attempts):
-                try:
-                    content = await _execute_azure_chat(
-                        model=current_model,
-                        system_prompt=system_p,
-                        user_prompt=user_input,
-                        temp=cfg["temp"],
-                        max_tokens=cfg["max_tokens"],
-                    )
-                    parsed = _extract_json_from_llm_response(content)
-                    if parsed:
-                        if is_fallback:
-                            print(f"[FALLBACK SUCCESS] Role '{role}' succeeded with fallback model '{current_model}'")
-                        return parsed
-                    break
-                except Exception as e:
-                    last_azure_error = str(e)
-                    err_msg = str(e).lower()
-                    if ("rate limit" in err_msg or "429" in err_msg or "token" in err_msg) and not is_fallback and len(models_sequence) > 1:
-                        print(f"[RATE LIMIT 429] Role '{role}' hit TPM rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...")
+        max_outer_rounds = 1 if is_testing else int(os.environ.get("AZURE_MAX_RETRY_ROUNDS", "5"))
+        base_wait_seconds = int(os.environ.get("AZURE_RETRY_WAIT_SECONDS", "25"))
+
+        for round_idx in range(max_outer_rounds):
+            for m_idx, current_model in enumerate(models_sequence):
+                is_fallback = (m_idx > 0)
+                max_attempts = 2 if len(models_sequence) > 1 else 3
+                for attempt in range(max_attempts):
+                    try:
+                        content = await _execute_azure_chat(
+                            model=current_model,
+                            system_prompt=system_p,
+                            user_prompt=user_input,
+                            temp=cfg["temp"],
+                            max_tokens=cfg["max_tokens"],
+                        )
+                        parsed = _extract_json_from_llm_response(content)
+                        if parsed:
+                            if is_fallback or round_idx > 0:
+                                print(f"[AZURE SUCCESS] Role '{role}' succeeded with model '{current_model}' (round {round_idx + 1}/{max_outer_rounds})", flush=True)
+                            return parsed
                         break
-                    if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < max_attempts - 1:
-                        await asyncio.sleep(2.0 * (attempt + 1))
-                        continue
-                    print(f"Role '{role}' Azure Foundry execution note ({current_model}): {e}")
+                    except Exception as e:
+                        last_azure_error = str(e)
+                        err_msg = str(e).lower()
+                        if ("rate limit" in err_msg or "429" in err_msg or "token" in err_msg) and not is_fallback and len(models_sequence) > 1:
+                            print(f"[RATE LIMIT 429] Role '{role}' hit TPM rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...", flush=True)
+                            break
+                        if ("rate limit" in err_msg or "429" in err_msg or "503" in err_msg or "timeout" in err_msg) and attempt < max_attempts - 1:
+                            await asyncio.sleep(2.0 * (attempt + 1))
+                            continue
+                        print(f"Role '{role}' Azure Foundry execution note ({current_model}): {e}", flush=True)
+                        break
+
+            # If all models in sequence failed in this round, check if retryable before waiting
+            if round_idx < max_outer_rounds - 1:
+                is_retryable = any(
+                    kw in last_azure_error.lower()
+                    for kw in [
+                        "rate limit", "429", "token", "tpm", "quota", "overloaded",
+                        "capacity", "500", "502", "503", "504", "timeout",
+                        "connection", "temporarily", "service unavailable", "gateway",
+                        "call failed"
+                    ]
+                )
+                if not is_retryable:
+                    print(f"[AZURE NON-RETRYABLE] Non-transient error for role '{role}': {last_azure_error}. Aborting retry loop.", flush=True)
                     break
+
+                wait_seconds = base_wait_seconds + (round_idx * 10)
+                print(
+                    f"\n[AZURE RATE LIMIT COOLDOWN] Role '{role}' exhausted model sequence ({last_azure_error}).\n"
+                    f"[AZURE RATE LIMIT COOLDOWN] Pausing {wait_seconds}s for token quota reset before round {round_idx + 2}/{max_outer_rounds}...",
+                    flush=True,
+                )
+
+                elapsed = 0
+                step = 5
+                while elapsed < wait_seconds:
+                    sleep_time = min(step, wait_seconds - elapsed)
+                    await asyncio.sleep(sleep_time)
+                    elapsed += sleep_time
+                    remaining = wait_seconds - elapsed
+                    pct = int((elapsed / wait_seconds) * 100)
+                    bar_filled = "#" * (pct // 5)
+                    bar_empty = "-" * (20 - (pct // 5))
+                    if remaining > 0:
+                        print(
+                            f"  ⏳ [AZURE COOLDOWN] Role '{role}': [{bar_filled}{bar_empty}] {elapsed}s/{wait_seconds}s ({pct}%) — retrying in {remaining}s...",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"  ✅ [AZURE COOLDOWN COMPLETE] Role '{role}': Cooldown finished ({wait_seconds}s elapsed). Retrying request with model '{models_sequence[0]}'...\n",
+                            flush=True,
+                        )
+
         if is_testing:
             return _generate_mock_role_output(role, user_input)
-        raise RuntimeError(f"Role '{role}' Azure Foundry execution failed across models {models_sequence}: {last_azure_error}")
+        raise RuntimeError(f"Role '{role}' Azure Foundry execution failed across models {models_sequence} after {max_outer_rounds} retry rounds: {last_azure_error}")
 
     # Dispatch to Groq LPUs (gpt-oss or qwen)
     groq_client, _ = get_groq_client()

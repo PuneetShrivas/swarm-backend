@@ -1365,6 +1365,87 @@ class TestAccuracyAndPipelineFixes(unittest.TestCase):
             else:
                 os.environ.pop("AZURE_API_KEY", None)
 
+    def test_azure_retry_aborts_on_non_transient_error(self):
+        """Verifies Azure retry loop aborts immediately on non-transient errors like 401."""
+        from unittest.mock import patch, AsyncMock
+        import asyncio
+        import os
+        from app.workflows.do_risk_report.roles import run_role
+
+        old_testing = os.environ.get("TESTING")
+        old_azure = os.environ.get("AZURE_API_KEY")
+        try:
+            os.environ["TESTING"] = "false"
+            os.environ["AZURE_API_KEY"] = "sk-valid-format-key-for-test"
+            with patch("app.workflows.do_risk_report.roles._execute_azure_chat", new_callable=AsyncMock) as mock_exec:
+                mock_exec.side_effect = RuntimeError("Azure Foundry error 401: Unauthorized")
+                loop = asyncio.new_event_loop()
+                with self.assertRaises(RuntimeError) as ctx:
+                    loop.run_until_complete(
+                        run_role("draft", "TARGET COMPANY: NVIDIA", provider_override="azure")
+                    )
+                loop.close()
+                self.assertIn("401", str(ctx.exception))
+                self.assertLessEqual(mock_exec.call_count, 3)
+        finally:
+            if old_testing is not None:
+                os.environ["TESTING"] = old_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if old_azure is not None:
+                os.environ["AZURE_API_KEY"] = old_azure
+            else:
+                os.environ.pop("AZURE_API_KEY", None)
+
+    def test_azure_retry_succeeds_on_second_round(self):
+        """Verifies Azure retry loop recovers and succeeds on a subsequent round after transient 429."""
+        from unittest.mock import patch, AsyncMock
+        import asyncio
+        import os
+        from app.workflows.do_risk_report.roles import run_role
+
+        old_testing = os.environ.get("TESTING")
+        old_azure = os.environ.get("AZURE_API_KEY")
+        old_rounds = os.environ.get("AZURE_MAX_RETRY_ROUNDS")
+        old_wait = os.environ.get("AZURE_RETRY_WAIT_SECONDS")
+        try:
+            os.environ["TESTING"] = "false"
+            os.environ["AZURE_API_KEY"] = "sk-valid-format-key-for-test"
+            os.environ["AZURE_MAX_RETRY_ROUNDS"] = "3"
+            os.environ["AZURE_RETRY_WAIT_SECONDS"] = "1"
+            with patch("app.workflows.do_risk_report.roles._execute_azure_chat", new_callable=AsyncMock) as mock_exec, \
+                 patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                mock_exec.side_effect = [
+                    RuntimeError("Azure Foundry error 429: TPM rate limit exceeded"),
+                    RuntimeError("Azure Foundry error 429: TPM rate limit exceeded"),
+                    '{"section_text": "### COMPANY SNAPSHOT\\n- All clear [E001]\\n- Contained", "citations": ["E001"]}'
+                ]
+                loop = asyncio.new_event_loop()
+                result = loop.run_until_complete(
+                    run_role("draft", "TARGET COMPANY: NVIDIA", provider_override="azure")
+                )
+                loop.close()
+                self.assertIn("section_text", result)
+                self.assertIn("Contained", result["section_text"])
+                self.assertTrue(mock_sleep.called)
+        finally:
+            if old_testing is not None:
+                os.environ["TESTING"] = old_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if old_azure is not None:
+                os.environ["AZURE_API_KEY"] = old_azure
+            else:
+                os.environ.pop("AZURE_API_KEY", None)
+            if old_rounds is not None:
+                os.environ["AZURE_MAX_RETRY_ROUNDS"] = old_rounds
+            else:
+                os.environ.pop("AZURE_MAX_RETRY_ROUNDS", None)
+            if old_wait is not None:
+                os.environ["AZURE_RETRY_WAIT_SECONDS"] = old_wait
+            else:
+                os.environ.pop("AZURE_RETRY_WAIT_SECONDS", None)
+
 
 if __name__ == "__main__":
     unittest.main()
