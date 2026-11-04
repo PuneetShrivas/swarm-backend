@@ -150,13 +150,16 @@ class PerplexitySearchQueue:
         Executes a single or batch search query against Perplexity Search or returns cached/mocked results.
         """
         api_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
-        is_mock = (
-            not api_key
-            or api_key.startswith("your-")
-            or api_key.startswith("test-")
-            or os.environ.get("TESTING") == "true"
-            or os.environ.get("MOCK_PERPLEXITY") == "true"
-        )
+        is_test_env = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_PERPLEXITY") == "true"
+        allow_mock = is_test_env and (not api_key or os.environ.get("ALLOW_MOCK_DATA") == "true" or os.environ.get("MOCK_PERPLEXITY") == "true")
+
+        if not allow_mock and (not api_key or api_key.startswith("your-") or api_key.startswith("test-")):
+            raise RuntimeError(
+                "PERPLEXITY_API_KEY is not configured or invalid. "
+                "Live report generation requires authentic web search; mock data insertion is strictly disabled."
+            )
+
+        is_mock = allow_mock and (not api_key or api_key.startswith("your-") or api_key.startswith("test-") or os.environ.get("MOCK_PERPLEXITY") == "true")
 
         cache_key = self._get_cache_key(query, domains, recency, is_mock=is_mock)
         cached = self._read_cache(cache_key)
@@ -256,13 +259,16 @@ class PerplexitySearchQueue:
             return []
 
         api_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
-        is_mock = (
-            not api_key
-            or api_key.startswith("your-")
-            or api_key.startswith("test-")
-            or os.environ.get("TESTING") == "true"
-            or os.environ.get("MOCK_PERPLEXITY") == "true"
-        )
+        is_test_env = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_PERPLEXITY") == "true"
+        allow_mock = is_test_env and (not api_key or os.environ.get("ALLOW_MOCK_DATA") == "true" or os.environ.get("MOCK_PERPLEXITY") == "true")
+
+        if not allow_mock and (not api_key or api_key.startswith("your-") or api_key.startswith("test-")):
+            raise RuntimeError(
+                "PERPLEXITY_API_KEY is not configured or invalid. "
+                "Live report generation requires authentic web search; mock data insertion is strictly disabled."
+            )
+
+        is_mock = allow_mock and (not api_key or api_key.startswith("your-") or api_key.startswith("test-") or os.environ.get("MOCK_PERPLEXITY") == "true")
 
         if is_mock:
             tasks = [

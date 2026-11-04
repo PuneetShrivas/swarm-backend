@@ -145,9 +145,11 @@ class EdgarFetcher:
         except Exception as e:
             print(f"EDGAR CIK directory lookup note: {e}")
 
-        # Deterministic synthetic fallback for testing unknown tickers
-        synthetic_hash = int(hashlib.md5(clean_ticker.encode()).hexdigest(), 16) % 1000000
-        return str(synthetic_hash).zfill(10)
+        # Deterministic synthetic fallback ONLY when explicitly enabled for unit tests
+        if os.environ.get("TESTING") == "true" and os.environ.get("ALLOW_MOCK_DATA") == "true":
+            synthetic_hash = int(hashlib.md5(clean_ticker.encode()).hexdigest(), 16) % 1000000
+            return str(synthetic_hash).zfill(10)
+        return ""
 
     def fetch_submissions(self, cik: str) -> Dict[str, Any]:
         """Fetches company submissions metadata from SEC EDGAR API."""
@@ -168,32 +170,34 @@ class EdgarFetcher:
         except Exception as e:
             print(f"EDGAR Submissions fetch note for CIK {cik}: {e}")
 
-        # Mock submissions structure for offline resilience
-        return {
-            "cik": cik,
-            "name": f"Corporate Entity {cik}",
-            "formerNames": [],
-            "sic": "7370",
-            "sicDescription": "Services-Computer Programming, Data Processing, Etc.",
-            "stateOfIncorporation": "DE",
-            "fiscalYearEnd": "1231",
-            "addresses": {
-                "business": {
-                    "city": "Cupertino",
-                    "stateOrCountry": "CA",
-                    "street1": "One Apple Park Way",
-                }
-            },
-            "filings": {
-                "recent": {
-                    "form": ["10-K", "10-Q", "DEF 14A", "8-K"],
-                    "filingDate": ["2023-11-03", "2024-02-02", "2024-01-12", "2024-03-01"],
-                    "accessionNumber": ["0000320193-23-000106", "0000320193-24-000006", "0000320193-24-000010", "0000320193-24-000015"],
-                    "primaryDocument": ["aapl-20230930.htm", "aapl-20231230.htm", "def14a.htm", "form8k.htm"],
-                    "items": ["", "", "", "5.02,1.01"]
+        # Mock submissions structure ONLY when explicitly enabled for unit tests
+        if os.environ.get("TESTING") == "true" and os.environ.get("ALLOW_MOCK_DATA") == "true":
+            return {
+                "cik": cik,
+                "name": f"Corporate Entity {cik}",
+                "formerNames": [],
+                "sic": "7370",
+                "sicDescription": "Services-Computer Programming, Data Processing, Etc.",
+                "stateOfIncorporation": "DE",
+                "fiscalYearEnd": "1231",
+                "addresses": {
+                    "business": {
+                        "city": "Cupertino",
+                        "stateOrCountry": "CA",
+                        "street1": "One Apple Park Way",
+                    }
+                },
+                "filings": {
+                    "recent": {
+                        "form": ["10-K", "10-Q", "DEF 14A", "8-K"],
+                        "filingDate": ["2023-11-03", "2024-02-02", "2024-01-12", "2024-03-01"],
+                        "accessionNumber": ["0000320193-23-000106", "0000320193-24-000006", "0000320193-24-000010", "0000320193-24-000015"],
+                        "primaryDocument": ["aapl-20230930.htm", "aapl-20231230.htm", "def14a.htm", "form8k.htm"],
+                        "items": ["", "", "", "5.02,1.01"]
+                    }
                 }
             }
-        }
+        return {}
 
     def fetch_company_facts(self, cik: str) -> Dict[str, Any]:
         """Fetches US-GAAP structured XBRL facts from SEC EDGAR API."""
@@ -214,95 +218,97 @@ class EdgarFetcher:
         except Exception as e:
             print(f"EDGAR XBRL facts fetch note for CIK {cik}: {e}")
 
-        # Mock XBRL facts payload for offline resilience
-        return {
-            "cik": int(cik),
-            "entityName": f"Corporate Entity {cik}",
-            "facts": {
-                "us-gaap": {
-                    "Revenues": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2021", "val": 365817000000, "fy": 2021},
-                                {"form": "10-K", "frame": "CY2022", "val": 394328000000, "fy": 2022},
-                                {"form": "10-K", "frame": "CY2023", "val": 383285000000, "fy": 2023},
-                            ]
-                        }
-                    },
-                    "NetCashProvidedByUsedInOperatingActivities": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2022", "val": 28000000000, "fy": 2022, "fp": "FY"},
-                                {"form": "10-K", "frame": "CY2023", "val": 35000000000, "fy": 2023, "fp": "FY"},
-                            ]
-                        }
-                    },
-                    "NetIncomeLoss": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023", "val": 96995000000, "fy": 2023}
-                            ]
-                        }
-                    },
-                    "Assets": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 352583000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "AssetsCurrent": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 140000000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "Liabilities": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 290437000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "LiabilitiesCurrent": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 100000000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "StockholdersEquity": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 62146000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "CashAndCashEquivalentsAtCarryingValue": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 29965000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "LongTermDebtNoncurrent": {
-                        "units": {
-                            "USD": [
-                                {"form": "10-K", "frame": "CY2023Q4I", "val": 95281000000, "fy": 2023, "fp": "FY"}
-                            ]
-                        }
-                    },
-                    "CommonStockSharesOutstanding": {
-                        "units": {
-                            "shares": [
-                                {"form": "10-K", "val": 15550061000, "fy": 2023}
-                            ]
+        # Mock XBRL facts payload ONLY when explicitly enabled for unit tests
+        if os.environ.get("TESTING") == "true" and os.environ.get("ALLOW_MOCK_DATA") == "true":
+            return {
+                "cik": int(cik),
+                "entityName": f"Corporate Entity {cik}",
+                "facts": {
+                    "us-gaap": {
+                        "Revenues": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2021", "val": 365817000000, "fy": 2021},
+                                    {"form": "10-K", "frame": "CY2022", "val": 394328000000, "fy": 2022},
+                                    {"form": "10-K", "frame": "CY2023", "val": 383285000000, "fy": 2023},
+                                ]
+                            }
+                        },
+                        "NetCashProvidedByUsedInOperatingActivities": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2022", "val": 28000000000, "fy": 2022, "fp": "FY"},
+                                    {"form": "10-K", "frame": "CY2023", "val": 35000000000, "fy": 2023, "fp": "FY"},
+                                ]
+                            }
+                        },
+                        "NetIncomeLoss": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023", "val": 96995000000, "fy": 2023}
+                                ]
+                            }
+                        },
+                        "Assets": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 352583000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "AssetsCurrent": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 140000000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "Liabilities": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 290437000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "LiabilitiesCurrent": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 100000000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "StockholdersEquity": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 62146000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "CashAndCashEquivalentsAtCarryingValue": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 29965000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "LongTermDebtNoncurrent": {
+                            "units": {
+                                "USD": [
+                                    {"form": "10-K", "frame": "CY2023Q4I", "val": 95281000000, "fy": 2023, "fp": "FY"}
+                                ]
+                            }
+                        },
+                        "CommonStockSharesOutstanding": {
+                            "units": {
+                                "shares": [
+                                    {"form": "10-K", "val": 15550061000, "fy": 2023}
+                                ]
+                            }
                         }
                     }
                 }
             }
-        }
+        return {}
 
     def build_entity_card(self, ticker: str) -> EntityCard:
         """Constructs canonical EntityCard using SEC submissions."""

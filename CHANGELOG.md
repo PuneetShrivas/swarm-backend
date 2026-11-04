@@ -6,7 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 2026-11-04
 
-### Added
+### Fixed & Enhanced
+- **Zero Mock Data Injection in Live Report Generation (`backend/app/workflows/do_risk_report/`)**:
+  - **SEC EDGAR Zero-Mock Fallback (`edgar.py`)**:
+    - Completely eliminated mock Apple submissions payload (Cupertino, CA, One Apple Park Way, fake accession numbers) when SEC requests fail.
+    - Completely eliminated mock Apple US-GAAP XBRL payload ($383B revenues, $352B assets, $35B OCF) when SEC facts fetch fails.
+    - Completely eliminated synthetic MD5 hash CIK generation: returns `""` if CIK cannot be authentically resolved from directory or known lookups.
+    - Mock fixtures are strictly gated behind `os.environ.get("TESTING") == "true" and os.environ.get("ALLOW_MOCK_DATA") == "true"`.
+  - **Perplexity Live Search Enforcement (`retrieval.py`)**:
+    - Removed silent fallback to synthetic litigation dockets when `PERPLEXITY_API_KEY` is missing in live mode; now raises an explicit `RuntimeError` requiring authentic search credentials.
+    - Mock search results are strictly gated behind explicit test environment flags.
+  - **Provider Role Execution Anti-Contamination (`roles.py`)**:
+    - Prohibited silent fallbacks to `_generate_mock_role_output` across Azure, Gemini, IteraCompute, and Groq providers during live report generation.
+- **Azure Foundry Anthropic Messages Resiliency & Role 'extract' Fix (`roles.py`, `orchestrator.py`)**:
+  - **Multi-Block Text Aggregation (`_execute_azure_chat`)**: Iterates through all response `content` items, aggregating all text blocks while discarding thinking blocks and inspecting payloads for embedded error messages.
+  - **Robust JSON Extraction & Thinking Stripper (`_extract_json_from_llm_response`)**:
+    - Added regex stripping for `<thinking>...</thinking>` and `<thought>...</thought>` tags with nested curly braces.
+    - Added support for bare JSON array payloads (`[{"claim": "..."}]`), automatically normalizing them into `{"items": [...]}` to satisfy extraction schema.
+    - Added trailing comma repair for truncated or loosely formatted JSON blocks.
+  - **Parse Failure Retry & Descriptive Diagnostics**:
+    - Fixed silent `break` bug where unparseable LLM output aborted with an empty error message: now records full failure diagnostics in `last_azure_error`, logs retry warnings, and retries across model attempts.
+    - Added `"unparseable"`, `"empty json"`, `"parse"`, and `"empty content"` to `is_retryable` keywords for outer cooldown rounds.
+  - **Token Quota Expansion**: Raised `extract` role `max_tokens` from 2500 to 4000 to prevent JSON truncation when extracting up to 10 dense search snippets.
+  - **Defensive Orchestrator Extraction Containment (`orchestrator.py`)**: Wrapped `run_role("extract", ...)` and `run_role("gap", ...)` in localized try-except blocks to ensure pipeline resilience, allowing the report to continue cleanly with primary SEC filing evidence if a search extraction glitch occurs.
 - **Azure Foundry Multi-Round Retry & Visual Cooldown Progress (`backend/app/workflows/do_risk_report/roles.py`)**:
   - Replaced immediate `RuntimeError` termination on model sequence failure with an outer multi-round retry loop (`AZURE_MAX_RETRY_ROUNDS`, default: 5).
   - Added transient error detection (`is_retryable`) automatically identifying 429 TPM exhaustion, quota limits, timeouts, and 5xx server errors; non-transient errors (e.g. 401 Unauthorized) abort immediately.

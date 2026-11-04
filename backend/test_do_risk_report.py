@@ -1446,6 +1446,120 @@ class TestAccuracyAndPipelineFixes(unittest.TestCase):
             else:
                 os.environ.pop("AZURE_RETRY_WAIT_SECONDS", None)
 
+    def test_zero_mock_fallbacks_in_live_mode(self):
+        """Verifies edgar.py and retrieval.py never inject synthetic/mock data when TESTING != 'true'."""
+        import os
+        from app.workflows.do_risk_report.edgar import EdgarFetcher
+        from app.workflows.do_risk_report.retrieval import PerplexitySearchQueue
+
+        old_testing = os.environ.get("TESTING")
+        old_mock = os.environ.get("ALLOW_MOCK_DATA")
+        old_px = os.environ.get("PERPLEXITY_API_KEY")
+        try:
+            os.environ["TESTING"] = "false"
+            os.environ.pop("ALLOW_MOCK_DATA", None)
+            os.environ.pop("PERPLEXITY_API_KEY", None)
+
+            fetcher = EdgarFetcher()
+            # Unknown CIK with network offline/failing must return {} rather than Cupertino/Apple
+            subs = fetcher.fetch_submissions("9999999999")
+            self.assertEqual(subs, {})
+
+            facts = fetcher.fetch_company_facts("9999999999")
+            self.assertEqual(facts, {})
+
+            # Unknown ticker must return "" rather than synthetic MD5 hash
+            cik = fetcher.resolve_cik("UNKNOWNXYZ")
+            self.assertEqual(cik, "")
+
+            # Perplexity queue search without API key must raise RuntimeError in live mode
+            queue = PerplexitySearchQueue()
+            import asyncio
+            loop = asyncio.new_event_loop()
+            with self.assertRaises(RuntimeError) as ctx:
+                loop.run_until_complete(queue.search("Test query"))
+            loop.close()
+            self.assertIn("PERPLEXITY_API_KEY is not configured", str(ctx.exception))
+        finally:
+            if old_testing is not None:
+                os.environ["TESTING"] = old_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if old_mock is not None:
+                os.environ["ALLOW_MOCK_DATA"] = old_mock
+            else:
+                os.environ.pop("ALLOW_MOCK_DATA", None)
+            if old_px is not None:
+                os.environ["PERPLEXITY_API_KEY"] = old_px
+            else:
+                os.environ.pop("PERPLEXITY_API_KEY", None)
+
+    def test_extract_json_thinking_blocks_and_bare_arrays(self):
+        """Verifies _extract_json_from_llm_response strips <thinking> tags and normalizes bare lists."""
+        from app.workflows.do_risk_report.roles import _extract_json_from_llm_response
+
+        # Thinking block with inner curly braces
+        thinking_text = "<thinking>Analyzing search snippets with {nested: 'data'}</thinking>\n```json\n{\"items\": [{\"claim\": \"Atomic fact\"}]}\n```"
+        parsed = _extract_json_from_llm_response(thinking_text)
+        self.assertIn("items", parsed)
+        self.assertEqual(len(parsed["items"]), 1)
+        self.assertEqual(parsed["items"][0]["claim"], "Atomic fact")
+
+        # Bare list output
+        bare_list_text = '[{"claim": "Claim 1", "status": "found"}, {"claim": "Claim 2", "status": "found"}]'
+        parsed_list = _extract_json_from_llm_response(bare_list_text)
+        self.assertIn("items", parsed_list)
+        self.assertEqual(len(parsed_list["items"]), 2)
+        self.assertEqual(parsed_list["items"][0]["claim"], "Claim 1")
+
+    def test_azure_parse_error_retry_and_descriptive_message(self):
+        """Verifies Azure retry loop handles unparseable responses with descriptive error and retry."""
+        from unittest.mock import patch, AsyncMock
+        import asyncio
+        import os
+        from app.workflows.do_risk_report.roles import run_role
+
+        old_testing = os.environ.get("TESTING")
+        old_azure = os.environ.get("AZURE_API_KEY")
+        old_rounds = os.environ.get("AZURE_MAX_RETRY_ROUNDS")
+        old_wait = os.environ.get("AZURE_RETRY_WAIT_SECONDS")
+        try:
+            os.environ["TESTING"] = "false"
+            os.environ["AZURE_API_KEY"] = "sk-valid-key"
+            os.environ["AZURE_MAX_RETRY_ROUNDS"] = "1"
+            os.environ["AZURE_RETRY_WAIT_SECONDS"] = "1"
+
+            with patch("app.workflows.do_risk_report.roles._execute_azure_chat", new_callable=AsyncMock) as mock_exec:
+                # Return unparseable malformed text on all attempts
+                mock_exec.return_value = "Sorry, I cannot return JSON: <unclosed"
+                loop = asyncio.new_event_loop()
+                with self.assertRaises(RuntimeError) as ctx:
+                    loop.run_until_complete(
+                        run_role("extract", "Extract test", provider_override="azure")
+                    )
+                loop.close()
+                err_text = str(ctx.exception)
+                self.assertIn("unparseable or empty JSON response", err_text)
+                self.assertIn("extract", err_text)
+                self.assertGreater(len(err_text), 30)
+        finally:
+            if old_testing is not None:
+                os.environ["TESTING"] = old_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if old_azure is not None:
+                os.environ["AZURE_API_KEY"] = old_azure
+            else:
+                os.environ.pop("AZURE_API_KEY", None)
+            if old_rounds is not None:
+                os.environ["AZURE_MAX_RETRY_ROUNDS"] = old_rounds
+            else:
+                os.environ.pop("AZURE_MAX_RETRY_ROUNDS", None)
+            if old_wait is not None:
+                os.environ["AZURE_RETRY_WAIT_SECONDS"] = old_wait
+            else:
+                os.environ.pop("AZURE_RETRY_WAIT_SECONDS", None)
+
 
 if __name__ == "__main__":
     unittest.main()

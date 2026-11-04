@@ -156,10 +156,38 @@ async def _execute_azure_chat(
             if r.status_code != 200:
                 raise RuntimeError(f"Azure Foundry error {r.status_code}: {r.text}")
             data = r.json()
+            if not isinstance(data, dict):
+                raise RuntimeError(f"Azure Foundry returned non-dict response: {data}")
+
+            # Check for error payload even if HTTP status was 200
+            if "error" in data:
+                err_obj = data["error"]
+                msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                raise RuntimeError(f"Azure Foundry API error: {msg}")
+
             content_items = data.get("content", [])
-            if content_items and isinstance(content_items, list):
-                return content_items[0].get("text", "")
-            return ""
+            text_blocks: List[str] = []
+            if isinstance(content_items, list):
+                for item in content_items:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text" or "text" in item:
+                            text_blocks.append(item.get("text", ""))
+            elif isinstance(content_items, str):
+                text_blocks.append(content_items)
+
+            full_text = "".join(text_blocks).strip()
+            if not full_text:
+                if "message" in data and isinstance(data["message"], dict):
+                    full_text = str(data["message"].get("content", "")).strip()
+                elif "choices" in data and isinstance(data["choices"], list) and data["choices"]:
+                    first_choice = data["choices"][0]
+                    if isinstance(first_choice, dict) and "message" in first_choice:
+                        full_text = str(first_choice["message"].get("content", "")).strip()
+
+            if not full_text:
+                raise RuntimeError(f"Azure Foundry returned empty content payload (keys: {list(data.keys())})")
+
+            return full_text
 
 
 async def _execute_iteracompute_chat(
@@ -311,7 +339,7 @@ Output format: JSON object with key "patched_text": "..." """
 
 ROLES_CONFIG: Dict[str, Dict[str, Any]] = {
     "plan": {"model": GROQ_MEDIUM_TIER, "system": PLAN_PROMPT, "temp": 0.1, "max_tokens": 800},
-    "extract": {"model": GROQ_FAST_TIER, "system": EXTRACT_PROMPT, "temp": 0.0, "max_tokens": 2500},
+    "extract": {"model": GROQ_FAST_TIER, "system": EXTRACT_PROMPT, "temp": 0.0, "max_tokens": 4000},
     "gap": {"model": GROQ_FAST_TIER, "system": GAP_PROMPT, "temp": 0.0, "max_tokens": 800},
     "draft": {"model": GROQ_MEDIUM_TIER, "system": DRAFT_PROMPT, "temp": 0.1, "max_tokens": 3000},
     "synthesize": {"model": GROQ_REASONING_TIER, "system": SYNTHESIZE_PROMPT, "temp": 0.1, "max_tokens": 3000},
@@ -321,30 +349,72 @@ ROLES_CONFIG: Dict[str, Dict[str, Any]] = {
 
 
 def _extract_json_from_llm_response(text: str) -> Dict[str, Any]:
-    """Robust parser that extracts JSON payload from markdown fences or raw strings."""
+    """Robust parser that extracts JSON payload from markdown fences, raw strings, thinking blocks, or bare lists."""
     if not text:
         return {}
-    # Try direct parse
+
+    # 1. Strip thinking blocks <thinking>...</thinking> or <thought>...</thought>
+    cleaned = re.sub(r"<(?:thinking|thought)>[\s\S]*?</(?:thinking|thought)>", "", text).strip()
+    if not cleaned:
+        cleaned = text.strip()
+
+    # 2. Try direct parse on cleaned text
     try:
-        return json.loads(text.strip())
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+        elif isinstance(parsed, list):
+            return {"items": parsed}
     except Exception:
         pass
 
-    # Try fenced json block ```json ... ```
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
-    if match:
+    # 3. Try fenced json block ```json ... ```
+    matches = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
+    for block in matches:
         try:
-            return json.loads(match.group(1).strip())
+            parsed = json.loads(block.strip())
+            if isinstance(parsed, dict):
+                return parsed
+            elif isinstance(parsed, list):
+                return {"items": parsed}
         except Exception:
             pass
 
-    # Try curly brace matching { ... }
-    match_braces = re.search(r"(\{[\s\S]*\})", text)
-    if match_braces:
+    # 4. Try outermost curly braces { ... }
+    brace_start = cleaned.find("{")
+    brace_end = cleaned.rfind("}")
+    if brace_start != -1 and brace_end > brace_start:
+        candidate = cleaned[brace_start:brace_end + 1]
         try:
-            return json.loads(match_braces.group(1).strip())
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
         except Exception:
-            pass
+            try:
+                repaired = re.sub(r",\s*([\}\]])", r"\1", candidate)
+                parsed = json.loads(repaired)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+
+    # 5. Try outermost brackets [ ... ] (bare list output)
+    bracket_start = cleaned.find("[")
+    bracket_end = cleaned.rfind("]")
+    if bracket_start != -1 and bracket_end > bracket_start:
+        candidate_arr = cleaned[bracket_start:bracket_end + 1]
+        try:
+            parsed = json.loads(candidate_arr)
+            if isinstance(parsed, list):
+                return {"items": parsed}
+        except Exception:
+            try:
+                repaired = re.sub(r",\s*([\}\]])", r"\1", candidate_arr)
+                parsed = json.loads(repaired)
+                if isinstance(parsed, list):
+                    return {"items": parsed}
+            except Exception:
+                pass
 
     return {}
 
@@ -387,7 +457,9 @@ async def run_role(
     if active_prov == "gemini":
         gemini_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not gemini_api_key or gemini_api_key.startswith("your-") or gemini_api_key.startswith("test-"):
-            return _generate_mock_role_output(role, user_input)
+            if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
+                return _generate_mock_role_output(role, user_input)
+            raise RuntimeError("GEMINI_API_KEY is not configured or invalid.")
 
         models_sequence = [selected_model]
         if active_fallback and active_fallback != selected_model:
@@ -412,6 +484,10 @@ async def run_role(
                         if is_fallback:
                             print(f"[FALLBACK SUCCESS] Role '{role}' succeeded with fallback model '{current_model}'")
                         return parsed
+                    last_gemini_error = f"Model '{current_model}' returned unparseable or empty JSON response (length={len(content)})."
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
                     break
                 except Exception as e:
                     last_gemini_error = str(e)
@@ -424,7 +500,7 @@ async def run_role(
                         continue
                     print(f"Role '{role}' Gemini execution note ({current_model}): {e}")
                     break
-        if is_testing:
+        if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
             return _generate_mock_role_output(role, user_input)
         raise RuntimeError(f"Role '{role}' Gemini execution failed across models {models_sequence}: {last_gemini_error}")
 
@@ -432,7 +508,7 @@ async def run_role(
     if active_prov in ["iteracompute", "itera"]:
         itera_key = os.environ.get("ITERACOMPUTE_API_KEY")
         if not itera_key or itera_key.startswith("your-") or itera_key.startswith("test-"):
-            if is_testing:
+            if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
                 return _generate_mock_role_output(role, user_input)
             raise RuntimeError("ITERACOMPUTE_API_KEY is not configured or invalid.")
 
@@ -459,6 +535,10 @@ async def run_role(
                         if is_fallback:
                             print(f"[FALLBACK SUCCESS] Role '{role}' succeeded with fallback model '{current_model}'")
                         return parsed
+                    last_itera_error = f"Model '{current_model}' returned unparseable or empty JSON response (length={len(content)})."
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
                     break
                 except Exception as e:
                     last_itera_error = str(e)
@@ -471,7 +551,7 @@ async def run_role(
                         continue
                     print(f"Role '{role}' IteraCompute execution note ({current_model}): {e}")
                     break
-        if is_testing:
+        if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
             return _generate_mock_role_output(role, user_input)
         raise RuntimeError(f"Role '{role}' IteraCompute execution failed across models {models_sequence}: {last_itera_error}")
 
@@ -479,7 +559,7 @@ async def run_role(
     if active_prov in ["azure", "azure-foundry", "foundry"]:
         azure_key = os.environ.get("AZURE_API_KEY")
         if not azure_key or azure_key.startswith("your-") or azure_key.startswith("test-"):
-            if is_testing:
+            if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
                 return _generate_mock_role_output(role, user_input)
             raise RuntimeError("AZURE_API_KEY is not configured or invalid.")
 
@@ -510,6 +590,13 @@ async def run_role(
                             if is_fallback or round_idx > 0:
                                 print(f"[AZURE SUCCESS] Role '{role}' succeeded with model '{current_model}' (round {round_idx + 1}/{max_outer_rounds})", flush=True)
                             return parsed
+
+                        # Response could not be parsed into a valid JSON object
+                        last_azure_error = f"Model '{current_model}' returned unparseable or empty JSON response (length={len(content)}). Content preview: {repr(content[:250])}"
+                        print(f"[AZURE PARSE RETRY] Role '{role}' ({current_model}) attempt {attempt + 1}/{max_attempts}: {last_azure_error}", flush=True)
+                        if attempt < max_attempts - 1:
+                            await asyncio.sleep(1.5 * (attempt + 1))
+                            continue
                         break
                     except Exception as e:
                         last_azure_error = str(e)
@@ -531,7 +618,8 @@ async def run_role(
                         "rate limit", "429", "token", "tpm", "quota", "overloaded",
                         "capacity", "500", "502", "503", "504", "timeout",
                         "connection", "temporarily", "service unavailable", "gateway",
-                        "call failed"
+                        "call failed", "unparseable", "empty json", "parse", "empty content",
+                        "json response"
                     ]
                 )
                 if not is_retryable:
@@ -566,14 +654,14 @@ async def run_role(
                             flush=True,
                         )
 
-        if is_testing:
+        if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
             return _generate_mock_role_output(role, user_input)
         raise RuntimeError(f"Role '{role}' Azure Foundry execution failed across models {models_sequence} after {max_outer_rounds} retry rounds: {last_azure_error}")
 
     # Dispatch to Groq LPUs (gpt-oss or qwen)
     groq_client, _ = get_groq_client()
     if not groq_client or not is_groq_configured():
-        if is_testing:
+        if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
             return _generate_mock_role_output(role, user_input)
         raise RuntimeError("Groq client is not configured.")
 
@@ -601,6 +689,10 @@ async def run_role(
                     if is_fallback:
                         print(f"[FALLBACK SUCCESS] Role '{role}' succeeded on Groq with fallback model '{current_model}'")
                     return parsed
+                last_groq_error = f"Model '{current_model}' returned unparseable or empty JSON response (length={len(content)})."
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
                 break
             except Exception as e:
                 last_groq_error = str(e)
@@ -614,8 +706,8 @@ async def run_role(
                 print(f"Role '{role}' Groq execution note ({current_model}): {e}")
                 break
 
-    # Fallback to deterministic mock in test mode only
-    if is_testing:
+    # Fallback to deterministic mock in test mode only when explicitly allowed
+    if is_testing and os.environ.get("ALLOW_MOCK_DATA") == "true":
         return _generate_mock_role_output(role, user_input)
     raise RuntimeError(f"Role '{role}' Groq execution failed across models {models_sequence}: {last_groq_error}")
 

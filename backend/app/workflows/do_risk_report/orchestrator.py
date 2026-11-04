@@ -97,7 +97,11 @@ class DORiskReportOrchestrator:
                     f"SEARCH RESULTS:\n{compacted_text}"
                 )
                 t_e0 = time.perf_counter()
-                extract_res = await run_role("extract", user_prompt)
+                try:
+                    extract_res = await run_role("extract", user_prompt)
+                except Exception as e:
+                    print(f"[ORCHESTRATOR NOTE] Role 'extract' for section '{section_name}' encountered error ({e}). Proceeding with existing ledger evidence.", flush=True)
+                    extract_res = {"items": []}
                 rnd_extract_ms = (time.perf_counter() - t_e0) * 1000
                 total_extract_ms += rnd_extract_ms
 
@@ -133,7 +137,11 @@ class DORiskReportOrchestrator:
                 f"Evidence Claims: " + "; ".join(f"[{r.id}] {r.claim}" for r in sec_rows[:10])
             )
             t_g0 = time.perf_counter()
-            gap_res = await run_role("gap", gap_prompt)
+            try:
+                gap_res = await run_role("gap", gap_prompt)
+            except Exception as e:
+                print(f"[ORCHESTRATOR NOTE] Role 'gap' for section '{section_name}' encountered error ({e}). Continuing.", flush=True)
+                gap_res = {"queries": []}
             rnd_gap_ms = (time.perf_counter() - t_g0) * 1000
             total_gap_ms += rnd_gap_ms
 
