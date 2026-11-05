@@ -13,6 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Zero Section Skipping in Section Drafting (`orchestrator.py`)**: Replaced single-attempt exception catch in `_process_section()` with a persistent retry loop (`max_draft_retries = 4`, configurable via `DRAFT_MAX_RETRIES`), eliminating premature report section skipping and inline `- Section drafting unavailable due to upstream error:` fallbacks.
   - **Resilient Cross-Section Synthesis Retries (`orchestrator.py`)**: Added persistent retry loop (`max_synth_retries = 4`, configurable via `SYNTH_MAX_RETRIES`) across overarching synthesis sections.
   - **Automated Test Coverage (`backend/test_agnostic_research_report.py`)**: Added `TestAgnosticRateLimitRetry` unit test suite covering dynamic wait string parsing, transient 429 retry recovery, and orchestrator section drafting self-healing.
+- **Standalone Agnostic Workflow Rate Limit Retry Replicate (`agnostic_workflow/`)**:
+  - Replicated dynamic 429 wait time extraction (`parse_retry_delay`), 5-round outer cooldown loop with countdown progress reporting, and model failovers in `agnostic_workflow/roles.py`.
+  - Replicated persistent section drafting retry loop (`max_draft_retries = 4`) and Stage 3 synthesis retry loop (`max_synth_retries = 4`) in `agnostic_workflow/orchestrator.py`, eliminating premature section skipping on rate limits.
+  - Added unit tests `test_10_rate_limit_delay_parsing`, `test_11_run_role_429_retry_recovery`, and `test_12_orchestrator_section_draft_retry_recovers` in `agnostic_workflow/test_standalone_workflow.py` while ensuring 0 external app dependencies.
+  - Repacked standalone zip archive `agnostic_workflow.zip` with the latest resilient code.
 - **Global Perplexity Fast Search Mode (`search_type: "fast"`)**:
   - Configured Perplexity's high-speed Photon engine (`search_type: "fast"`) across all Search API endpoints (`POST https://api.perplexity.ai/search`) and chat completion calls, reducing retrieval latency to sub-250ms and cutting API query costs by 80%.
   - Updated `backend/app/agents/researcher/tools.py` (`search_via_perplexity_search_api`, `async_search_via_perplexity_search_api`, `search_via_perplexity`) to transmit `"search_type": "fast"` by default.
