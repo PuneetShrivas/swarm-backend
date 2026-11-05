@@ -268,6 +268,7 @@ class WorkflowExecutionEngine:
                             "model": model_name if model_name.startswith("sonar") else "sonar",
                             "messages": perp_messages,
                             "temperature": temperature,
+                            "search_type": os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast"),
                         },
                         timeout=35.0,
                     )

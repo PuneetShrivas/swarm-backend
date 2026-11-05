@@ -173,6 +173,31 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
         self.assertIn("https://prnewswire.com/news/nvidia", domains)
         self.assertIn("https://reuters.com/markets/chips", domains)
 
+    def test_05b_perplexity_fast_search_payload(self):
+        """Verifies that Perplexity Search API requests in standalone retrieval transmit search_type: 'fast'."""
+        import asyncio
+        from unittest.mock import patch, MagicMock
+        from agnostic_workflow.retrieval import async_search_via_perplexity_search_api
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {"title": "Fast Search Test", "url": "https://example.com/fast", "snippet": "Fast mode verified", "date": "2026-11-05"}
+            ]
+        }
+
+        async def run_check():
+            with patch("httpx.AsyncClient.post", return_value=mock_resp) as mock_post:
+                res = await async_search_via_perplexity_search_api("Quantum photonics", api_key="test-key-fast")
+                self.assertIsNotNone(res)
+                call_kwargs = mock_post.call_args[1]
+                payload = call_kwargs["json"]
+                self.assertEqual(payload.get("search_type"), "fast")
+                self.assertEqual(payload.get("search_context_size"), "high")
+
+        asyncio.run(run_check())
+
     def test_06_roles_json_extraction(self):
         """Verifies JSON parsing across fences, thinking blocks, and loose formats."""
         # Thinking blocks

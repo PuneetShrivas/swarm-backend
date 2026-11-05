@@ -1938,6 +1938,7 @@ Successfully executed workflow **`{wf_data.get('title')}`** across **{len(attach
                     "model": chosen_model,
                     "messages": perp_messages,
                     "temperature": agent_temp,
+                    "search_type": os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast"),
                 },
                 timeout=25.0
             )
@@ -2907,6 +2908,7 @@ def test_custom_agent(
                         "model": model_name if model_name.startswith("sonar") else "sonar",
                         "messages": perp_messages,
                         "temperature": temperature,
+                        "search_type": os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast"),
                     },
                     timeout=35.0,
                 )

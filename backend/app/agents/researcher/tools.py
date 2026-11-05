@@ -23,6 +23,7 @@ def search_via_perplexity(query: str, api_key: str, max_results: int = 5) -> Opt
                 {"role": "user", "content": query},
             ],
             "max_tokens": 1000,
+            "search_type": os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast"),
         }
         resp = httpx.post(
             "https://api.perplexity.ai/chat/completions",
@@ -55,6 +56,7 @@ def search_via_perplexity_search_api(
     max_results: int = 10,
     search_context_size: str = "high",
     timeout: float = 15.0,
+    search_type: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Performs fast, token-efficient live web search using Perplexity's raw Search API endpoint
@@ -83,8 +85,10 @@ def search_via_perplexity_search_api(
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
+    resolved_search_type = search_type or os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast")
     payload = {
         "query": query_payload,
+        "search_type": resolved_search_type,
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }
@@ -139,6 +143,7 @@ async def async_search_via_perplexity_search_api(
     search_context_size: str = "high",
     timeout: float = 20.0,
     max_retries: int = 4,
+    search_type: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Asynchronous version of search_via_perplexity_search_api with exponential backoff retry.
@@ -168,8 +173,10 @@ async def async_search_via_perplexity_search_api(
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
+    resolved_search_type = search_type or os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast")
     payload = {
         "query": query_payload,
+        "search_type": resolved_search_type,
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }

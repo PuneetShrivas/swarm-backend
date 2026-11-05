@@ -34,6 +34,7 @@ class WorkflowConfig:
     # Perplexity API
     PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
     PERPLEXITY_BASE_URL = os.environ.get("PERPLEXITY_BASE_URL", "https://api.perplexity.ai")
+    PERPLEXITY_SEARCH_TYPE = os.environ.get("PERPLEXITY_SEARCH_TYPE", "fast")
 
     # Azure AI Foundry / OpenAI
     AZURE_FOUNDRY_ENDPOINT = os.environ.get(

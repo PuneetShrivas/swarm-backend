@@ -934,6 +934,7 @@ class TestPerplexitySearchAPI(unittest.TestCase):
             payload = call_kwargs["json"]
             self.assertEqual(payload["query"], queries)
             self.assertEqual(payload["search_context_size"], "high")
+            self.assertEqual(payload["search_type"], "fast")
 
     def test_async_search_via_perplexity_search_api_batch_query_list(self):
         import asyncio
@@ -958,6 +959,7 @@ class TestPerplexitySearchAPI(unittest.TestCase):
                 call_kwargs = mock_post.call_args[1]
                 payload = call_kwargs["json"]
                 self.assertEqual(payload["query"], queries)
+                self.assertEqual(payload["search_type"], "fast")
 
         asyncio.run(run_test())
 

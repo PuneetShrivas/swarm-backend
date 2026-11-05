@@ -30,6 +30,7 @@ async def async_search_via_perplexity_search_api(
     search_context_size: str = "high",
     timeout: float = 20.0,
     max_retries: int = 4,
+    search_type: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Asynchronous search via Perplexity's raw Search API endpoint with exponential backoff."""
     if not api_key or not api_key.strip():
@@ -50,8 +51,10 @@ async def async_search_via_perplexity_search_api(
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
+    resolved_search_type = search_type or getattr(config, "PERPLEXITY_SEARCH_TYPE", "fast")
     payload = {
         "query": query_payload,
+        "search_type": resolved_search_type,
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }
