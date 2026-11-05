@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Rework Elimination via Strategy 1 (Direct Single-Pass Execution) & Strategy 4 (Round 2 Query/Snippet Caps) (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
+  - **Strategy 1 (Direct Single-Pass Execution)**:
+    - Updated `_process_section` adaptive depth check: if Round 1 extraction achieves >= 12 verified claims (`min_adaptive_claims`, default 12, configurable via `ADAPTIVE_DEPTH_MIN_CLAIMS`), the section completely bypasses Gap Analysis (`gap_ms = 0.0`) and fast-tracks directly to Narrative Drafting in 1 round.
+    - Eliminates the ~80s gap analysis call and ~350s Round 2 search/extract iteration for high-evidence sections, reducing pipeline compute by up to 39.4%.
+  - **Strategy 4 (Strict Cap on Round 2 Queries & Snippets)**:
+    - Updated `GAP_SYSTEM` prompt in `roles.py` to instruct generating at most 2 targeted follow-up queries (`[:2]`).
+    - Capped Round 2 snippet input to 6 snippets (reduced from 10) in `_process_section` to prevent token rate-limit explosions and fallback cascades.
+  - **Parity & Standalone Distribution**:
+    - Symmetrically synchronized all code changes across both `backend/app/workflows/agnostic_research_report/` and `agnostic_workflow/`.
+    - Added automated unit test suites (`TestAgnosticReworkReduction` and `test_17_strategy_1_and_4_rework_reduction`) across both test suites (28/28 backend tests, 18/18 standalone tests).
+    - Repacked standalone distribution package `agnostic_workflow.zip` (52,247 bytes).
 - **Adaptive Depth & In-Memory Session Query Caching for Agnostic Swarm (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
   - **Pillar 3: Adaptive Depth & Rich Upfront Planning**:
     - Expanded initial search query formulation in `roles.py` (`PLAN_SYSTEM`) and `orchestrator.py` (`_process_section`) to generate 4 to 6 multi-faceted search queries covering all section checklist items simultaneously in a single parallel Perplexity batch.

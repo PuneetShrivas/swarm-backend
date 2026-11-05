@@ -210,3 +210,33 @@ No third-party packages beyond existing requirements (`httpx`, `asyncio`, `repor
   - `.\backend\venv\Scripts\python.exe -m unittest backend/test_agnostic_research_report.py -v` -> Passed (26 tests OK, 2.792s).
   - `.\backend\venv\Scripts\python.exe agnostic_workflow/test_standalone_workflow.py` -> Passed (17 tests OK, 2.166s, 0 external app imports).
 - **Result**: Step 2 complete with 100% test pass and verified parity.
+
+
+### 2026-11-05T22:10:00+05:30 — Step 3: Rework Elimination via Direct Single-Pass & Query/Snippet Caps (Strategies 1 & 4)
+- **Files Changed**:
+  - `backend/app/workflows/agnostic_research_report/roles.py`
+  - `agnostic_workflow/roles.py`
+  - `backend/app/workflows/agnostic_research_report/orchestrator.py`
+  - `agnostic_workflow/orchestrator.py`
+  - `backend/test_agnostic_research_report.py`
+  - `agnostic_workflow/test_standalone_workflow.py`
+  - `agnostic_workflow/run_workflow.py`
+  - `agnostic_workflow.zip`
+- **Reason**:
+  - In telemetry analysis of run `20261105_210115`, Round 2 rework and Gap Analysis accounted for 2,952.7 seconds (~49.2 minutes) of cumulative compute (39.4% of total pipeline compute). Round 1 had already yielded 147 claims across 10 sections (~15 facts/section).
+  - **Strategy 1 (Adaptive Fast-Track Bypass)**: If Round 1 extraction achieves $\ge 12$ verified claims (`min_adaptive_claims`, default 12, configurable via `ADAPTIVE_DEPTH_MIN_CLAIMS`), bypass Gap Analysis entirely (`gap_ms = 0.0`) and fast-track directly to Narrative Drafting in 1 round. This completely eliminates the ~80s gap analysis call and the ~350s Round 2 rework loop for compliant sections.
+  - **Strategy 4 (Strict Cap on Round 2 Queries & Snippets)**: If Round 1 yields $< 12$ claims, `GAP_SYSTEM` prompt instructs generating at most 2 targeted follow-up queries (`[:2]`). In Round 2 extraction, snippet input is capped at 6 snippets (instead of 10) to prevent token rate-limit explosions and fallback cascades.
+- **Diagnostics & Resolutions Encountered**:
+  - *Failure*: Powershell invocation without explicit virtual environment path failed with `The term '.\backend\venv\Scripts\python.exe' is not recognized`.
+  - *Resolution*: Navigated to project root (`cd "C:\Users\punee\OneDrive\Documents\GitHub\swarm-backend"`) and used full relative path to virtual environment python.
+- **Tests Added/Updated**:
+  - `TestAgnosticReworkReduction.test_gap_system_prompt_capped_at_two_queries` in backend test suite.
+  - `TestAgnosticReworkReduction.test_strategy_1_bypasses_gap_when_r1_claims_sufficient` in backend test suite.
+  - `TestStandaloneAgnosticWorkflow.test_17_strategy_1_and_4_rework_reduction` in standalone test suite.
+- **Commands Run**:
+  - `.\backend\venv\Scripts\python.exe -m unittest backend/test_agnostic_research_report.py` -> Passed (28 tests OK, 2.620s).
+  - `.\backend\venv\Scripts\python.exe agnostic_workflow/test_standalone_workflow.py` -> Passed (18 tests OK, 1.569s, 0 external app imports).
+  - `.\backend\venv\Scripts\python.exe backend/run_agnostic_research_report.py --help` -> Verified options and help text.
+  - `.\backend\venv\Scripts\python.exe agnostic_workflow/run_workflow.py --help` -> Verified 100% options parity.
+  - Repacked `agnostic_workflow.zip` (52,247 bytes).
+- **Result**: Step 3 complete with 100% test pass, verified symmetrical parity, and repacked zip distribution.

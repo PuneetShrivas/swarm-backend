@@ -827,5 +827,79 @@ class TestAgnosticAdaptiveDepth(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop("ALLOW_MOCK_DATA", None)
 
 
+
+class TestAgnosticReworkReduction(unittest.IsolatedAsyncioTestCase):
+    """Tests for Strategy 1 (Direct Single-Pass on R1 Sufficiency) and Strategy 4 (Max 2 Follow-Up Queries)."""
+
+    def test_gap_system_prompt_capped_at_two_queries(self):
+        """Verifies GAP_SYSTEM instructs at most 2 follow-up queries."""
+        from app.workflows.agnostic_research_report.roles import GAP_SYSTEM
+        self.assertIn("at most 2", GAP_SYSTEM)
+
+    async def test_strategy_1_bypasses_gap_when_r1_claims_sufficient(self):
+        """Verifies section bypasses Gap Analysis entirely when R1 claims >= min_adaptive_claims."""
+        from app.workflows.agnostic_research_report.orchestrator import AgnosticResearchOrchestrator
+        from app.workflows.agnostic_research_report.ledger import AgnosticEvidenceLedger
+        from app.workflows.agnostic_research_report.models import SectionSpec, AgnosticEvidence
+
+        orig_testing = os.environ.get("TESTING")
+        orig_mock = os.environ.get("ALLOW_MOCK_DATA")
+        os.environ["TESTING"] = "true"
+        os.environ["ALLOW_MOCK_DATA"] = "true"
+
+        try:
+            orch = AgnosticResearchOrchestrator()
+            ledger = AgnosticEvidenceLedger()
+            sec = SectionSpec(
+                name="test_rework_sec",
+                title="Test Rework Section",
+                instructions="Draft analysis.",
+                required_fields=["Item 1"],
+            )
+
+            # Pre-populate ledger with 12 claims for this section so R1 reaches threshold
+            pre_items = [
+                AgnosticEvidence(
+                    id="",
+                    section_slug="test_rework_sec",
+                    claim=f"Verified claim #{i}",
+                    source_url="https://example.com",
+                    source_domain="example.com",
+                    source_title="Example",
+                )
+                for i in range(12)
+            ]
+            ledger.add(pre_items)
+
+            events = []
+            def _cb(stage, msg):
+                events.append((stage, msg))
+
+            sec_text, sec_meta = await orch._process_section(
+                subject="Test Subject",
+                section=sec,
+                ledger=ledger,
+                global_rules="Rules",
+                mode="deep",
+                progress_cb=_cb,
+            )
+
+            # Verify that Round 1 exited directly without running Gap Analysis (gap_ms == 0.0)
+            rounds = sec_meta["subsections"]["rounds"]
+            self.assertEqual(len(rounds), 1)
+            self.assertEqual(rounds[0]["gap_ms"], 0.0)
+            self.assertEqual(sec_meta["subsections"]["gap_ms"], 0.0)
+            self.assertTrue(any(ev[0] == "adaptive_gate" and "Bypassing Gap Analysis" in ev[1] for ev in events))
+        finally:
+            if orig_testing is not None:
+                os.environ["TESTING"] = orig_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if orig_mock is not None:
+                os.environ["ALLOW_MOCK_DATA"] = orig_mock
+            else:
+                os.environ.pop("ALLOW_MOCK_DATA", None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -75,7 +75,8 @@ Output format: JSON object with key "items": list of Evidence objects with field
 GAP_SYSTEM = """You are the Gap role in an analytical research pipeline.
 Task: Compare section evidence claims against the required section field checklist.
 If the section requirements are sufficiently covered, return an empty queries list.
-If critical fields are missing, unverified, or ambiguous, generate up to 3 targeted follow-up search queries.
+If critical fields are missing, unverified, or ambiguous, generate at most 2 highly targeted follow-up search queries to close the specific evidence gaps.
+Do not repeat broad or generic queries.
 Output format: JSON object with key "queries": [{"text": "follow up query string", "domains": [], "recency": "year"}]"""
 
 DRAFT_SYSTEM = """You are the Section Drafter in an institutional research pipeline.

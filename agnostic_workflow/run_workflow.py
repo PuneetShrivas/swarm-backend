@@ -106,6 +106,11 @@ Examples:
         help="Terminal telemetry format to render upon completion. (Default: tree)",
     )
     parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Enable interactive browser login for Entra ID authentication when using Azure.",
+    )
+    parser.add_argument(
         "--plan-model",
         default=None,
         help="Model override specifically for search query planning role (e.g. gpt-5-mini, claude-sonnet-4-6).",

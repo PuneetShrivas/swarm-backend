@@ -140,7 +140,7 @@ class AgnosticResearchOrchestrator:
                 f"[PLAN] [{section.title}] Planner fallback used: '{current_queries[0]['text']}'"
             )
 
-        min_adaptive_claims = int(os.environ.get("ADAPTIVE_DEPTH_MIN_CLAIMS", "10"))
+        min_adaptive_claims = int(os.environ.get("ADAPTIVE_DEPTH_MIN_CLAIMS", "12"))
         force_3_rounds = os.environ.get("FORCE_3_ROUNDS", "false").lower() in ["true", "1", "yes"]
         max_rounds = 1 if mode == "fast" else (3 if (mode == "deep" and force_3_rounds) else 2)
 
@@ -175,9 +175,10 @@ class AgnosticResearchOrchestrator:
                     "extract",
                     f"[EXTRACT] [{section.title}] ({extract_model}) (R{rnd_idx}/{max_rounds}) Extracting atomic evidence facts..."
                 )
+                snippet_limit = 6 if rnd > 0 else 10
                 compacted_text = "\n".join(
                     f"Title: {r['title']}\nURL: {r['url']}\nDate: {r.get('date')}\nSnippet: {r['snippet']}"
-                    for r in search_batches[:10]
+                    for r in search_batches[:snippet_limit]
                 )
                 extract_prompt = (
                     f"TARGET SUBJECT: {subject}\n"
@@ -230,11 +231,28 @@ class AgnosticResearchOrchestrator:
                     f"[EXTRACT] [{section.title}] (R{rnd_idx}/{max_rounds}) +{rnd_claims} facts added [Section Total: {sec_items_count} | Global Ledger: {len(ledger.all())}] ({rnd_extract_ms / 1000:.2f}s)"
                 )
 
-            # 4. Gap check if more rounds remain
+            sec_rows = ledger.for_section(section.name)
+
+            # Strategy 1: Direct Single-Pass Execution (Bypass Gap Analysis and Round 2 if R1 yields sufficient facts)
+            if rnd == 0 and len(sec_rows) >= min_adaptive_claims:
+                _sec_notify(
+                    "adaptive_gate",
+                    f"[ADAPTIVE GATE] [{section.title}] Comprehensive evidence base achieved in R1 ({len(sec_rows)} facts >= {min_adaptive_claims}). Bypassing Gap Analysis and Round 2 rework.",
+                )
+                round_substeps.append({
+                    "round": 1,
+                    "retrieval_ms": round(rnd_retrieval_ms, 2),
+                    "queries_count": rnd_queries_count,
+                    "extract_ms": round(rnd_extract_ms, 2),
+                    "claims_extracted": rnd_claims,
+                    "gap_ms": 0.0,
+                })
+                break
+
+            # 4. Gap check if more rounds remain (Strategy 4: capped at at most 2 follow-up queries)
             rnd_gap_ms = 0.0
             next_queries: List[Dict[str, Any]] = []
             if rnd < max_rounds - 1:
-                sec_rows = ledger.for_section(section.name)
                 gap_model = resolve_task_model("gap", task_models, model, provider)
                 _sec_notify(
                     "gap",
@@ -260,7 +278,8 @@ class AgnosticResearchOrchestrator:
                     total_gap_ms += rnd_gap_ms
                     tokens_in += gap_tok.get("input_tokens", 0)
                     tokens_out += gap_tok.get("output_tokens", 0)
-                    next_queries = gap_res.get("queries", [])
+                    # Strategy 4: strictly cap follow-up queries to at most 2
+                    next_queries = gap_res.get("queries", [])[:2]
                 except Exception:
                     next_queries = []
 
@@ -269,9 +288,7 @@ class AgnosticResearchOrchestrator:
                     f"[GAP] [{section.title}] (R{rnd_idx}/{max_rounds}) {len(next_queries)} follow-up queries planned ({rnd_gap_ms / 1000:.2f}s)"
                 )
 
-                # Adaptive Depth Sufficiency Gate:
-                # Fast-track to drafting if checklist requirements are satisfied with solid evidence
-                if not next_queries and len(sec_rows) >= min_adaptive_claims:
+                if not next_queries:
                     _sec_notify(
                         "adaptive_gate",
                         f"[ADAPTIVE GATE] [{section.title}] Checklist coverage verified ({len(sec_rows)} facts). Fast-tracking directly to drafting.",

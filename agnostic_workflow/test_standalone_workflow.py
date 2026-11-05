@@ -667,5 +667,77 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
         asyncio.run(_run())
 
 
+    def test_17_strategy_1_and_4_rework_reduction(self):
+        """Verifies Strategy 1 (Gap bypass on >=12 claims) and Strategy 4 (GAP_SYSTEM cap) in standalone workflow."""
+        from agnostic_workflow.roles import GAP_SYSTEM
+        from agnostic_workflow.orchestrator import AgnosticResearchOrchestrator
+        from agnostic_workflow.ledger import AgnosticEvidenceLedger
+        from agnostic_workflow.models import SectionSpec, AgnosticEvidence
+        import asyncio
+
+        # Strategy 4 assertion: GAP_SYSTEM asks for at most 2 queries
+        self.assertIn("at most 2", GAP_SYSTEM)
+
+        async def _run():
+            orig_testing = os.environ.get("TESTING")
+            orig_mock = os.environ.get("ALLOW_MOCK_DATA")
+            os.environ["TESTING"] = "true"
+            os.environ["ALLOW_MOCK_DATA"] = "true"
+
+            try:
+                orch = AgnosticResearchOrchestrator()
+                ledger = AgnosticEvidenceLedger()
+                sec = SectionSpec(
+                    name="test_rework_sec_standalone",
+                    title="Test Rework Section Standalone",
+                    instructions="Draft comprehensive analysis.",
+                    required_fields=["Field A"],
+                )
+
+                # Pre-populate ledger with 12 claims for this section so R1 reaches threshold
+                pre_items = [
+                    AgnosticEvidence(
+                        id="",
+                        section_slug="test_rework_sec_standalone",
+                        claim=f"Standalone verified claim #{i}",
+                        source_url="https://example.com",
+                        source_domain="example.com",
+                        source_title="Example",
+                    )
+                    for i in range(12)
+                ]
+                ledger.add(pre_items)
+
+                events = []
+                def _cb(stage, msg):
+                    events.append((stage, msg))
+
+                sec_text, sec_meta = await orch._process_section(
+                    subject="Standalone Test Subject",
+                    section=sec,
+                    ledger=ledger,
+                    global_rules="Cite facts strictly.",
+                    mode="deep",
+                    progress_cb=_cb,
+                )
+
+                rounds = sec_meta["subsections"]["rounds"]
+                self.assertEqual(len(rounds), 1)
+                self.assertEqual(rounds[0]["gap_ms"], 0.0)
+                self.assertEqual(sec_meta["subsections"]["gap_ms"], 0.0)
+                self.assertTrue(any(ev[0] == "adaptive_gate" and "Bypassing Gap Analysis" in ev[1] for ev in events))
+            finally:
+                if orig_testing is not None:
+                    os.environ["TESTING"] = orig_testing
+                else:
+                    os.environ.pop("TESTING", None)
+                if orig_mock is not None:
+                    os.environ["ALLOW_MOCK_DATA"] = orig_mock
+                else:
+                    os.environ.pop("ALLOW_MOCK_DATA", None)
+
+        asyncio.run(_run())
+
+
 if __name__ == "__main__":
     unittest.main()
