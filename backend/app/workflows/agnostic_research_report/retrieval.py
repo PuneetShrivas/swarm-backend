@@ -205,6 +205,11 @@ class PerplexitySearchQueue:
         max_results: int,
         api_key: str,
     ) -> List[Dict[str, Any]]:
+        # Enforce search recency filter for freshest live results
+        norm_rec = (recency or "month").lower().strip()
+        if norm_rec not in ["hour", "day", "week", "month", "year"]:
+            norm_rec = "month"
+
         search_res = await async_search_via_perplexity_search_api(
             query=query,
             api_key=api_key,
@@ -212,6 +217,8 @@ class PerplexitySearchQueue:
             search_context_size="high",
             timeout=DEFAULT_PERPLEXITY_TIMEOUT,
             max_retries=3,
+            search_recency_filter=norm_rec,
+            search_domain_filter=domains,
         )
 
         if search_res and search_res.get("results"):

@@ -113,7 +113,8 @@ class AgnosticResearchOrchestrator:
             f"SECTION: {section.title} ({section.name})\n"
             f"REQUIRED FIELDS / CHECKLIST:\n" + "\n".join(f"- {f}" for f in section.required_fields) + "\n\n"
             f"SECTION INSTRUCTIONS:\n{section.instructions}\n\n"
-            f"Formulate 4 to 6 highly targeted search queries that systematically cover the required fields checklist."
+            f"Formulate 4 to 6 highly targeted search queries that systematically cover the required fields checklist.\n"
+            f"CRITICAL REQUIREMENT: Heavy focus on extreme data freshness and recency. Every query must incorporate recent temporal anchors (e.g. 2025/2026, latest, recent developments, Q3/Q4 2025) to retrieve the freshest empirical data possible. Set recency to 'month' or 'week'."
         )
         try:
             plan_res, plan_tok, plan_dur, plan_mod = await run_role(
@@ -133,7 +134,7 @@ class AgnosticResearchOrchestrator:
                 f"[PLAN] [{section.title}] {len(current_queries)} targeted queries planned ({plan_dur / 1000:.2f}s)"
             )
         except Exception as e:
-            current_queries = [{"text": f"{subject} {section.title}", "domains": []}]
+            current_queries = [{"text": f"{subject} {section.title} latest developments 2026", "domains": [], "recency": "month"}]
             total_plan_ms = 1.0
             _sec_notify(
                 "plan_fallback",
@@ -263,7 +264,8 @@ class AgnosticResearchOrchestrator:
                     f"SECTION: {section.title}\n"
                     f"REQUIRED FIELDS:\n" + "\n".join(f"- {f}" for f in section.required_fields) + "\n\n"
                     f"EXTRACTED EVIDENCE CLAIMS ({len(sec_rows)} items):\n"
-                    + "\n".join(f"[{r.id}] {r.claim}" for r in sec_rows[:12])
+                    + "\n".join(f"[{r.id}] {r.claim}" for r in sec_rows[:12]) + "\n\n"
+                    f"CRITICAL REQUIREMENT: Heavy focus on extreme data freshness. Generate at most 2 follow-up queries targeting the latest updates and recent disclosures to fill remaining gaps. Set recency to 'month'."
                 )
                 try:
                     gap_res, gap_tok, gap_dur, gap_mod = await run_role(

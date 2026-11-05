@@ -59,16 +59,23 @@ ROLE_TIER_MAPPING: Dict[str, str] = {
 PLAN_SYSTEM = """You are the Plan role in an analytical research pipeline.
 Given a subject and a section specification, formulate 4 to 6 highly targeted, distinct web search queries
 to systematically discover empirical data, verified developments, benchmarks, key players, or regulatory context covering the required checklist.
-Do not repeat generic search queries.
-Output format: JSON object with key "queries": [{"text": "query string", "domains": ["example.com"], "recency": "year"}]"""
+
+CRITICAL FRESHNESS & RECENCY REQUIREMENTS:
+1. EXTREME DATA FRESHNESS IS PARAMOUNT: You must heavily prioritize retrieving the latest and freshest data available. Avoid stale or historical data from prior years unless explicitly investigating historical origins.
+2. TEMPORAL ANCHORS: Explicitly incorporate current temporal qualifiers directly into query strings (e.g. current year "2025" or "2026", "latest", "recent developments", "Q3 2025", "Q4 2025", "2026 outlook", "current status", "breaking news").
+3. RECENCY FILTER: Set "recency" to "month" or "week" by default (use "year" only for long-term multi-year foundational context).
+4. Do not repeat generic, evergreen, or outdated search queries.
+
+Output format: JSON object with key "queries": [{"text": "query string with temporal anchor", "domains": ["example.com"], "recency": "month"}]"""
 
 EXTRACT_SYSTEM = """You are the Extract role in an analytical research pipeline.
 Task: Turn compacted search results into atomic facts adhering to the Evidence Ledger schema.
 CRITICAL RULES:
 1. SUBJECT GUARD: Reject any result about an unrelated entity or topic with a similar name.
 2. NO INFERENCE: Extract only what is explicitly stated in the source text. Never guess or extrapolate.
-3. CITATIONS: Each extracted fact must include the source URL, publication date, and a verbatim quote.
-4. "NOT FOUND": If a search result contains no relevant facts addressing the section, return an empty items list.
+3. FRESHNESS & TEMPORAL INTEGRITY: Heavily prioritize the latest and freshest data points. When multiple sources present conflicting or evolving statistics, extract the most recent verified value and capture the exact 'as_of' and 'published' dates. Flag outdated data.
+4. CITATIONS: Each extracted fact must include the source URL, publication date, and a verbatim quote.
+5. "NOT FOUND": If a search result contains no relevant facts addressing the section, return an empty items list.
 Output format: JSON object with key "items": list of Evidence objects with fields:
 [{"claim": "...", "value": "...", "as_of": "YYYY-MM-DD", "source_url": "...", "source_type": "official|academic|news|filing|other", "published": "YYYY-MM-DD", "confidence": "high|med|low", "quote": "verbatim text"}]"""
 
@@ -76,8 +83,14 @@ GAP_SYSTEM = """You are the Gap role in an analytical research pipeline.
 Task: Compare section evidence claims against the required section field checklist.
 If the section requirements are sufficiently covered, return an empty queries list.
 If critical fields are missing, unverified, or ambiguous, generate at most 2 highly targeted follow-up search queries to close the specific evidence gaps.
-Do not repeat broad or generic queries.
-Output format: JSON object with key "queries": [{"text": "follow up query string", "domains": [], "recency": "year"}]"""
+
+CRITICAL FRESHNESS & RECENCY RULES:
+1. FRESHNESS FIRST: Follow-up queries must heavily prioritize the latest and freshest disclosures, updates, and empirical facts.
+2. TEMPORAL SPECIFICITY: Include explicit recency markers (e.g. "latest", "2025", "2026", "recent updates") in follow-up query text.
+3. Set "recency" to "month" or "week" to ensure search engines retrieve current data.
+4. Do not repeat broad, generic, or historical queries.
+
+Output format: JSON object with key "queries": [{"text": "follow up query string with temporal anchor", "domains": [], "recency": "month"}]"""
 
 DRAFT_SYSTEM = """You are the Section Drafter in an institutional research pipeline.
 Task: Draft the comprehensive, highly analytical narrative for the requested section.

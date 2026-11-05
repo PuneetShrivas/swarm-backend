@@ -739,5 +739,22 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
         asyncio.run(_run())
 
 
+    def test_18_freshness_search_and_planning(self):
+        """Verifies freshness directives in PLAN_SYSTEM, GAP_SYSTEM, EXTRACT_SYSTEM, and retrieval API."""
+        from agnostic_workflow.roles import PLAN_SYSTEM, GAP_SYSTEM, EXTRACT_SYSTEM
+        from agnostic_workflow.retrieval import async_search_via_perplexity_search_api
+        import inspect
+
+        # Prompt freshness assertions
+        self.assertIn("FRESHNESS", PLAN_SYSTEM)
+        self.assertIn("TEMPORAL ANCHORS", PLAN_SYSTEM)
+        self.assertIn("FRESHNESS FIRST", GAP_SYSTEM)
+        self.assertIn("FRESHNESS & TEMPORAL INTEGRITY", EXTRACT_SYSTEM)
+
+        # Retrieval API recency filter assertion
+        sig = inspect.signature(async_search_via_perplexity_search_api)
+        self.assertIn("search_recency_filter", sig.parameters)
+        self.assertIn("search_domain_filter", sig.parameters)
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,8 @@ async def async_search_via_perplexity_search_api(
     timeout: float = 20.0,
     max_retries: int = 4,
     search_type: Optional[str] = None,
+    search_recency_filter: Optional[str] = None,
+    search_domain_filter: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Asynchronous search via Perplexity's raw Search API endpoint with exponential backoff."""
     if not api_key or not api_key.strip():
@@ -58,6 +60,18 @@ async def async_search_via_perplexity_search_api(
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }
+    if search_recency_filter:
+        norm_rec = str(search_recency_filter).lower().strip()
+        if norm_rec in ["hour", "day", "week", "month", "year"]:
+            payload["search_recency_filter"] = norm_rec
+            payload["filters"] = {"search_recency_filter": norm_rec}
+    if search_domain_filter:
+        dom_list = [str(d).strip() for d in search_domain_filter if str(d).strip()]
+        if dom_list:
+            payload["search_domain_filter"] = dom_list
+            if "filters" not in payload:
+                payload["filters"] = {}
+            payload["filters"]["search_domain_filter"] = dom_list
 
     for attempt in range(max_retries):
         try:
@@ -294,6 +308,11 @@ class PerplexitySearchQueue:
         max_results: int,
         api_key: str,
     ) -> List[Dict[str, Any]]:
+        # Enforce search recency filter for freshest live results
+        norm_rec = (recency or "month").lower().strip()
+        if norm_rec not in ["hour", "day", "week", "month", "year"]:
+            norm_rec = "month"
+
         search_res = await async_search_via_perplexity_search_api(
             query=query,
             api_key=api_key,
@@ -301,6 +320,8 @@ class PerplexitySearchQueue:
             search_context_size="high",
             timeout=DEFAULT_PERPLEXITY_TIMEOUT,
             max_retries=3,
+            search_recency_filter=norm_rec,
+            search_domain_filter=domains,
         )
 
         if search_res and search_res.get("results"):

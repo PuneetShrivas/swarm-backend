@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Extreme Freshness Focus for Search Planning, Extraction, and Research Agent (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
+  - **Planning Role Freshness Directives (`roles.py`)**:
+    - Updated `PLAN_SYSTEM` to mandate extreme data freshness as a paramount constraint, instructing query planners to avoid stale prior-year data and incorporate explicit temporal anchors (current year "2025"/"2026", "latest", "recent developments", "Q3/Q4 2025", "breaking news") into query text.
+    - Updated query schema to output `"recency": "month"` or `"week"` by default.
+  - **Gap Role Freshness Prioritization (`roles.py`)**:
+    - Updated `GAP_SYSTEM` to direct follow-up queries strictly toward the freshest disclosures, updates, and empirical facts, including temporal markers and setting `"recency": "month"`.
+  - **Extraction Role Temporal Integrity (`roles.py`)**:
+    - Added Rule 3 in `EXTRACT_SYSTEM` prioritizing the freshest data points, recording explicit `as_of` / `published` dates, and resolving conflicting statistics in favor of the latest verified values.
+  - **Orchestrator Freshness Injections (`orchestrator.py`)**:
+    - Enhanced `plan_input` and `gap_prompt` with runtime instructions enforcing extreme data freshness and recent temporal anchors.
+    - Updated query planner fallback to `f"{subject} {section.title} latest developments 2026"`.
+  - **Perplexity Retrieval Queue Recency Filtering (`retrieval.py` & `tools.py`)**:
+    - Added `search_recency_filter` and `search_domain_filter` support to `async_search_via_perplexity_search_api`, transmitting `search_recency_filter` in the search API payload (defaulting to `"month"` for live searches).
+  - **Research Agent Prompt Alignment (`backend/app/agents/researcher/prompt.md`)**:
+    - Updated Research Agent system instructions to elevate contemporary truth, real-time news retrieval, and avoidance of stale sources to top-priority operating principles.
+  - **Parity & Packaging**:
+    - Symmetrically synchronized all updates across `backend/app/workflows/agnostic_research_report/` and `agnostic_workflow/`.
+    - Added unit test verifications (`TestAgnosticFreshnessSearchAndPlanning` and `test_18_freshness_search_and_planning`) across both test suites (33/33 backend tests, 19/19 standalone tests).
+    - Repacked `agnostic_workflow.zip` (53,467 bytes).
 - **Rework Elimination via Strategy 1 (Direct Single-Pass Execution) & Strategy 4 (Round 2 Query/Snippet Caps) (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
   - **Strategy 1 (Direct Single-Pass Execution)**:
     - Updated `_process_section` adaptive depth check: if Round 1 extraction achieves >= 12 verified claims (`min_adaptive_claims`, default 12, configurable via `ADAPTIVE_DEPTH_MIN_CLAIMS`), the section completely bypasses Gap Analysis (`gap_ms = 0.0`) and fast-tracks directly to Narrative Drafting in 1 round.

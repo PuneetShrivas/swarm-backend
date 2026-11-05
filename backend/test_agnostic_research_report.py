@@ -901,5 +901,48 @@ class TestAgnosticReworkReduction(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop("ALLOW_MOCK_DATA", None)
 
 
+
+
+class TestAgnosticFreshnessSearchAndPlanning(unittest.TestCase):
+    """Tests for freshness-focused search query planning, extraction, and retrieval filtering."""
+
+    def test_plan_system_prompt_freshness_directives(self):
+        """Verifies PLAN_SYSTEM mandates extreme data freshness and temporal anchors."""
+        from app.workflows.agnostic_research_report.roles import PLAN_SYSTEM
+        self.assertIn("FRESHNESS", PLAN_SYSTEM)
+        self.assertIn("TEMPORAL ANCHORS", PLAN_SYSTEM)
+        self.assertTrue("2025" in PLAN_SYSTEM or "2026" in PLAN_SYSTEM)
+
+    def test_gap_system_prompt_freshness_directives(self):
+        """Verifies GAP_SYSTEM prioritizes freshness and temporal specificity."""
+        from app.workflows.agnostic_research_report.roles import GAP_SYSTEM
+        self.assertIn("FRESHNESS FIRST", GAP_SYSTEM)
+        self.assertIn("TEMPORAL SPECIFICITY", GAP_SYSTEM)
+
+    def test_extract_system_prompt_temporal_integrity(self):
+        """Verifies EXTRACT_SYSTEM instructs prioritizing latest verified data points."""
+        from app.workflows.agnostic_research_report.roles import EXTRACT_SYSTEM
+        self.assertIn("FRESHNESS & TEMPORAL INTEGRITY", EXTRACT_SYSTEM)
+        self.assertIn("most recent verified value", EXTRACT_SYSTEM)
+
+    def test_researcher_agent_prompt_freshness(self):
+        """Verifies researcher agent prompt elevates data freshness to utmost priority."""
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "app", "agents", "researcher", "prompt.md"
+        )
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            prompt_text = f.read()
+        self.assertIn("Extreme Freshness", prompt_text)
+        self.assertIn("Utmost Priority", prompt_text)
+
+    def test_perplexity_api_search_recency_filter_parameter(self):
+        """Verifies async_search_via_perplexity_search_api payload handles search_recency_filter."""
+        import inspect
+        from app.agents.researcher.tools import async_search_via_perplexity_search_api
+        sig = inspect.signature(async_search_via_perplexity_search_api)
+        self.assertIn("search_recency_filter", sig.parameters)
+        self.assertIn("search_domain_filter", sig.parameters)
+
 if __name__ == "__main__":
     unittest.main()

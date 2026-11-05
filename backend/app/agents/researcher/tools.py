@@ -92,6 +92,18 @@ def search_via_perplexity_search_api(
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }
+    if search_recency_filter:
+        norm_rec = str(search_recency_filter).lower().strip()
+        if norm_rec in ["hour", "day", "week", "month", "year"]:
+            payload["search_recency_filter"] = norm_rec
+            payload["filters"] = {"search_recency_filter": norm_rec}
+    if search_domain_filter:
+        dom_list = [str(d).strip() for d in search_domain_filter if str(d).strip()]
+        if dom_list:
+            payload["search_domain_filter"] = dom_list
+            if "filters" not in payload:
+                payload["filters"] = {}
+            payload["filters"]["search_domain_filter"] = dom_list
 
     try:
         resp = httpx.post(
@@ -144,6 +156,8 @@ async def async_search_via_perplexity_search_api(
     timeout: float = 20.0,
     max_retries: int = 4,
     search_type: Optional[str] = None,
+    search_recency_filter: Optional[str] = None,
+    search_domain_filter: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Asynchronous version of search_via_perplexity_search_api with exponential backoff retry.
@@ -180,6 +194,18 @@ async def async_search_via_perplexity_search_api(
         "max_results": max(1, min(max_results, 20)),
         "search_context_size": search_context_size,
     }
+    if search_recency_filter:
+        norm_rec = str(search_recency_filter).lower().strip()
+        if norm_rec in ["hour", "day", "week", "month", "year"]:
+            payload["search_recency_filter"] = norm_rec
+            payload["filters"] = {"search_recency_filter": norm_rec}
+    if search_domain_filter:
+        dom_list = [str(d).strip() for d in search_domain_filter if str(d).strip()]
+        if dom_list:
+            payload["search_domain_filter"] = dom_list
+            if "filters" not in payload:
+                payload["filters"] = {}
+            payload["filters"]["search_domain_filter"] = dom_list
 
     for attempt in range(max_retries):
         try:
