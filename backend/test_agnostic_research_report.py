@@ -382,7 +382,32 @@ End the report with exactly:
                 self.assertTrue(os.path.isfile(result.pdf_path))
                 self.assertTrue(os.path.isfile(result.telemetry_path))
                 self.assertGreater(result.total_tokens, 0)
-                self.assertGreaterEqual(len(progress_events), 3)
+                self.assertGreaterEqual(len(progress_events), 10)
+
+                # Verify granular stage 2 & stage 3 progress milestones
+                event_stages = [ev[0] for ev in progress_events]
+                self.assertIn("stage_1", event_stages)
+                self.assertIn("stage_2", event_stages)
+                self.assertIn("plan", event_stages)
+                self.assertIn("plan_done", event_stages)
+                self.assertIn("search", event_stages)
+                self.assertIn("search_done", event_stages)
+                self.assertIn("extract", event_stages)
+                self.assertIn("extract_done", event_stages)
+                self.assertIn("draft", event_stages)
+                self.assertIn("draft_done", event_stages)
+                self.assertIn("section_done", event_stages)
+                self.assertIn("stage_2_done", event_stages)
+                self.assertIn("stage_3", event_stages)
+                self.assertIn("synth", event_stages)
+                self.assertIn("synth_done", event_stages)
+                self.assertIn("stage_5", event_stages)
+                self.assertIn("stage_5_footnotes", event_stages)
+
+                # Verify visual ASCII progress bar presence
+                section_done_msgs = [ev[1] for ev in progress_events if ev[0] == "section_done"]
+                self.assertTrue(any("█" in msg for msg in section_done_msgs))
+                self.assertTrue(any("%" in msg for msg in section_done_msgs))
 
                 # Check telemetry structure
                 telemetry = result.telemetry_data

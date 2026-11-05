@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Real-Time Visual Progress & Granular CLI Telemetry for Stage 2 Concurrent Research (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
+  - Implemented granular lifecycle milestone telemetry during Stage 2 parallel research and extraction across sections:
+    - **`[PLAN]` / `[PLAN DONE]`**: Emits query formulation start and reports query counts and planning latency.
+    - **`[SEARCH]` / `[SEARCH DONE]`**: Emits Perplexity retrieval status with round indicators `(R{rnd}/{total})` and reports retrieved search snippets and duration.
+    - **`[EXTRACT]` / `[EXTRACT DONE]`**: Emits atomic fact extraction progress with newly added claims count, section claims total, and global ledger running total.
+    - **`[GAP]` / `[GAP DONE]`**: Emits checklist gap evaluation and reports follow-up query counts.
+    - **`[DRAFT]` / `[DRAFT DONE]`**: Emits section narrative drafting initiation with evidence citations, reports retries if needed, and notifies on completion with token and word counts.
+    - **`[DONE]` Section Completion with ASCII Progress Bar**: Emits dynamic visual progress bars `[████░░░░░░░░] P%` alongside completed section counts `[X/N]`, section durations, facts count, queries count, and global ledger running totals.
+  - Enhanced Stage 3 cross-section synthesis passes with per-section progress notifications (`[SYNTH]` and `[SYNTH DONE]`).
+  - Enhanced Stage 5 file generation reporting footnote resolution counts (`Resolved and linked N [E###] citation tokens to footnotes`).
+  - Updated CLI progress handlers in `backend/app/workflows/agnostic_research_report/cli.py` and `agnostic_workflow/run_workflow.py` to prevent duplicate `[*]` prefixes.
+  - Replicated all telemetry and progress indicators identically across both `backend/app/workflows/agnostic_research_report/` and `agnostic_workflow/`.
+  - Added unit test verifications asserting granular milestone events and ASCII progress bars across both test suites (`backend/test_agnostic_research_report.py` and `agnostic_workflow/test_standalone_workflow.py`).
+  - Repacked standalone distribution package `agnostic_workflow.zip` (47,718 bytes).
 - **Dynamic Azure Foundry Endpoint Routing for GPT-5.4 & GPT-5-Mini (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
   - Implemented `resolve_foundry_endpoint(model)` in both agnostic workflow instances:
     - Automatically routes requests to `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/responses"` (OpenAI Responses API) when `gpt-5.4` or `gpt-5-mini` is used.

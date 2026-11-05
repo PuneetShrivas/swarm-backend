@@ -49,6 +49,17 @@ DEFAULT_ARTIFACTS_DIR = os.path.join(
 )
 
 
+def _render_progress_bar(completed: int, total: int, width: int = 14) -> str:
+    """Renders a clean ASCII completion bar, e.g. [██████░░░░░░░░] 40%."""
+    if total <= 0:
+        return "[--------------]"
+    fraction = min(max(completed / total, 0.0), 1.0)
+    filled_len = int(round(width * fraction))
+    bar = "█" * filled_len + "░" * (width - filled_len)
+    percent = int(fraction * 100)
+    return f"[{bar}] {percent}%"
+
+
 class AgnosticResearchOrchestrator:
     """Cognitive orchestrator managing the prompt-driven research and report pipeline."""
 
@@ -67,11 +78,19 @@ class AgnosticResearchOrchestrator:
         model: Optional[str] = None,
         provider: Optional[str] = None,
         fallback_model: Optional[str] = None,
+        progress_cb: Optional[Callable[[str, str], None]] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Executes planning, search, extraction, gap checking, and drafting for a single section
         while capturing granular subsection timings and token usage.
         """
+        def _sec_notify(stage_key: str, message: str):
+            if progress_cb:
+                try:
+                    progress_cb(stage_key, message)
+                except Exception:
+                    pass
+
         sec_start = time.perf_counter()
         total_retrieval_ms = 0.0
         total_extract_ms = 0.0
@@ -85,6 +104,7 @@ class AgnosticResearchOrchestrator:
         tokens_out = 0
 
         # 1. Planner generates initial targeted queries
+        _sec_notify("plan", f"[PLAN] [{section.title}] Formulating targeted search queries...")
         plan_input = (
             f"TARGET SUBJECT: {subject}\n\n"
             f"SECTION: {section.title} ({section.name})\n"
@@ -104,9 +124,17 @@ class AgnosticResearchOrchestrator:
             total_plan_ms = plan_dur
             tokens_in += plan_tok.get("input_tokens", 0)
             tokens_out += plan_tok.get("output_tokens", 0)
+            _sec_notify(
+                "plan_done",
+                f"[PLAN] [{section.title}] {len(current_queries)} targeted queries planned ({plan_dur / 1000:.2f}s)"
+            )
         except Exception as e:
             current_queries = [{"text": f"{subject} {section.title}", "domains": []}]
             total_plan_ms = 1.0
+            _sec_notify(
+                "plan_fallback",
+                f"[PLAN] [{section.title}] Planner fallback used: '{current_queries[0]['text']}'"
+            )
 
         max_rounds = 1 if mode == "fast" else (3 if mode == "deep" else 2)
 
@@ -114,18 +142,32 @@ class AgnosticResearchOrchestrator:
             if not current_queries:
                 break
 
+            rnd_idx = rnd + 1
             # 2. Web search queue via Perplexity
+            _sec_notify(
+                "search",
+                f"[SEARCH] [{section.title}] (R{rnd_idx}/{max_rounds}) Querying Perplexity for {len(current_queries)} queries..."
+            )
             search_batches, search_meta = await self.search_queue.batch_search_with_timings(current_queries)
             rnd_retrieval_ms = search_meta.get("duration_ms", 0.0)
             total_retrieval_ms += rnd_retrieval_ms
             rnd_queries_count = len(current_queries)
             queries_count += rnd_queries_count
 
+            _sec_notify(
+                "search_done",
+                f"[SEARCH] [{section.title}] (R{rnd_idx}/{max_rounds}) {len(search_batches)} search snippets retrieved ({rnd_retrieval_ms / 1000:.2f}s)"
+            )
+
             rnd_extract_ms = 0.0
             rnd_claims = 0
 
             if search_batches:
                 # 3. Extract atomic claims into Evidence Ledger
+                _sec_notify(
+                    "extract",
+                    f"[EXTRACT] [{section.title}] (R{rnd_idx}/{max_rounds}) Extracting atomic evidence facts..."
+                )
                 compacted_text = "\n".join(
                     f"Title: {r['title']}\nURL: {r['url']}\nDate: {r.get('date')}\nSnippet: {r['snippet']}"
                     for r in search_batches[:10]
@@ -174,11 +216,21 @@ class AgnosticResearchOrchestrator:
                     claims_extracted += rnd_claims
                     ledger.add(new_items)
 
+                sec_items_count = len(ledger.for_section(section.name))
+                _sec_notify(
+                    "extract_done",
+                    f"[EXTRACT] [{section.title}] (R{rnd_idx}/{max_rounds}) +{rnd_claims} facts added [Section Total: {sec_items_count} | Global Ledger: {len(ledger.all())}] ({rnd_extract_ms / 1000:.2f}s)"
+                )
+
             # 4. Gap check if more rounds remain
             rnd_gap_ms = 0.0
             next_queries: List[Dict[str, Any]] = []
             if rnd < max_rounds - 1:
                 sec_rows = ledger.for_section(section.name)
+                _sec_notify(
+                    "gap",
+                    f"[GAP] [{section.title}] (R{rnd_idx}/{max_rounds}) Evaluating evidence completeness against checklist..."
+                )
                 gap_prompt = (
                     f"TARGET SUBJECT: {subject}\n"
                     f"SECTION: {section.title}\n"
@@ -202,6 +254,11 @@ class AgnosticResearchOrchestrator:
                 except Exception:
                     next_queries = []
 
+                _sec_notify(
+                    "gap_done",
+                    f"[GAP] [{section.title}] (R{rnd_idx}/{max_rounds}) {len(next_queries)} follow-up queries planned ({rnd_gap_ms / 1000:.2f}s)"
+                )
+
             round_substeps.append({
                 "round": rnd + 1,
                 "retrieval_ms": round(rnd_retrieval_ms, 2),
@@ -219,6 +276,11 @@ class AgnosticResearchOrchestrator:
             f"[{r.id}] ({r.published or 'N/A'}, {r.source_domain}): {r.claim} (Quote: '{r.quote or r.claim}')"
             for r in sec_rows
         ) if sec_rows else "No specific public disclosures found in ledger."
+
+        _sec_notify(
+            "draft",
+            f"[DRAFT] [{section.title}] Drafting narrative citing {len(sec_rows)} evidence items..."
+        )
 
         draft_prompt = (
             f"TARGET SUBJECT: {subject}\n\n"
@@ -257,16 +319,28 @@ class AgnosticResearchOrchestrator:
 
                 if draft_attempt < max_draft_retries - 1:
                     wait_sec = 10.0 * (draft_attempt + 1)
-                    print(f"[*] Section '{section.title}' drafting returned empty. Retrying in {wait_sec:.0f}s (attempt {draft_attempt + 2}/{max_draft_retries})...", flush=True)
+                    _sec_notify(
+                        "draft_empty_retry",
+                        f"[*] Section '{section.title}' drafting returned empty. Retrying in {wait_sec:.0f}s (attempt {draft_attempt + 2}/{max_draft_retries})..."
+                    )
                     await asyncio.sleep(wait_sec)
             except Exception as e:
                 if draft_attempt < max_draft_retries - 1:
                     wait_sec = 15.0 * (draft_attempt + 1)
-                    print(f"[*] [SECTION DRAFT RETRY] Section '{section.title}' drafting encountered error ({e}). Waiting {wait_sec:.0f}s before retry (attempt {draft_attempt + 2}/{max_draft_retries})...", flush=True)
+                    _sec_notify(
+                        "draft_retry",
+                        f"[*] [SECTION DRAFT RETRY] Section '{section.title}' drafting encountered error ({e}). Waiting {wait_sec:.0f}s before retry (attempt {draft_attempt + 2}/{max_draft_retries})..."
+                    )
                     await asyncio.sleep(wait_sec)
                 else:
                     section_text = f"## {section.title}\n- Section drafting unavailable after {max_draft_retries} attempts: {e}"
                     draft_dur = (time.perf_counter() - t_d0) * 1000
+
+        if section_text and not section_text.startswith(f"## {section.title}\n- Section drafting unavailable"):
+            _sec_notify(
+                "draft_done",
+                f"[DRAFT] [{section.title}] Section narrative draft complete ({draft_dur / 1000:.2f}s, {tokens_in + tokens_out:,} tokens)"
+            )
 
         sec_total_ms = (time.perf_counter() - sec_start) * 1000
 
@@ -345,11 +419,14 @@ class AgnosticResearchOrchestrator:
         # -------------------------------------------------------------
         # Stage 2: Parallel Per-Section Planning, Web Search & Extraction
         # -------------------------------------------------------------
-        _notify("stage_2", f"Concurrent Perplexity retrieval & fact extraction across {len(body_sections)} sections...")
+        total_sections = len(body_sections)
+        _notify("stage_2", f"Concurrent Perplexity retrieval & fact extraction across {total_sections} sections...")
         t_s2_start = time.perf_counter()
+        completed_sections = 0
 
         async def _run_section_worker(sec_spec: SectionSpec):
-            return await self._process_section(
+            nonlocal completed_sections
+            sec_text, sec_meta = await self._process_section(
                 subject=subject,
                 section=sec_spec,
                 ledger=ledger,
@@ -358,7 +435,18 @@ class AgnosticResearchOrchestrator:
                 model=model,
                 provider=provider,
                 fallback_model=fallback_model,
+                progress_cb=_notify,
             )
+            completed_sections += 1
+            pbar = _render_progress_bar(completed_sections, total_sections)
+            dur_sec = sec_meta["total_ms"] / 1000
+            claims = sec_meta["subsections"]["claims_extracted"]
+            q_cnt = sec_meta["subsections"]["queries_count"]
+            _notify(
+                "section_done",
+                f"[DONE] [{completed_sections}/{total_sections}] {pbar} '{sec_spec.title}' completed in {dur_sec:.1f}s | {claims} facts | {q_cnt} queries | Global Ledger: {len(ledger.all())} facts",
+            )
+            return sec_text, sec_meta
 
         section_results = await asyncio.gather(*[_run_section_worker(s) for s in body_sections])
         s2_wall_ms = round((time.perf_counter() - t_s2_start) * 1000, 2)
@@ -370,7 +458,7 @@ class AgnosticResearchOrchestrator:
         # -------------------------------------------------------------
         # Stage 3: Cross-Section Synthesis Pass
         # -------------------------------------------------------------
-        _notify("stage_3", "Synthesizing cross-section executive insights and final verdict...")
+        _notify("stage_3", f"Synthesizing cross-section executive insights across {len(synth_sections)} synthesis sections...")
         t_s3_start = time.perf_counter()
         synth_timings: Dict[str, Any] = {}
         synth_tokens_in = 0
@@ -378,7 +466,8 @@ class AgnosticResearchOrchestrator:
 
         is_testing = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_ROLES") == "true"
         max_synth_retries = 1 if is_testing else int(os.environ.get("SYNTH_MAX_RETRIES", "4"))
-        for s_spec in synth_sections:
+        for s_idx, s_spec in enumerate(synth_sections, start=1):
+            _notify("synth", f"[SYNTH] [{s_spec.title}] ({s_idx}/{len(synth_sections)}) Synthesizing cross-section insights...")
             synth_input = (
                 f"TARGET SUBJECT: {subject}\n\n"
                 f"SYNTHESIS SECTION: {s_spec.title}\n"
@@ -403,11 +492,12 @@ class AgnosticResearchOrchestrator:
                         "model": synth_mod,
                         "tokens": synth_tok,
                     }
+                    _notify("synth_done", f"[SYNTH] [{s_spec.title}] ({s_idx}/{len(synth_sections)}) Synthesis complete ({synth_dur / 1000:.2f}s)")
                     break
                 except Exception as e:
                     if synth_attempt < max_synth_retries - 1:
                         wait_sec = 15.0 * (synth_attempt + 1)
-                        print(f"[*] [SYNTHESIS RETRY] Section '{s_spec.title}' synthesis encountered error ({e}). Waiting {wait_sec:.0f}s before retry (attempt {synth_attempt + 2}/{max_synth_retries})...", flush=True)
+                        _notify("synth_retry", f"[*] [SYNTHESIS RETRY] Section '{s_spec.title}' synthesis encountered error ({e}). Waiting {wait_sec:.0f}s before retry (attempt {synth_attempt + 2}/{max_synth_retries})...")
                         await asyncio.sleep(wait_sec)
                     else:
                         drafted_sections_map[s_spec.name] = f"## {s_spec.title}\n- Synthesis unavailable after {max_synth_retries} attempts: {e}"
@@ -431,6 +521,7 @@ class AgnosticResearchOrchestrator:
         t_s5_start = time.perf_counter()
 
         transformed_text, footnotes = FootnoteTransformer.transform_citations(consolidated_raw_text, ledger)
+        _notify("stage_5_footnotes", f"Resolved and linked {len(footnotes)} [E###] citation tokens to footnotes")
 
         # Compute total token usage
         total_tokens_in = sum(s["tokens"]["input_tokens"] for s in sections_timings.values()) + synth_tokens_in

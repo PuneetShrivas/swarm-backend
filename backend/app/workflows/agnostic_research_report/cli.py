@@ -105,7 +105,8 @@ async def execute_cli(args: argparse.Namespace) -> int:
 
     def on_progress(stage: str, msg: str):
         if not args.quiet:
-            print(f"[*] {msg}", flush=True)
+            prefix = "" if msg.startswith("[*]") else "[*] "
+            print(f"{prefix}{msg}", flush=True)
 
     orchestrator = AgnosticResearchOrchestrator(artifacts_dir=args.output_dir)
 

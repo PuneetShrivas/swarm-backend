@@ -348,11 +348,16 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
 ### Closing Statement
 "Assessment based solely on information contained in this report."
 """
+                progress_events = []
+                def on_progress(stage, msg):
+                    progress_events.append((stage, msg))
+
                 result = asyncio.run(orchestrator.run(
                     subject="Silicon Anode Batteries",
                     prompt_markdown=test_prompt,
                     mode="fast",
                     output_dir=tmpdir,
+                    on_progress=on_progress,
                 ))
 
                 self.assertIsInstance(result, AgnosticReportResult)
@@ -361,6 +366,31 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
                 self.assertTrue(os.path.isfile(result.telemetry_path))
                 self.assertGreater(result.evidence_count, 0)
                 self.assertGreater(result.total_tokens, 0)
+
+                # Verify granular stage 2 & stage 3 progress milestones
+                event_stages = [ev[0] for ev in progress_events]
+                self.assertIn("stage_1", event_stages)
+                self.assertIn("stage_2", event_stages)
+                self.assertIn("plan", event_stages)
+                self.assertIn("plan_done", event_stages)
+                self.assertIn("search", event_stages)
+                self.assertIn("search_done", event_stages)
+                self.assertIn("extract", event_stages)
+                self.assertIn("extract_done", event_stages)
+                self.assertIn("draft", event_stages)
+                self.assertIn("draft_done", event_stages)
+                self.assertIn("section_done", event_stages)
+                self.assertIn("stage_2_done", event_stages)
+                self.assertIn("stage_3", event_stages)
+                self.assertIn("synth", event_stages)
+                self.assertIn("synth_done", event_stages)
+                self.assertIn("stage_5", event_stages)
+                self.assertIn("stage_5_footnotes", event_stages)
+
+                # Verify visual ASCII progress bar presence
+                section_done_msgs = [ev[1] for ev in progress_events if ev[0] == "section_done"]
+                self.assertTrue(any("█" in msg for msg in section_done_msgs))
+                self.assertTrue(any("%" in msg for msg in section_done_msgs))
 
 
     def test_10_rate_limit_delay_parsing(self):
