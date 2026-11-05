@@ -57,7 +57,7 @@ ROLE_TIER_MAPPING: Dict[str, str] = {
 
 # Role System Prompts (Domain-Agnostic)
 PLAN_SYSTEM = """You are the Plan role in an analytical research pipeline.
-Given a subject and a section specification, formulate up to 3 highly targeted, distinct web search queries
+Given a subject and a section specification, formulate up to 5 highly targeted, distinct web search queries
 to discover empirical data, verified developments, benchmarks, key players, or regulatory context.
 Do not repeat generic search queries.
 Output format: JSON object with key "queries": [{"text": "query string", "domains": ["example.com"], "recency": "year"}]"""
@@ -75,7 +75,7 @@ Output format: JSON object with key "items": list of Evidence objects with field
 GAP_SYSTEM = """You are the Gap role in an analytical research pipeline.
 Task: Compare section evidence claims against the required section field checklist.
 If the section requirements are sufficiently covered, return an empty queries list.
-If critical fields are missing, unverified, or ambiguous, generate up to 2 targeted follow-up search queries.
+If critical fields are missing, unverified, or ambiguous, generate up to 3 targeted follow-up search queries.
 Output format: JSON object with key "queries": [{"text": "follow up query string", "domains": [], "recency": "year"}]"""
 
 DRAFT_SYSTEM = """You are the Section Drafter in an institutional research pipeline.
@@ -101,7 +101,7 @@ Output format: JSON object with keys:
 {"issues": [{"section": "...", "problem": "...", "severity": "warning|critical"}], "is_valid": true|false}"""
 
 ROLES_CONFIG: Dict[str, Dict[str, Any]] = {
-    "plan": {"system": PLAN_SYSTEM, "temp": 0.1, "max_tokens": 1000},
+    "plan": {"system": PLAN_SYSTEM, "temp": 0.1, "max_tokens": 4000},
     "extract": {"system": EXTRACT_SYSTEM, "temp": 0.0, "max_tokens": 4000},
     "gap": {"system": GAP_SYSTEM, "temp": 0.0, "max_tokens": 1000},
     "draft": {"system": DRAFT_SYSTEM, "temp": 0.1, "max_tokens": 4000},

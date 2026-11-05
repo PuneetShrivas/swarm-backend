@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Standalone Portable Agnostic Workflow Package (gnostic_workflow/)**:
+  - Extracted and packaged the complete prompt-driven agnostic research and publication report swarm into an isolated, zero-dependency root directory gnostic_workflow/ designed for seamless zip transfer and independent execution in external environments (servers, fresh VMs, containers).
+  - **Zero-Coupling Architecture**: Completely eliminates imports from ackend/app/*. Implements self-contained configuration discovery (config.py), Perplexity Search API client (
+etrieval.py), multi-provider LLM executor (
+oles.py), sequential Evidence Ledger (ledger.py), ReportLab PDF and Markdown compilers (
+enderer.py), and ASCII telemetry generators (	elemetry.py).
+  - **Enhanced Dual-Mode Specification Parser (spec_parser.py)**: Upgraded parser to support both standard Markdown headers (#/##/###) and unstructured uppercase / bold plaintext headings (such as gent-instructions/web-search-prompt.md), resolving the 0-sections empty report issue while preserving full backwards compatibility.
+  - **Standalone CLI & Distribution Tooling**: Added 
+un_workflow.py CLI runner, 
+equirements.txt, .env.example, default 8-section research template (	emplates/standard_research_report.md), and comprehensive deployment documentation (README.md).
+  - **Automated Test Suite (gnostic_workflow/test_standalone_workflow.py)**: 9 unit tests verifying zero backend app imports, specification parsing, sequential evidence ledger indexing, compactor deduplication, ReportLab PDF rendering, and mock pipeline execution.
+
 - **Prompt-Driven Agnostic Research & Report Generation Swarm (`backend/app/workflows/agnostic_research_report/`)**:
   - Implemented a domain-agnostic research and publication report generation workflow completely decoupled from any specific vertical or industry.
   - **Dynamic Markdown Specification Parser (`spec_parser.py`)**: Dynamically parses any arbitrary single `.md` prompt file at runtime to extract global formatting directives, section hierarchies, required field checklists, and concluding statements.
