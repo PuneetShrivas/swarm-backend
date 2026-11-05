@@ -5,6 +5,7 @@ Unit test suite for Agnostic Research & Report Generation Flow.
 import os
 import sys
 import tempfile
+import uuid
 import unittest
 from pathlib import Path
 
@@ -711,6 +712,119 @@ class TestAgnosticTaskSpecificModels(unittest.TestCase):
         self.assertEqual(t_map2.get("plan"), "llama-3.3-70b-versatile")
         self.assertEqual(t_map2.get("draft"), "gpt-5.4")
         self.assertEqual(t_map2.get("synthesize"), "claude-opus-4-8")
+
+
+
+class TestPerplexitySessionQueryCache(unittest.IsolatedAsyncioTestCase):
+    """Tests for in-memory session-level Perplexity query caching."""
+
+    async def test_session_query_cache_hit_and_stats(self):
+        queue = PerplexitySearchQueue(cache_dir=os.path.join(tempfile.gettempdir(), f"test_cache_{uuid.uuid4().hex[:6]}"))
+        queue.clear_session_cache()
+
+        orig_testing = os.environ.get("TESTING")
+        orig_mock = os.environ.get("ALLOW_MOCK_DATA")
+        os.environ["TESTING"] = "true"
+        os.environ["ALLOW_MOCK_DATA"] = "true"
+
+        try:
+            # 1. First search -> cache miss
+            res1 = await queue.search("NVIDIA Revenue Q4 2026")
+            self.assertTrue(len(res1) > 0)
+            self.assertEqual(queue.cache_hits, 0)
+            self.assertEqual(queue.cache_misses, 1)
+
+            # 2. Same query with extra spaces / mixed case -> cache hit from memory
+            res2 = await queue.search("  nvidia   revenue q4 2026 ")
+            self.assertEqual(res1, res2)
+            self.assertEqual(queue.cache_hits, 1)
+            self.assertEqual(queue.cache_misses, 1)
+
+            stats = queue.get_cache_stats()
+            self.assertEqual(stats["session_cache_entries"], 1)
+            self.assertEqual(stats["cache_hits"], 1)
+
+            # 3. Batch search with one existing and one new query
+            batch_res, batch_meta = await queue.batch_search_with_timings([
+                {"text": "nvidia revenue q4 2026"},
+                {"text": "NVIDIA Blackwell Ultra shipments"},
+            ])
+            self.assertTrue(len(batch_res) > 0)
+            self.assertEqual(batch_meta["cache_hits"], 2)  # Hit count incremented
+
+            # 4. Clear cache
+            queue.clear_session_cache()
+            self.assertEqual(queue.get_cache_stats()["session_cache_entries"], 0)
+            self.assertEqual(queue.get_cache_stats()["cache_hits"], 0)
+
+        finally:
+            if orig_testing is not None:
+                os.environ["TESTING"] = orig_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if orig_mock is not None:
+                os.environ["ALLOW_MOCK_DATA"] = orig_mock
+            else:
+                os.environ.pop("ALLOW_MOCK_DATA", None)
+
+
+
+class TestAgnosticAdaptiveDepth(unittest.IsolatedAsyncioTestCase):
+    """Tests for Adaptive Depth & Sufficiency Gate."""
+
+    def test_plan_system_prompt_expanded_queries(self):
+        """Verifies PLAN_SYSTEM instructs 4 to 6 comprehensive search queries."""
+        from app.workflows.agnostic_research_report.roles import PLAN_SYSTEM
+        self.assertIn("4 to 6", PLAN_SYSTEM)
+
+    async def test_adaptive_gate_triggers_on_sufficient_evidence(self):
+        """Verifies section fast-tracks to drafting after 1 round when claims >= threshold and gap is empty."""
+        from app.workflows.agnostic_research_report.orchestrator import AgnosticResearchOrchestrator
+        from app.workflows.agnostic_research_report.ledger import AgnosticEvidenceLedger
+        from app.workflows.agnostic_research_report.models import SectionSpec
+
+        orig_testing = os.environ.get("TESTING")
+        orig_mock = os.environ.get("ALLOW_MOCK_DATA")
+        os.environ["TESTING"] = "true"
+        os.environ["ALLOW_MOCK_DATA"] = "true"
+
+        try:
+            orch = AgnosticResearchOrchestrator()
+            ledger = AgnosticEvidenceLedger()
+            sec = SectionSpec(
+                name="test_adaptive_section",
+                title="Test Adaptive Section",
+                instructions="Draft comprehensive analysis.",
+                required_fields=["Field 1", "Field 2"],
+            )
+
+            # In mock mode, Round 1 adds mock items and gap returns queries: []
+            events = []
+            def _cb(stage, msg):
+                events.append((stage, msg))
+
+            sec_text, sec_meta = await orch._process_section(
+                subject="Test Subject",
+                section=sec,
+                ledger=ledger,
+                global_rules="Cite facts strictly.",
+                mode="deep",
+                progress_cb=_cb,
+            )
+
+            # Verify that only 1 round was needed because mock gap returned empty queries
+            rounds_run = len(sec_meta["subsections"]["rounds"])
+            self.assertEqual(rounds_run, 1, f"Expected 1 round due to adaptive exit, got {rounds_run}")
+            self.assertTrue(len(sec_text) > 0)
+        finally:
+            if orig_testing is not None:
+                os.environ["TESTING"] = orig_testing
+            else:
+                os.environ.pop("TESTING", None)
+            if orig_mock is not None:
+                os.environ["ALLOW_MOCK_DATA"] = orig_mock
+            else:
+                os.environ.pop("ALLOW_MOCK_DATA", None)
 
 
 if __name__ == "__main__":

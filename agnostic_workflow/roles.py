@@ -64,8 +64,8 @@ ROLE_TIER_MAPPING: Dict[str, str] = {
 
 # Role System Prompts (Domain-Agnostic)
 PLAN_SYSTEM = """You are the Plan role in an analytical research pipeline.
-Given a subject and a section specification, formulate up to 5 highly targeted, distinct web search queries
-to discover empirical data, verified developments, benchmarks, key players, or regulatory context.
+Given a subject and a section specification, formulate 4 to 6 highly targeted, distinct web search queries
+to systematically discover empirical data, verified developments, benchmarks, key players, or regulatory context covering the required checklist.
 Do not repeat generic search queries.
 Output format: JSON object with key "queries": [{"text": "query string", "domains": ["example.com"], "recency": "year"}]"""
 

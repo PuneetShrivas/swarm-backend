@@ -113,7 +113,7 @@ class AgnosticResearchOrchestrator:
             f"SECTION: {section.title} ({section.name})\n"
             f"REQUIRED FIELDS / CHECKLIST:\n" + "\n".join(f"- {f}" for f in section.required_fields) + "\n\n"
             f"SECTION INSTRUCTIONS:\n{section.instructions}\n\n"
-            f"Formulate up to 3 highly targeted search queries."
+            f"Formulate 4 to 6 highly targeted search queries that systematically cover the required fields checklist."
         )
         try:
             plan_res, plan_tok, plan_dur, plan_mod = await run_role(
@@ -140,7 +140,9 @@ class AgnosticResearchOrchestrator:
                 f"[PLAN] [{section.title}] Planner fallback used: '{current_queries[0]['text']}'"
             )
 
-        max_rounds = 1 if mode == "fast" else (3 if mode == "deep" else 2)
+        min_adaptive_claims = int(os.environ.get("ADAPTIVE_DEPTH_MIN_CLAIMS", "10"))
+        force_3_rounds = os.environ.get("FORCE_3_ROUNDS", "false").lower() in ["true", "1", "yes"]
+        max_rounds = 1 if mode == "fast" else (3 if (mode == "deep" and force_3_rounds) else 2)
 
         for rnd in range(max_rounds):
             if not current_queries:
@@ -266,6 +268,20 @@ class AgnosticResearchOrchestrator:
                     "gap_done",
                     f"[GAP] [{section.title}] (R{rnd_idx}/{max_rounds}) {len(next_queries)} follow-up queries planned ({rnd_gap_ms / 1000:.2f}s)"
                 )
+
+                # Adaptive Depth Sufficiency Gate:
+                # Fast-track to drafting if checklist requirements are satisfied with solid evidence
+                if not next_queries and len(sec_rows) >= min_adaptive_claims:
+                    _sec_notify(
+                        "adaptive_gate",
+                        f"[ADAPTIVE GATE] [{section.title}] Checklist coverage verified ({len(sec_rows)} facts). Fast-tracking directly to drafting.",
+                    )
+                elif rnd >= 1 and len(sec_rows) >= 15:
+                    _sec_notify(
+                        "adaptive_gate",
+                        f"[ADAPTIVE GATE] [{section.title}] Sufficient evidence density achieved ({len(sec_rows)} facts across {rnd_idx} rounds). Fast-tracking to drafting.",
+                    )
+                    next_queries = []
 
             round_substeps.append({
                 "round": rnd + 1,

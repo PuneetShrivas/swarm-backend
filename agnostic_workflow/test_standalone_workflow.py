@@ -556,5 +556,116 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
         self.assertEqual(t_map.get("synthesize"), "claude-opus-4-8")
 
 
+
+    def test_15_perplexity_session_query_cache(self):
+        """Verifies in-memory session cache hits, normalization, and stats in standalone package."""
+        import asyncio
+        import uuid
+
+        async def _run():
+            cache_dir = os.path.join(tempfile.gettempdir(), f"test_stand_cache_{uuid.uuid4().hex[:6]}")
+            queue = PerplexitySearchQueue(cache_dir=cache_dir)
+            queue.clear_session_cache()
+
+            orig_testing = os.environ.get("TESTING")
+            orig_mock = os.environ.get("ALLOW_MOCK_DATA")
+            os.environ["TESTING"] = "true"
+            os.environ["ALLOW_MOCK_DATA"] = "true"
+
+            try:
+                # 1. Miss on first query
+                res1 = await queue.search("NVIDIA AI Server Growth 2026")
+                self.assertTrue(len(res1) > 0)
+                self.assertEqual(queue.cache_hits, 0)
+                self.assertEqual(queue.cache_misses, 1)
+
+                # 2. Hit on normalized query
+                res2 = await queue.search("  nvidia   ai  server growth 2026 ")
+                self.assertEqual(res1, res2)
+                self.assertEqual(queue.cache_hits, 1)
+
+                stats = queue.get_cache_stats()
+                self.assertEqual(stats["session_cache_entries"], 1)
+                self.assertEqual(stats["cache_hits"], 1)
+
+                # 3. Batch search
+                batch_res, batch_meta = await queue.batch_search_with_timings([
+                    {"text": "nvidia ai server growth 2026"},
+                    {"text": "NVIDIA Grace Blackwell architecture"},
+                ])
+                self.assertTrue(len(batch_res) > 0)
+                self.assertEqual(batch_meta["cache_hits"], 2)
+
+                queue.clear_session_cache()
+                self.assertEqual(queue.get_cache_stats()["session_cache_entries"], 0)
+            finally:
+                if orig_testing is not None:
+                    os.environ["TESTING"] = orig_testing
+                else:
+                    os.environ.pop("TESTING", None)
+                if orig_mock is not None:
+                    os.environ["ALLOW_MOCK_DATA"] = orig_mock
+                else:
+                    os.environ.pop("ALLOW_MOCK_DATA", None)
+
+        asyncio.run(_run())
+
+
+
+    def test_16_adaptive_depth_sufficiency_gate(self):
+        """Verifies PLAN_SYSTEM instructs 4 to 6 queries and sufficiency gate fast-tracks to drafting."""
+        from agnostic_workflow.roles import PLAN_SYSTEM
+        from agnostic_workflow.orchestrator import AgnosticResearchOrchestrator
+        from agnostic_workflow.ledger import AgnosticEvidenceLedger
+        from agnostic_workflow.models import SectionSpec
+        import asyncio
+
+        self.assertIn("4 to 6", PLAN_SYSTEM)
+
+        async def _run():
+            orig_testing = os.environ.get("TESTING")
+            orig_mock = os.environ.get("ALLOW_MOCK_DATA")
+            os.environ["TESTING"] = "true"
+            os.environ["ALLOW_MOCK_DATA"] = "true"
+
+            try:
+                orch = AgnosticResearchOrchestrator()
+                ledger = AgnosticEvidenceLedger()
+                sec = SectionSpec(
+                    name="test_adaptive_section_standalone",
+                    title="Test Adaptive Section Standalone",
+                    instructions="Draft comprehensive analysis.",
+                    required_fields=["Field 1", "Field 2"],
+                )
+
+                events = []
+                def _cb(stage, msg):
+                    events.append((stage, msg))
+
+                sec_text, sec_meta = await orch._process_section(
+                    subject="Test Subject Standalone",
+                    section=sec,
+                    ledger=ledger,
+                    global_rules="Cite facts strictly.",
+                    mode="deep",
+                    progress_cb=_cb,
+                )
+
+                rounds_run = len(sec_meta["subsections"]["rounds"])
+                self.assertEqual(rounds_run, 1, f"Expected 1 round due to adaptive exit, got {rounds_run}")
+                self.assertTrue(len(sec_text) > 0)
+            finally:
+                if orig_testing is not None:
+                    os.environ["TESTING"] = orig_testing
+                else:
+                    os.environ.pop("TESTING", None)
+                if orig_mock is not None:
+                    os.environ["ALLOW_MOCK_DATA"] = orig_mock
+                else:
+                    os.environ.pop("ALLOW_MOCK_DATA", None)
+
+        asyncio.run(_run())
+
+
 if __name__ == "__main__":
     unittest.main()

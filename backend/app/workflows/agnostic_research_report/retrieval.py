@@ -67,19 +67,58 @@ class ResultCompactor:
 class PerplexitySearchQueue:
     """
     Async search queue for Perplexity Search API.
-    Supports query caching, domain scoping, and concurrency rate limiting.
+    Supports in-memory session caching, disk-backed persistent caching,
+    domain scoping, and concurrency rate limiting.
     """
 
     def __init__(self, cache_dir: Optional[str] = None, max_concurrency: int = 3):
         self.cache_dir = cache_dir or CACHE_DIR
         os.makedirs(self.cache_dir, exist_ok=True)
         self.semaphore = asyncio.Semaphore(max_concurrency)
+        self._session_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self._cache_lock = asyncio.Lock()
+        self.cache_hits: int = 0
+        self.cache_misses: int = 0
 
-    def _get_cache_key(self, query: Union[str, List[str]], domains: Optional[List[str]] = None, recency: Optional[str] = None, is_mock: bool = False) -> str:
+    @staticmethod
+    def _normalize_query_key(
+        query: Union[str, List[str]],
+        domains: Optional[List[str]] = None,
+        recency: Optional[str] = None,
+        is_mock: bool = False,
+    ) -> str:
         mode_prefix = "mock" if is_mock else "live"
-        query_repr = tuple(query) if isinstance(query, (list, tuple)) else query
-        raw = f"{mode_prefix}|{query_repr}|{sorted(domains or [])}|{recency or ''}"
+        if isinstance(query, (list, tuple)):
+            norm_q = tuple(" ".join(str(q).lower().strip().split()) for q in query)
+        else:
+            norm_q = " ".join(str(query).lower().strip().split())
+        norm_domains = tuple(sorted(d.lower().strip() for d in (domains or [])))
+        norm_recency = (recency or "").lower().strip()
+        raw = f"{mode_prefix}|{norm_q}|{norm_domains}|{norm_recency}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+    def _get_cache_key(
+        self,
+        query: Union[str, List[str]],
+        domains: Optional[List[str]] = None,
+        recency: Optional[str] = None,
+        is_mock: bool = False,
+    ) -> str:
+        return self._normalize_query_key(query, domains, recency, is_mock=is_mock)
+
+    def clear_session_cache(self) -> None:
+        """Clears in-memory session cache and resets cache counters."""
+        self._session_cache.clear()
+        self.cache_hits = 0
+        self.cache_misses = 0
+
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Returns in-memory cache statistics."""
+        return {
+            "session_cache_entries": len(self._session_cache),
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+        }
 
     def _read_cache(self, key: str) -> Optional[List[Dict[str, Any]]]:
         path = os.path.join(self.cache_dir, f"{key}.json")
@@ -125,20 +164,37 @@ class PerplexitySearchQueue:
         is_mock = allow_mock and (not api_key or api_key.startswith("your-") or api_key.startswith("test-") or os.environ.get("MOCK_PERPLEXITY") == "true")
 
         cache_key = self._get_cache_key(query, domains, recency, is_mock=is_mock)
+
+        # 1. Check in-memory session cache first (instant 0ms lookup)
+        async with self._cache_lock:
+            if cache_key in self._session_cache:
+                self.cache_hits += 1
+                return [dict(item) for item in self._session_cache[cache_key]]
+
+        # 2. Check persistent disk-backed cache next
         cached = self._read_cache(cache_key)
         if cached is not None:
-            return cached
+            async with self._cache_lock:
+                self._session_cache[cache_key] = cached
+                self.cache_hits += 1
+            return [dict(item) for item in cached]
+
+        self.cache_misses += 1
 
         if is_mock:
             first_q = query[0] if isinstance(query, list) and query else (query if isinstance(query, str) else "")
             results = self._generate_mock_results(first_q, domains)
             self._write_cache(cache_key, results)
+            async with self._cache_lock:
+                self._session_cache[cache_key] = results
             return results
 
         async with self.semaphore:
             results = await self._execute_live_search(query, domains, recency, max_results, api_key)
             if results:
                 self._write_cache(cache_key, results)
+                async with self._cache_lock:
+                    self._session_cache[cache_key] = results
             return results
 
     async def _execute_live_search(
@@ -210,6 +266,8 @@ class PerplexitySearchQueue:
             "duration_ms": duration_ms,
             "queries_count": len(queries),
             "results_count": len(deduped),
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
         }
 
     def _generate_mock_results(self, query: str, domains: Optional[List[str]]) -> List[Dict[str, Any]]:
