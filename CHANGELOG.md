@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-11-05
+
+### Added
+- **Prompt-Driven Agnostic Research & Report Generation Swarm (`backend/app/workflows/agnostic_research_report/`)**:
+  - Implemented a domain-agnostic research and publication report generation workflow completely decoupled from any specific vertical or industry.
+  - **Dynamic Markdown Specification Parser (`spec_parser.py`)**: Dynamically parses any arbitrary single `.md` prompt file at runtime to extract global formatting directives, section hierarchies, required field checklists, and concluding statements.
+  - **Agnostic Evidence Ledger (`ledger.py`)**: Thread-safe factual ledger assigning sequential citation identifiers (`[E001]`, `[E002]`, etc.) with citation resolution, domain distribution stats, and confidence tagging.
+  - **Perplexity Web Search Agent (`retrieval.py`)**: Real-time web retrieval via Perplexity Search API with batching, disk-backed query caching, snippet length capping, and wire news deduplication (`ResultCompactor`). Live runs enforce strict anti-mock credential requirements.
+  - **Multi-Provider Cognitive Roles (`roles.py`)**: Central worker executing `plan`, `extract`, `gap`, `draft`, `synthesize`, and `verify` roles across Azure AI Foundry, Groq, Google Gemini, and IteraCompute with granular per-step token tracking (`input_tokens`, `output_tokens`, `total_tokens`) and automated 429 TPM rate-limit retry and failover.
+  - **Cognitive Swarm Orchestrator (`orchestrator.py`)**: Coordinates multi-round research, automated gap analysis to rerun targeted research where evidence is incomplete, pipelined concurrent section drafting, and cross-section executive synthesis.
+  - **Publication File Generation Agent (`renderer.py`)**: Compiles styled Markdown and publication-ready ReportLab PDF documents with dynamic footnoting, cover metadata tables, running headers/footers, and two-pass `Page X of Y` numbering (`NumberedCanvas`).
+  - **Granular Timings Tree & Token Accounting (`telemetry.py`)**: Formats hierarchical ASCII timing trees and columnar timing/token tables displaying wall-clock time, cumulative compute time, concurrency speedup factor, and per-step token metrics.
+  - **CLI Runner & Entrypoints (`cli.py`, `backend/run_agnostic_research_report.py`)**: Full-featured CLI supporting `--prompt-file`, `--model`, `--provider`, `--fallback-model`, `--mode`, `--output-dir`, and `--format` (`tree`, `table`, `json`).
+  - **Automated Test Suite (`backend/test_agnostic_research_report.py`)**: 17 unit tests verifying spec parsing, ledger indexing, Perplexity batch retrieval, LLM role execution, PDF/Markdown generation, and CLI operation.
+
 ## [Unreleased] - 2026-11-04
 
 ### Added
