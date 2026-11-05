@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - **Dynamic Azure Foundry Endpoint Routing for GPT-5.4 & GPT-5-Mini (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
   - Implemented `resolve_foundry_endpoint(model)` in both agnostic workflow instances:
-    - Automatically routes requests to `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages"` when `gpt-5.4` or `gpt-5-mini` is used.
+    - Automatically routes requests to `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/responses"` (OpenAI Responses API) when `gpt-5.4` or `gpt-5-mini` is used.
     - Automatically routes requests to `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"` when Anthropic Claude models (e.g. `claude-opus-4-8`, `claude-sonnet-4-6`) are used.
     - Automatically converts configured endpoints containing `/anthropic/` to `/openai/` whenever an OpenAI model is selected.
   - Enhanced REST response parsing in `_execute_azure_chat_with_tokens` to support both Anthropic `content` blocks and OpenAI `choices` structures, plus dual token usage keys (`input_tokens`/`prompt_tokens` and `output_tokens`/`completion_tokens`).

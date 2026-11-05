@@ -202,9 +202,9 @@ def is_openai_foundry_model(model_name: str) -> bool:
 def resolve_foundry_endpoint(model: str, base_endpoint: Optional[str] = None) -> str:
     """Resolves Azure Foundry endpoint according to model family.
     When gpt-5.4 or gpt-5-mini is used:
-        AZURE_FOUNDRY_ENDPOINT switches to .../openai/v1/messages
+        routes to Azure Foundry OpenAI Responses API (.../openai/v1/responses)
     When Claude or other Anthropic models are used:
-        AZURE_FOUNDRY_ENDPOINT switches to .../anthropic/v1/messages
+        routes to Azure Foundry Anthropic Messages API (.../anthropic/v1/messages)
     """
     m = (model or "").lower().strip()
     is_openai = is_openai_foundry_model(m)
@@ -212,26 +212,28 @@ def resolve_foundry_endpoint(model: str, base_endpoint: Optional[str] = None) ->
     raw = (base_endpoint or os.environ.get("AZURE_FOUNDRY_ENDPOINT", "")).strip()
 
     if not raw:
-        return f"{default_host}/openai/v1/messages" if is_openai else f"{default_host}/anthropic/v1/messages"
+        return f"{default_host}/openai/v1/responses" if is_openai else f"{default_host}/anthropic/v1/messages"
 
     if is_openai:
         if "/anthropic/" in raw:
-            return raw.replace("/anthropic/", "/openai/")
+            raw = raw.replace("/anthropic/", "/openai/")
         if raw.endswith("/v1/messages"):
-            if "/openai/" not in raw:
-                prefix = raw[:-len("/v1/messages")].rstrip("/")
-                return f"{prefix}/openai/v1/messages"
-            return raw
-        return f"{raw.rstrip('/')}/openai/v1/messages"
+            raw = raw[:-len("/v1/messages")] + "/v1/responses"
+        elif raw.endswith("/v1"):
+            raw = raw + "/responses"
+        elif not raw.endswith("/v1/responses"):
+            raw = f"{raw.rstrip('/')}/openai/v1/responses" if "/openai" not in raw else f"{raw.rstrip('/')}/v1/responses"
+        return raw
     else:
         if "/openai/" in raw:
-            return raw.replace("/openai/", "/anthropic/")
-        if raw.endswith("/v1/messages"):
-            if "/anthropic/" not in raw:
-                prefix = raw[:-len("/v1/messages")].rstrip("/")
-                return f"{prefix}/anthropic/v1/messages"
-            return raw
-        return f"{raw.rstrip('/')}/anthropic/v1/messages"
+            raw = raw.replace("/openai/", "/anthropic/")
+        if raw.endswith("/v1/responses"):
+            raw = raw[:-len("/v1/responses")] + "/v1/messages"
+        elif raw.endswith("/v1"):
+            raw = raw + "/messages"
+        elif not raw.endswith("/v1/messages"):
+            raw = f"{raw.rstrip('/')}/anthropic/v1/messages" if "/anthropic" not in raw else f"{raw.rstrip('/')}/v1/messages"
+        return raw
 
 
 async def _execute_azure_chat_with_tokens(
@@ -262,20 +264,35 @@ async def _execute_azure_chat_with_tokens(
         raise RuntimeError("Neither AZURE_API_KEY nor valid Azure Entra ID credentials available.")
 
     endpoint = resolve_foundry_endpoint(model, os.environ.get("AZURE_FOUNDRY_ENDPOINT"))
+    is_openai = is_openai_foundry_model(model)
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": auth_header,
-        "anthropic-version": "2023-06-01",
-    }
-    if api_key:
-        headers["api-key"] = api_key
-    payload = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "system": system_prompt + "\n\nCRITICAL: Respond ONLY with a valid JSON object matching the requested schema. Do not wrap in markdown fences.",
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
+    if is_openai:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": auth_header,
+        }
+        if api_key:
+            headers["api-key"] = api_key
+        payload = {
+            "model": model,
+            "instructions": system_prompt + "\n\nCRITICAL: Respond ONLY with a valid JSON object matching the requested schema. Do not wrap in markdown fences.",
+            "input": user_prompt,
+            "max_output_tokens": max_tokens,
+        }
+    else:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": auth_header,
+            "anthropic-version": "2023-06-01",
+        }
+        if api_key:
+            headers["api-key"] = api_key
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system_prompt + "\n\nCRITICAL: Respond ONLY with a valid JSON object matching the requested schema. Do not wrap in markdown fences.",
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
 
     import httpx
     async with AZURE_SEMAPHORE:
@@ -287,20 +304,32 @@ async def _execute_azure_chat_with_tokens(
             if not isinstance(data, dict):
                 raise RuntimeError(f"Azure Foundry non-dict response: {data}")
 
-            if "error" in data:
+            if data.get("error"):
                 err_msg = data["error"].get("message", str(data["error"])) if isinstance(data["error"], dict) else str(data["error"])
                 raise RuntimeError(f"Azure Foundry API error: {err_msg}")
 
-            # Parse content blocks (Anthropic style)
-            content_items = data.get("content", [])
-            text_blocks = []
-            if isinstance(content_items, list):
-                for item in content_items:
-                    if isinstance(item, dict) and (item.get("type") == "text" or "text" in item):
-                        text_blocks.append(item.get("text", ""))
-            full_text = "".join(text_blocks).strip()
+            # 1. Parse OpenAI Responses API format
+            full_text = ""
+            if "output" in data and isinstance(data["output"], list):
+                for item in data["output"]:
+                    if isinstance(item, dict) and "content" in item and isinstance(item["content"], list):
+                        for c in item["content"]:
+                            if isinstance(c, dict) and "text" in c:
+                                full_text += c["text"]
+            if not full_text and data.get("output_text"):
+                full_text = data.get("output_text", "")
 
-            # Parse choices (OpenAI style fallback)
+            # 2. Parse Anthropic Messages API format
+            if not full_text:
+                content_items = data.get("content", [])
+                text_blocks = []
+                if isinstance(content_items, list):
+                    for item in content_items:
+                        if isinstance(item, dict) and (item.get("type") == "text" or "text" in item):
+                            text_blocks.append(item.get("text", ""))
+                full_text = "".join(text_blocks).strip()
+
+            # 3. Parse OpenAI Chat Completions fallback
             if not full_text and "choices" in data and isinstance(data["choices"], list) and len(data["choices"]) > 0:
                 first_choice = data["choices"][0]
                 if isinstance(first_choice, dict) and "message" in first_choice:

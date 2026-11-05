@@ -1,11 +1,11 @@
 # Verification Report: Dynamic Azure Foundry Endpoint Routing for GPT-5.4 and GPT-5-Mini
 
 ## Datetime
-`2026-11-05T15:28:50+05:30`
+`2026-11-05T15:57:45+05:30`
 
 ## Scope of Verification
 Verifying that both instances of the agnostic workflow (`backend/app/workflows/agnostic_research_report/` and `agnostic_workflow/`) dynamically route requests to:
-- `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages"` when `gpt-5.4` or `gpt-5-mini` is used.
+- `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/responses"` when `gpt-5.4` or `gpt-5-mini` is used.
 - `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"` when Anthropic Claude models (e.g. `claude-opus-4-8`, `claude-sonnet-4-6`) are used.
 
 ## Automated Test Results
@@ -28,7 +28,7 @@ test_12_orchestrator_section_draft_retry_recovers (__main__.TestStandaloneAgnost
 test_13_resolve_foundry_endpoint_routing (__main__.TestStandaloneAgnosticWorkflow.test_13_resolve_foundry_endpoint_routing) ... ok
 
 ----------------------------------------------------------------------
-Ran 14 tests in 0.410s
+Ran 14 tests in 0.255s
 
 OK
 ```
@@ -37,20 +37,26 @@ OK
 ```text
 test_resolve_foundry_endpoint_routing (backend.test_agnostic_research_report.TestAgnosticRateLimitRetry.test_resolve_foundry_endpoint_routing) ... ok
 ...
-Ran 21 tests in 0.483s
+Ran 21 tests in 0.336s
 
 OK
 ```
+
+### 3. Live End-to-End Verification
+Executed live cognitive roles against actual Azure Foundry endpoint:
+- `run_role("plan", ..., model_override="gpt-5.4")`: Succeeded in 9.06s returning queries list with 358 tokens.
+- `run_role("draft", ..., model_override="gpt-5-mini")`: Succeeded in 11.89s returning full section narrative with 1,456 tokens.
+- Zero 404 RouteNotFound errors and zero fallback failovers.
 
 ## Summary of Verification Checks
 
 | Scenario | Expected Outcome | Actual Outcome | Status |
 |---|---|---|---|
-| Model `gpt-5.4` default endpoint | Routes to `https://.../openai/v1/messages` | `https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages` | PASS |
-| Model `gpt-5-mini` default endpoint | Routes to `https://.../openai/v1/messages` | `https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages` | PASS |
+| Model `gpt-5.4` default endpoint | Routes to `https://.../openai/v1/responses` | `https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/responses` | PASS |
+| Model `gpt-5-mini` default endpoint | Routes to `https://.../openai/v1/responses` | `https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/responses` | PASS |
 | Model `claude-opus-4-8` default endpoint | Routes to `https://.../anthropic/v1/messages` | `https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages` | PASS |
 | Model `claude-sonnet-4-6` default endpoint | Routes to `https://.../anthropic/v1/messages` | `https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages` | PASS |
-| Env var `AZURE_FOUNDRY_ENDPOINT` with `/anthropic/` converted for `gpt-5.4` | Converts `/anthropic/` to `/openai/` | Successfully converted | PASS |
-| Bare host endpoint converted according to model family | Appends `/openai/v1/messages` or `/anthropic/v1/messages` | Correct path appended | PASS |
+| Successful response with `"error": null` | Does not raise false positive error | Handled correctly | PASS |
+| Live API calls with `gpt-5.4` and `gpt-5-mini` | Returns valid JSON text and usage | Validated live | PASS |
 | Zero external app imports | `agnostic_workflow/` has 0 dependencies on `backend/app/*` | 0 violations | PASS |
-| Zip distribution sync | `agnostic_workflow.zip` contains updated code | Repacked successfully (46,201 bytes) | PASS |
+| Zip distribution sync | `agnostic_workflow.zip` contains updated code | Repacked successfully (46,403 bytes) | PASS |

@@ -593,7 +593,7 @@ class TestAgnosticRateLimitRetry(unittest.IsolatedAsyncioTestCase):
     def test_resolve_foundry_endpoint_routing(self):
         """Verifies endpoint changes to /openai/v1/messages for gpt-5.4 and gpt-5-mini and /anthropic/ for Claude."""
         default_anthropic = "https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"
-        default_openai = "https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages"
+        default_openai = "https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/responses"
 
         # Model detection
         self.assertTrue(is_openai_foundry_model("gpt-5.4"))
