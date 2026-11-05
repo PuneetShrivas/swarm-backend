@@ -229,20 +229,44 @@ class AgnosticResearchOrchestrator:
             f"Draft the complete analytical section narrative. Follow all format and bullet rules. Cite facts with [E###] tokens."
         )
         t_d0 = time.perf_counter()
-        try:
-            draft_res, draft_tok, draft_dur, draft_mod = await run_role(
-                "draft",
-                draft_prompt,
-                model_override=model,
-                provider_override=provider,
-                fallback_model_override=fallback_model,
-            )
-            section_text = draft_res.get("section_text", f"## {section.title}\n- Data unavailable.")
-            tokens_in += draft_tok.get("input_tokens", 0)
-            tokens_out += draft_tok.get("output_tokens", 0)
-        except Exception as e:
-            section_text = f"## {section.title}\n- Section drafting unavailable due to upstream error: {e}"
-            draft_dur = (time.perf_counter() - t_d0) * 1000
+        is_testing = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_ROLES") == "true"
+        max_draft_retries = 1 if is_testing else int(os.environ.get("DRAFT_MAX_RETRIES", "4"))
+        section_text = ""
+        draft_dur = 0.0
+
+        for draft_attempt in range(max_draft_retries):
+            try:
+                draft_res, draft_tok, draft_dur, draft_mod = await run_role(
+                    "draft",
+                    draft_prompt,
+                    model_override=model,
+                    provider_override=provider,
+                    fallback_model_override=fallback_model,
+                )
+                raw_text = draft_res.get("section_text", "")
+                if raw_text and not raw_text.strip().endswith("Data unavailable."):
+                    section_text = raw_text
+                    tokens_in += draft_tok.get("input_tokens", 0)
+                    tokens_out += draft_tok.get("output_tokens", 0)
+                    break
+                elif raw_text:
+                    section_text = raw_text
+                    tokens_in += draft_tok.get("input_tokens", 0)
+                    tokens_out += draft_tok.get("output_tokens", 0)
+                    break
+
+                if draft_attempt < max_draft_retries - 1:
+                    wait_sec = 10.0 * (draft_attempt + 1)
+                    print(f"[*] Section '{section.title}' drafting returned empty. Retrying in {wait_sec:.0f}s (attempt {draft_attempt + 2}/{max_draft_retries})...", flush=True)
+                    await asyncio.sleep(wait_sec)
+            except Exception as e:
+                if draft_attempt < max_draft_retries - 1:
+                    wait_sec = 15.0 * (draft_attempt + 1)
+                    print(f"[*] [SECTION DRAFT RETRY] Section '{section.title}' drafting encountered error ({e}). Waiting {wait_sec:.0f}s before retry (attempt {draft_attempt + 2}/{max_draft_retries})...", flush=True)
+                    await asyncio.sleep(wait_sec)
+                else:
+                    section_text = f"## {section.title}\n- Section drafting unavailable after {max_draft_retries} attempts: {e}"
+                    draft_dur = (time.perf_counter() - t_d0) * 1000
 
         sec_total_ms = (time.perf_counter() - sec_start) * 1000
 
@@ -352,6 +376,8 @@ class AgnosticResearchOrchestrator:
         synth_tokens_in = 0
         synth_tokens_out = 0
 
+        is_testing = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_ROLES") == "true"
+        max_synth_retries = 1 if is_testing else int(os.environ.get("SYNTH_MAX_RETRIES", "4"))
         for s_spec in synth_sections:
             synth_input = (
                 f"TARGET SUBJECT: {subject}\n\n"
@@ -360,24 +386,31 @@ class AgnosticResearchOrchestrator:
                 f"DRAFTED SECTIONS EVIDENCE BASE:\n"
                 + "\n\n".join(drafted_sections_map.values())
             )
-            try:
-                synth_res, synth_tok, synth_dur, synth_mod = await run_role(
-                    "synthesize",
-                    synth_input,
-                    model_override=model,
-                    provider_override=provider,
-                    fallback_model_override=fallback_model,
-                )
-                drafted_sections_map[s_spec.name] = synth_res.get("executive_summary") or synth_res.get("verdict_text") or f"## {s_spec.title}\n- Synthesis complete."
-                synth_tokens_in += synth_tok.get("input_tokens", 0)
-                synth_tokens_out += synth_tok.get("output_tokens", 0)
-                synth_timings[s_spec.name] = {
-                    "duration_ms": synth_dur,
-                    "model": synth_mod,
-                    "tokens": synth_tok,
-                }
-            except Exception as e:
-                drafted_sections_map[s_spec.name] = f"## {s_spec.title}\n- Synthesis unavailable: {e}"
+            for synth_attempt in range(max_synth_retries):
+                try:
+                    synth_res, synth_tok, synth_dur, synth_mod = await run_role(
+                        "synthesize",
+                        synth_input,
+                        model_override=model,
+                        provider_override=provider,
+                        fallback_model_override=fallback_model,
+                    )
+                    drafted_sections_map[s_spec.name] = synth_res.get("executive_summary") or synth_res.get("verdict_text") or f"## {s_spec.title}\n- Synthesis complete."
+                    synth_tokens_in += synth_tok.get("input_tokens", 0)
+                    synth_tokens_out += synth_tok.get("output_tokens", 0)
+                    synth_timings[s_spec.name] = {
+                        "duration_ms": synth_dur,
+                        "model": synth_mod,
+                        "tokens": synth_tok,
+                    }
+                    break
+                except Exception as e:
+                    if synth_attempt < max_synth_retries - 1:
+                        wait_sec = 15.0 * (synth_attempt + 1)
+                        print(f"[*] [SYNTHESIS RETRY] Section '{s_spec.title}' synthesis encountered error ({e}). Waiting {wait_sec:.0f}s before retry (attempt {synth_attempt + 2}/{max_synth_retries})...", flush=True)
+                        await asyncio.sleep(wait_sec)
+                    else:
+                        drafted_sections_map[s_spec.name] = f"## {s_spec.title}\n- Synthesis unavailable after {max_synth_retries} attempts: {e}"
 
         s3_wall_ms = round((time.perf_counter() - t_s3_start) * 1000, 2)
 

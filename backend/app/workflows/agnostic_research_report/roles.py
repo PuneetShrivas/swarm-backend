@@ -379,6 +379,22 @@ def _generate_mock_role_output(role: str, user_prompt: str) -> Tuple[Dict[str, A
     return data, {"input_tokens": in_tok, "output_tokens": out_tok, "total_tokens": in_tok + out_tok}, 5.0, "mock-model"
 
 
+
+def parse_retry_delay(error_text: str, default_wait: float = 10.0, attempt: int = 0) -> float:
+    """Extracts recommended wait seconds from Azure Foundry 429 error messages.
+    Example matches:
+    - 'Please wait 8 seconds before retrying.'
+    - 'Please wait 1 seconds before retrying.'
+    - 'retry after 12 seconds'
+    """
+    match = re.search(r"(?:please wait|retry after|wait)\s+(\d+(?:\.\d+)?)\s*(?:seconds|s)", error_text, re.IGNORECASE)
+    if match:
+        try:
+            return float(match.group(1)) + 2.0  # +2s safety buffer
+        except Exception:
+            pass
+    return default_wait + (attempt * 5.0)
+
 async def run_role(
     role: str,
     user_input: str,
@@ -416,59 +432,99 @@ async def run_role(
 
     t0 = time.perf_counter()
     last_error = ""
+    max_outer_rounds = 1 if is_testing else int(os.environ.get("AZURE_MAX_RETRY_ROUNDS", "5"))
+    base_cooldown_seconds = int(os.environ.get("AZURE_RETRY_WAIT_SECONDS", "20"))
 
-    for m_idx, current_model in enumerate(models_sequence):
-        is_fallback = (m_idx > 0)
-        max_attempts = 2 if len(models_sequence) > 1 else 3
+    for round_idx in range(max_outer_rounds):
+        for m_idx, current_model in enumerate(models_sequence):
+            is_fallback = (m_idx > 0)
+            max_attempts = 3 if len(models_sequence) == 1 else 2
 
-        for attempt in range(max_attempts):
-            try:
-                if active_prov in ["azure", "azure-foundry", "foundry"]:
-                    content, usage = await _execute_azure_chat_with_tokens(
-                        model=current_model,
-                        system_prompt=cfg["system"],
-                        user_prompt=user_input,
-                        temp=cfg["temp"],
-                        max_tokens=cfg["max_tokens"],
-                    )
-                elif active_prov == "groq":
-                    content, usage = await _execute_groq_chat_with_tokens(
-                        model=current_model,
-                        system_prompt=cfg["system"],
-                        user_prompt=user_input,
-                        temp=cfg["temp"],
-                        max_tokens=cfg["max_tokens"],
-                    )
-                elif active_prov == "gemini":
-                    content, usage = await _execute_gemini_chat_with_tokens(
-                        model=current_model,
-                        system_prompt=cfg["system"],
-                        user_prompt=user_input,
-                        temp=cfg["temp"],
-                        max_tokens=cfg["max_tokens"],
-                    )
-                else:
-                    raise ValueError(f"Unsupported provider '{active_prov}'")
+            for attempt in range(max_attempts):
+                try:
+                    if active_prov in ["azure", "azure-foundry", "foundry"]:
+                        content, usage = await _execute_azure_chat_with_tokens(
+                            model=current_model,
+                            system_prompt=cfg["system"],
+                            user_prompt=user_input,
+                            temp=cfg["temp"],
+                            max_tokens=cfg["max_tokens"],
+                        )
+                    elif active_prov == "groq":
+                        content, usage = await _execute_groq_chat_with_tokens(
+                            model=current_model,
+                            system_prompt=cfg["system"],
+                            user_prompt=user_input,
+                            temp=cfg["temp"],
+                            max_tokens=cfg["max_tokens"],
+                        )
+                    elif active_prov == "gemini":
+                        content, usage = await _execute_gemini_chat_with_tokens(
+                            model=current_model,
+                            system_prompt=cfg["system"],
+                            user_prompt=user_input,
+                            temp=cfg["temp"],
+                            max_tokens=cfg["max_tokens"],
+                        )
+                    else:
+                        raise ValueError(f"Unsupported provider '{active_prov}'")
 
-                parsed = _extract_json(content)
-                if parsed:
-                    duration_ms = round((time.perf_counter() - t0) * 1000, 2)
-                    return parsed, usage, duration_ms, current_model
+                    parsed = _extract_json(content)
+                    if parsed:
+                        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+                        if is_fallback or round_idx > 0:
+                            print(f"[AZURE SUCCESS] Role '{role}' succeeded with model '{current_model}' (round {round_idx + 1}/{max_outer_rounds})", flush=True)
+                        return parsed, usage, duration_ms, current_model
 
-                last_error = f"Model '{current_model}' returned unparseable JSON (length={len(content)})"
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    continue
+                    last_error = f"Model '{current_model}' returned unparseable JSON (length={len(content)})"
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
 
-            except Exception as e:
-                last_error = str(e)
-                err_lower = str(e).lower()
-                if ("rate limit" in err_lower or "429" in err_lower) and not is_fallback and len(models_sequence) > 1:
-                    print(f"[RATE LIMIT 429] Failing over from '{current_model}' to fallback model '{models_sequence[1]}'...", flush=True)
+                except Exception as e:
+                    last_error = str(e)
+                    err_lower = str(e).lower()
+                    is_429 = any(k in err_lower for k in ["rate limit", "429", "tpm", "quota", "tokens per 60s"])
+
+                    if is_429 and not is_fallback and len(models_sequence) > 1:
+                        print(f"[RATE LIMIT 429] Role '{role}' hit rate limit on '{current_model}'. Failing over to fallback model '{models_sequence[1]}'...", flush=True)
+                        break
+
+                    if (is_429 or "timeout" in err_lower) and attempt < max_attempts - 1:
+                        delay = parse_retry_delay(last_error, default_wait=4.0, attempt=attempt)
+                        print(f"  ⏳ [AZURE 429 BACKOFF] Role '{role}' ({current_model}): Rate limit detected. Pausing {delay:.1f}s before retry (attempt {attempt + 2}/{max_attempts})...", flush=True)
+                        await asyncio.sleep(delay)
+                        continue
+
                     break
-                if ("rate limit" in err_lower or "429" in err_lower or "timeout" in err_lower) and attempt < max_attempts - 1:
-                    await asyncio.sleep(2.0 * (attempt + 1))
-                    continue
+
+        # If all models in sequence failed in this round, check if retryable before outer cooldown
+        if round_idx < max_outer_rounds - 1:
+            is_retryable = any(kw in last_error.lower() for kw in [
+                "rate limit", "429", "token", "tpm", "quota", "overloaded", "capacity",
+                "500", "502", "503", "504", "timeout", "connection", "temporarily",
+                "service unavailable", "gateway", "call failed", "unparseable", "empty json"
+            ])
+            if not is_retryable:
                 break
 
-    raise RuntimeError(f"Role '{role}' execution failed across models {models_sequence}: {last_error}")
+            parsed_wait = parse_retry_delay(last_error, default_wait=0.0)
+            cooldown_wait = max(parsed_wait, float(base_cooldown_seconds + round_idx * 10))
+            print(f"\n[AZURE RATE LIMIT COOLDOWN] Role '{role}' exhausted model sequence for round {round_idx + 1}/{max_outer_rounds}.\n[AZURE RATE LIMIT COOLDOWN] Pausing {int(cooldown_wait)}s for token quota replenishment before round {round_idx + 2}/{max_outer_rounds}...", flush=True)
+
+            elapsed = 0.0
+            step = 5.0
+            while elapsed < cooldown_wait:
+                sleep_time = min(step, cooldown_wait - elapsed)
+                await asyncio.sleep(sleep_time)
+                elapsed += sleep_time
+                remaining = cooldown_wait - elapsed
+                pct = int((elapsed / cooldown_wait) * 100)
+                bar_filled = "#" * (pct // 5)
+                bar_empty = "-" * (20 - (pct // 5))
+                if remaining > 0:
+                    print(f"  ⏳ [AZURE COOLDOWN] Role '{role}': [{bar_filled}{bar_empty}] {int(elapsed)}s/{int(cooldown_wait)}s ({pct}%) — retrying in {int(remaining)}s...", flush=True)
+                else:
+                    print(f"  ✅ [AZURE COOLDOWN COMPLETE] Role '{role}': Cooldown finished ({int(cooldown_wait)}s elapsed). Retrying request with model '{models_sequence[0]}'...\n", flush=True)
+
+    raise RuntimeError(f"Role '{role}' execution failed across models {models_sequence} after {max_outer_rounds} retry rounds: {last_error}")

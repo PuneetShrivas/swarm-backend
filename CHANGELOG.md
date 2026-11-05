@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Agnostic Workflow Azure Rate Limit (HTTP 429) Retry & Zero Section Skipping (`backend/app/workflows/agnostic_research_report/`)**:
+  - **Dynamic 429 Delay Parsing (`roles.py`)**: Implemented `parse_retry_delay()` extracting exact retry recommendations from Azure Foundry error bodies (e.g. `"Please wait 8 seconds before retrying."`) and applying a `+2.0s` safety cushion to prevent immediate re-triggering.
+  - **Multi-Round Cooldown Progress Loop (`roles.py`)**: Added an outer retry loop (`max_outer_rounds = 5`, configurable via `AZURE_MAX_RETRY_ROUNDS`) with progressive cooldown calculations and terminal progress bar countdowns (`⏳ [AZURE COOLDOWN] Role 'draft': [#####-----] 10s/25s...`) before retrying model sequences.
+  - **Zero Section Skipping in Section Drafting (`orchestrator.py`)**: Replaced single-attempt exception catch in `_process_section()` with a persistent retry loop (`max_draft_retries = 4`, configurable via `DRAFT_MAX_RETRIES`), eliminating premature report section skipping and inline `- Section drafting unavailable due to upstream error:` fallbacks.
+  - **Resilient Cross-Section Synthesis Retries (`orchestrator.py`)**: Added persistent retry loop (`max_synth_retries = 4`, configurable via `SYNTH_MAX_RETRIES`) across overarching synthesis sections.
+  - **Automated Test Coverage (`backend/test_agnostic_research_report.py`)**: Added `TestAgnosticRateLimitRetry` unit test suite covering dynamic wait string parsing, transient 429 retry recovery, and orchestrator section drafting self-healing.
 - **Global Perplexity Fast Search Mode (`search_type: "fast"`)**:
   - Configured Perplexity's high-speed Photon engine (`search_type: "fast"`) across all Search API endpoints (`POST https://api.perplexity.ai/search`) and chat completion calls, reducing retrieval latency to sub-250ms and cutting API query costs by 80%.
   - Updated `backend/app/agents/researcher/tools.py` (`search_via_perplexity_search_api`, `async_search_via_perplexity_search_api`, `search_via_perplexity`) to transmit `"search_type": "fast"` by default.

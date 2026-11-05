@@ -30,6 +30,7 @@ from app.workflows.agnostic_research_report.roles import (
     get_fallback_model,
     _extract_json,
     _execute_azure_chat_with_tokens,
+    parse_retry_delay,
 )
 from app.workflows.agnostic_research_report.renderer import (
     FootnoteTransformer,
@@ -492,6 +493,99 @@ class TestAgnosticResearchReportStep5(unittest.IsolatedAsyncioTestCase):
             finally:
                 os.environ.clear()
                 os.environ.update(orig_env)
+
+
+class TestAgnosticRateLimitRetry(unittest.IsolatedAsyncioTestCase):
+    """Verifies 429 rate limit parsing, dynamic backoff and retry handling."""
+
+    def test_parse_retry_delay(self):
+        msg_1s = "Rate limit of 8000 per 60s exceeded for UserByModelByMinuteOutputTokens. Please wait 1 seconds before retrying."
+        self.assertEqual(parse_retry_delay(msg_1s), 3.0)  # 1.0 + 2.0 buffer
+
+        msg_8s = "Please wait 8 seconds before retrying."
+        self.assertEqual(parse_retry_delay(msg_8s), 10.0)  # 8.0 + 2.0 buffer
+
+        msg_alt = "retry after 12.5 seconds"
+        self.assertEqual(parse_retry_delay(msg_alt), 14.5)  # 12.5 + 2.0 buffer
+
+        # Fallback when no seconds regex match
+        msg_none = "Generic rate limit reached"
+        self.assertEqual(parse_retry_delay(msg_none, default_wait=5.0, attempt=2), 15.0)
+
+    async def test_roles_retry_on_429(self):
+        """Simulates a 429 rate limit error followed by success."""
+        from unittest.mock import patch
+
+        call_count = 0
+        async def fake_azure_call(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError('Azure Foundry HTTP 429: {"error":{"code":"RateLimitReached","message":"Please wait 0.01 seconds before retrying."}}')
+            return '{"section_text": "## SECTION\\n- Valid drafted bullet [E001]."}', {"input_tokens": 50, "output_tokens": 20, "total_tokens": 70}
+
+        orig_env = os.environ.copy()
+        os.environ.pop("ALLOW_MOCK_DATA", None)
+        os.environ.pop("MOCK_ROLES", None)
+        os.environ["AZURE_MAX_RETRY_ROUNDS"] = "2"
+        try:
+            with patch("app.workflows.agnostic_research_report.roles._execute_azure_chat_with_tokens", side_effect=fake_azure_call):
+                res, usage, dur, model = await run_role(
+                    "draft",
+                    "Draft test section",
+                    provider_override="azure",
+                    model_override="claude-opus-4-8",
+                )
+                self.assertEqual(call_count, 2)
+                self.assertIn("Valid drafted bullet", res.get("section_text", ""))
+        finally:
+            os.environ.clear()
+            os.environ.update(orig_env)
+
+    async def test_orchestrator_section_draft_retry_recovers(self):
+        """Verifies that orchestrator _process_section retries on transient draft failure and succeeds."""
+        from unittest.mock import patch
+        from app.workflows.agnostic_research_report.orchestrator import AgnosticResearchOrchestrator
+        from app.workflows.agnostic_research_report.ledger import AgnosticEvidenceLedger
+        from app.workflows.agnostic_research_report.models import SectionSpec
+
+        orch = AgnosticResearchOrchestrator()
+        sec = SectionSpec(name="test_sec", title="Test Section", required_fields=["Field 1"])
+        ledger = AgnosticEvidenceLedger()
+
+        draft_call_count = 0
+        async def mock_run_role(role, user_input, **kwargs):
+            nonlocal draft_call_count
+            if role == "plan":
+                return {"queries": []}, {"input_tokens": 10, "output_tokens": 10, "total_tokens": 20}, 5.0, "mock-model"
+            elif role == "draft":
+                draft_call_count += 1
+                if draft_call_count == 1:
+                    raise RuntimeError("Azure Foundry HTTP 429: Rate limit exceeded")
+                return {"section_text": "## Test Section\n- Successful recovered draft."}, {"input_tokens": 15, "output_tokens": 15, "total_tokens": 30}, 5.0, "mock-model"
+            return {}, {}, 5.0, "mock-model"
+
+        orig_env = os.environ.copy()
+        os.environ["TESTING"] = "false"
+        os.environ["DRAFT_MAX_RETRIES"] = "3"
+        try:
+            with patch("app.workflows.agnostic_research_report.orchestrator.run_role", side_effect=mock_run_role):
+                with patch("asyncio.sleep", return_value=None):
+                    text, timing = await orch._process_section(
+                        subject="NVIDIA",
+                        section=sec,
+                        ledger=ledger,
+                        global_rules="Rules",
+                        mode="fast",
+                        model="claude-opus-4-8",
+                        provider="azure",
+                    )
+                    self.assertEqual(draft_call_count, 2)
+                    self.assertIn("Successful recovered draft", text)
+                    self.assertNotIn("unavailable due to upstream error", text)
+        finally:
+            os.environ.clear()
+            os.environ.update(orig_env)
 
 
 if __name__ == "__main__":
