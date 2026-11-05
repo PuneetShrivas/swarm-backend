@@ -3,32 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agnostic Research & Report Generation Swarm Workflow</title>
+  <title>Agnostic Research Swarm - Architecture Diagram</title>
   <style>
     :root {
-      --bg: #090d16;
-      --card-bg: #121826;
-      --card-hover: #192236;
+      --bg: #0b0f19;
+      --panel-bg: rgba(18, 24, 38, 0.95);
       --border: #232f48;
-      --border-accent: #3b82f6;
-      --text: #e2e8f0;
+      --text: #f1f5f9;
       --text-muted: #94a3b8;
-      --text-dim: #64748b;
-      
       --blue: #3b82f6;
-      --blue-glow: rgba(59, 130, 246, 0.25);
-      --purple: #8b5cf6;
-      --purple-glow: rgba(139, 92, 246, 0.25);
       --green: #10b981;
-      --green-glow: rgba(16, 185, 129, 0.25);
       --amber: #f59e0b;
-      --amber-glow: rgba(245, 158, 11, 0.25);
+      --purple: #a855f7;
       --cyan: #06b6d4;
-      --cyan-glow: rgba(6, 182, 212, 0.25);
       --rose: #f43f5e;
-      
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     }
 
     * {
@@ -40,795 +29,973 @@
     body {
       background-color: var(--bg);
       color: var(--text);
-      font-family: var(--font);
-      line-height: 1.5;
-      padding: 2.5rem 1.5rem;
-      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      user-select: none;
     }
 
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
+    /* Top Technical Toolbar */
+    .toolbar {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      right: 16px;
+      height: 52px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
     }
 
-    /* Header */
-    header {
-      margin-bottom: 2.5rem;
-      text-align: center;
-      position: relative;
+    .title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
-    .badge-bar {
-      display: inline-flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin-bottom: 1rem;
+    .title-text {
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #ffffff;
     }
 
-    .badge {
-      font-size: 0.75rem;
+    .tag {
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      padding: 2px 8px;
+      border-radius: 4px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 0.25rem 0.75rem;
-      border-radius: 9999px;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.03);
     }
 
-    .badge.blue { color: var(--blue); border-color: rgba(59, 130, 246, 0.4); background: var(--blue-glow); }
-    .badge.purple { color: var(--purple); border-color: rgba(139, 92, 246, 0.4); background: var(--purple-glow); }
-    .badge.green { color: var(--green); border-color: rgba(16, 185, 129, 0.4); background: var(--green-glow); }
-    .badge.amber { color: var(--amber); border-color: rgba(245, 158, 11, 0.4); background: var(--amber-glow); }
-    .badge.cyan { color: var(--cyan); border-color: rgba(6, 182, 212, 0.4); background: var(--cyan-glow); }
+    .tag-blue { background: rgba(59, 130, 246, 0.15); color: var(--blue); border: 1px solid rgba(59, 130, 246, 0.3); }
+    .tag-green { background: rgba(16, 185, 129, 0.15); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
 
-    h1 {
-      font-size: 2.25rem;
-      font-weight: 800;
-      letter-spacing: -0.025em;
-      background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 0.5rem;
-    }
-
-    .subtitle {
-      color: var(--text-muted);
-      font-size: 1.05rem;
-      max-width: 780px;
-      margin: 0 auto;
-    }
-
-    /* Controls / Filter Bar */
-    .filter-bar {
+    .controls-group {
       display: flex;
-      justify-content: center;
-      gap: 0.5rem;
-      margin-bottom: 3rem;
-      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
     }
 
-    .filter-btn {
-      background: var(--card-bg);
+    .btn {
+      background: #1e293b;
       border: 1px solid var(--border);
       color: var(--text-muted);
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      font-size: 0.85rem;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
       font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: #334155;
+      color: #ffffff;
+      border-color: var(--blue);
+    }
+
+    /* Diagram Canvas Container */
+    #viewport {
+      width: 100vw;
+      height: 100vh;
+      cursor: grab;
+      position: relative;
+      background-image: 
+        radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 24px 24px, 120px 120px, 120px 120px;
+    }
+
+    #viewport.dragging {
+      cursor: grabbing;
+    }
+
+    svg#diagram {
+      width: 100%;
+      height: 100%;
+      transform-origin: 0 0;
+    }
+
+    /* SVG Diagram Classes */
+    .swimlane {
+      fill: rgba(15, 23, 42, 0.6);
+      stroke: #1e293b;
+      stroke-width: 1.5;
+      stroke-dasharray: 4, 4;
+      rx: 8;
+    }
+
+    .swimlane-header {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      fill: #64748b;
+    }
+
+    .node-box {
+      fill: #131d31;
+      stroke: #2e3e5f;
+      stroke-width: 1.5;
+      rx: 6;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+
+    .node-box:hover {
+      stroke: var(--blue);
+      fill: #1a2742;
+      filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.3));
+    }
+
+    .node-box.selected {
+      stroke: #38bdf8;
+      stroke-width: 2.5;
+      fill: #1a2742;
+    }
+
+    .node-title {
+      font-size: 13px;
+      font-weight: 700;
+      fill: #ffffff;
+      pointer-events: none;
+    }
+
+    .node-sub {
+      font-size: 11px;
+      fill: #94a3b8;
+      font-family: var(--mono);
+      pointer-events: none;
+    }
+
+    .node-pill {
+      font-size: 9.5px;
+      font-weight: 700;
+      font-family: var(--mono);
+      fill: #cbd5e1;
+      pointer-events: none;
+    }
+
+    /* Decision Diamond */
+    .diamond-box {
+      fill: #1c1f2e;
+      stroke: var(--amber);
+      stroke-width: 1.8;
       cursor: pointer;
       transition: all 0.2s ease;
     }
 
-    .filter-btn:hover {
-      background: var(--card-hover);
-      color: var(--text);
-      border-color: var(--text-dim);
+    .diamond-box:hover {
+      fill: #262a3f;
+      filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.35));
     }
 
-    .filter-btn.active {
-      background: var(--blue);
-      color: #ffffff;
-      border-color: var(--blue);
-      box-shadow: 0 0 15px var(--blue-glow);
+    /* Connectors & Links */
+    .wire {
+      fill: none;
+      stroke: #475569;
+      stroke-width: 1.8;
+      transition: stroke 0.2s, stroke-width 0.2s;
     }
 
-    /* Workflow Pipeline Canvas */
-    .pipeline {
+    .wire-blue { stroke: #3b82f6; }
+    .wire-green { stroke: #10b981; }
+    .wire-amber { stroke: #f59e0b; }
+    .wire-purple { stroke: #a855f7; }
+    .wire-cyan { stroke: #06b6d4; }
+    .wire-dashed { stroke-dasharray: 5, 4; }
+
+    .wire-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      fill: #cbd5e1;
+    }
+
+    .wire-label-bg {
+      fill: #0b0f19;
+      rx: 3;
+    }
+
+    /* Side Inspector Panel */
+    .inspector {
+      position: absolute;
+      top: 76px;
+      right: 16px;
+      bottom: 16px;
+      width: 380px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      z-index: 90;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(12px);
       display: flex;
       flex-direction: column;
-      gap: 2.5rem;
-      position: relative;
+      transform: translateX(410px);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    /* Stage Wrapper Card */
-    .stage-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.75rem;
-      position: relative;
-      transition: all 0.3s ease;
-      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    .inspector.open {
+      transform: translateX(0);
     }
 
-    .stage-card:hover {
-      border-color: var(--border-accent);
-    }
-
-    .stage-header {
+    .inspector-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid var(--border);
-      padding-bottom: 1rem;
-      margin-bottom: 1.5rem;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
     }
 
-    .stage-title-wrap {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .stage-num {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 0.9rem;
-    }
-
-    .stage-num.cyan { background: var(--cyan-glow); color: var(--cyan); border: 1px solid var(--cyan); }
-    .stage-num.blue { background: var(--blue-glow); color: var(--blue); border: 1px solid var(--blue); }
-    .stage-num.purple { background: var(--purple-glow); color: var(--purple); border: 1px solid var(--purple); }
-    .stage-num.green { background: var(--green-glow); color: var(--green); border: 1px solid var(--green); }
-
-    .stage-title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-
-    .stage-meta {
-      font-size: 0.8rem;
-      color: var(--text-dim);
-      font-family: var(--mono);
-    }
-
-    /* Connectors */
-    .flow-connector {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 2.5rem;
-      position: relative;
-    }
-
-    .flow-line {
-      width: 2px;
-      height: 100%;
-      background: linear-gradient(to bottom, var(--blue), var(--purple));
-      position: relative;
-    }
-
-    .flow-arrow {
-      width: 0;
-      height: 0;
-      border-left: 6px solid transparent;
-      border-right: 6px solid transparent;
-      border-top: 8px solid var(--purple);
-      margin-top: -2px;
-    }
-
-    /* Grid & Node Layouts */
-    .nodes-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.25rem;
-    }
-
-    .node {
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem;
-      transition: all 0.2s ease;
-      position: relative;
-    }
-
-    .node:hover {
-      background: var(--card-hover);
-      transform: translateY(-2px);
-      border-color: var(--blue);
-    }
-
-    .node-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 0.75rem;
-    }
-
-    .node-name {
-      font-size: 0.95rem;
+    .inspector-title {
+      font-size: 1.05rem;
       font-weight: 700;
       color: #ffffff;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
     }
 
-    .node-name svg {
-      width: 18px;
-      height: 18px;
-      flex-shrink: 0;
-    }
-
-    .node-badge {
-      font-size: 0.7rem;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      font-family: var(--mono);
-      font-weight: 600;
-    }
-
-    .node-desc {
-      font-size: 0.85rem;
+    .close-btn {
+      background: none;
+      border: none;
       color: var(--text-muted);
-      margin-bottom: 0.75rem;
+      cursor: pointer;
+      font-size: 1.2rem;
+      padding: 4px;
     }
 
-    .node-details {
+    .close-btn:hover {
+      color: #ffffff;
+    }
+
+    .prop-row {
+      margin-bottom: 12px;
+    }
+
+    .prop-label {
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .prop-val {
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    .code-block {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 8px 12px;
       font-family: var(--mono);
       font-size: 0.75rem;
-      color: var(--text-dim);
-      background: rgba(0, 0, 0, 0.25);
-      padding: 0.5rem 0.75rem;
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .node-details li {
-      list-style-type: none;
-      margin-bottom: 0.25rem;
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
-
-    .node-details li:last-child {
-      margin-bottom: 0;
-    }
-
-    .node-details li::before {
-      content: "•";
-      color: var(--blue);
-      font-weight: bold;
-    }
-
-    /* Parallel Sections Container (Stage 2) */
-    .parallel-container {
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px dashed var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
-    }
-
-    .parallel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 1.25rem;
-      padding-bottom: 0.75rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .parallel-header-title {
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: var(--amber);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .sub-pipeline {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 0.75rem;
-      align-items: stretch;
-    }
-
-    @media (max-width: 1100px) {
-      .sub-pipeline {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .sub-step {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      position: relative;
-    }
-
-    .sub-step:hover {
-      border-color: var(--blue);
-      background: var(--card-hover);
-    }
-
-    .sub-step-num {
-      font-size: 0.7rem;
-      font-family: var(--mono);
-      color: var(--text-dim);
-      margin-bottom: 0.25rem;
-      text-transform: uppercase;
-    }
-
-    .sub-step-title {
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: #ffffff;
-      margin-bottom: 0.5rem;
-    }
-
-    .sub-step-body {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      margin-bottom: 0.75rem;
-    }
-
-    .highlight-gate {
-      border-color: var(--green);
-      background: rgba(16, 185, 129, 0.05);
-    }
-
-    .highlight-gate:hover {
-      border-color: #34d399;
-      background: rgba(16, 185, 129, 0.1);
-    }
-
-    .highlight-cache {
-      border-color: var(--cyan);
-      background: rgba(6, 182, 212, 0.05);
-    }
-
-    .highlight-cache:hover {
-      border-color: #22d3ee;
-      background: rgba(6, 182, 212, 0.1);
-    }
-
-    /* Key Insights & Metrics Section */
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 1rem;
-      margin-top: 3rem;
-    }
-
-    .metric-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.25rem;
-      text-align: center;
-    }
-
-    .metric-value {
-      font-size: 1.8rem;
-      font-weight: 800;
-      color: #ffffff;
-      margin-bottom: 0.25rem;
-      font-family: var(--mono);
-    }
-
-    .metric-label {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    /* Footer */
-    footer {
-      margin-top: 4rem;
-      text-align: center;
-      color: var(--text-dim);
-      font-size: 0.85rem;
-      border-top: 1px solid var(--border);
-      padding-top: 2rem;
-    }
-
-    footer a {
-      color: var(--blue);
-      text-decoration: none;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin-top: 4px;
     }
   </style>
 </head>
 <body>
 
-  <div class="container">
-    <header>
-      <div class="badge-bar">
-        <span class="badge blue">Prompt-Driven Agnostic Engine</span>
-        <span class="badge cyan">In-Memory Session Cache (0ms)</span>
-        <span class="badge green">Adaptive Sufficiency Gate</span>
-        <span class="badge purple">Task-Specific Models</span>
-        <span class="badge amber">Footnote Citations [E###]</span>
-      </div>
-      <h1>Agnostic Research & Report Generation Swarm</h1>
-      <p class="subtitle">
-        High-concurrency, multi-stage cognitive swarm architecture that translates dynamic markdown specifications into rigorously verified institutional research publications.
-      </p>
-    </header>
+  <!-- Top Toolbar -->
+  <div class="toolbar">
+    <div class="title-group">
+      <div class="title-text">Agnostic Research Swarm Architectural Blueprint</div>
+      <span class="tag tag-blue">State Machine & Concurrency Pipeline</span>
+      <span class="tag tag-green">Adaptive Depth & In-Memory Cache</span>
+    </div>
+    <div class="controls-group">
+      <button class="btn" onclick="zoomIn()">Zoom +</button>
+      <button class="btn" onclick="zoomOut()">Zoom −</button>
+      <button class="btn" onclick="resetZoom()">Reset View (100%)</button>
+      <button class="btn" onclick="toggleInspectorHelp()">Inspector</button>
+    </div>
+  </div>
 
-    <div class="filter-bar">
-      <button class="filter-btn active" onclick="filterStage('all')">Show Complete Pipeline</button>
-      <button class="filter-btn" onclick="filterStage('stage1')">Stage 1: Spec Parser</button>
-      <button class="filter-btn" onclick="filterStage('stage2')">Stage 2: Parallel Swarm & Adaptive Loop</button>
-      <button class="filter-btn" onclick="filterStage('stage3')">Stage 3: Cross-Section Synthesis</button>
-      <button class="filter-btn" onclick="filterStage('stage5')">Stage 5: Publication Rendering</button>
+  <!-- Interactive Pan/Zoom Canvas Viewport -->
+  <div id="viewport">
+    <svg id="diagram" viewBox="0 0 1780 1340" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Arrowhead Markers -->
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#64748b" />
+        </marker>
+        <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#3b82f6" />
+        </marker>
+        <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#10b981" />
+        </marker>
+        <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#f59e0b" />
+        </marker>
+        <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#a855f7" />
+        </marker>
+        <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#06b6d4" />
+        </marker>
+      </defs>
+
+      <!-- ============================================================== -->
+      <!-- SWIMLANES & STAGE BOUNDARIES                                   -->
+      <!-- ============================================================== -->
+
+      <!-- LAYER 1: CLI & SPEC PARSING -->
+      <rect class="swimlane" x="40" y="80" width="1700" height="170" />
+      <text class="swimlane-header" x="60" y="104">STAGE 1: SPECIFICATION INGESTION &amp; AGNOSTIC AST PARSING</text>
+
+      <!-- LAYER 2: PARALLEL SECTION SWARM (STAGE 2) -->
+      <rect class="swimlane" x="40" y="280" width="1700" height="520" />
+      <text class="swimlane-header" x="60" y="304">STAGE 2: PARALLEL PER-SECTION SWARM (CONCURRENT WORKERS 1..N ACROSS ALL SECTIONS)</text>
+
+      <!-- LAYER 3: CROSS-SECTION SYNTHESIS -->
+      <rect class="swimlane" x="40" y="830" width="1700" height="190" />
+      <text class="swimlane-header" x="60" y="854">STAGE 3: CROSS-SECTION EXECUTIVE SYNTHESIS PASS</text>
+
+      <!-- LAYER 4: PUBLICATION RENDERING -->
+      <rect class="swimlane" x="40" y="1050" width="1700" height="230" />
+      <text class="swimlane-header" x="60" y="1074">STAGE 5: DUAL PUBLICATION RENDERING &amp; FOOTNOTE RESOLUTION</text>
+
+
+      <!-- ============================================================== -->
+      <!-- STAGE 1 NODES: CLI & SPECIFICATION PARSING                      -->
+      <!-- ============================================================== -->
+
+      <!-- Node 1.1: CLI Invocation -->
+      <g class="node-item" onclick="inspectNode('cli')" transform="translate(70, 125)">
+        <rect class="node-box" width="280" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#3b82f6" rx="3" />
+        <text class="node-title" x="20" y="28">CLI Entrypoint</text>
+        <text class="node-sub" x="20" y="48">run_agnostic_research_report.py</text>
+        <text class="node-sub" x="20" y="66">run_workflow.py (standalone)</text>
+        <rect x="20" y="74" width="180" height="15" fill="#1e293b" rx="3" />
+        <text class="node-pill" x="26" y="85">--model --provider --mode</text>
+      </g>
+
+      <!-- Node 1.2: Markdown AST Parser -->
+      <g class="node-item" onclick="inspectNode('parser')" transform="translate(420, 125)">
+        <rect class="node-box" width="290" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#06b6d4" rx="3" />
+        <text class="node-title" x="20" y="28">MarkdownSpecParser</text>
+        <text class="node-sub" x="20" y="48">spec_parser.py</text>
+        <text class="node-sub" x="20" y="66">Extracts Subject, Rules, Headings</text>
+        <rect x="20" y="74" width="180" height="15" fill="#1e293b" rx="3" />
+        <text class="node-pill" x="26" y="85">ReportPromptSpec AST</text>
+      </g>
+
+      <!-- Node 1.3: Section Partitioning -->
+      <g class="node-item" onclick="inspectNode('partition')" transform="translate(780, 125)">
+        <rect class="node-box" width="280" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#a855f7" rx="3" />
+        <text class="node-title" x="20" y="28">Section Spec Partitioning</text>
+        <text class="node-sub" x="20" y="48">orchestrator.py: run()</text>
+        <text class="node-sub" x="20" y="66">Body Sections vs Synthesis</text>
+        <rect x="20" y="74" width="190" height="15" fill="#1e293b" rx="3" />
+        <text class="node-pill" x="26" y="85">10 Body Secs + 2 Synth Secs</text>
+      </g>
+
+      <!-- Node 1.4: Evidence Ledger Singleton -->
+      <g class="node-item" onclick="inspectNode('ledger')" transform="translate(1130, 125)">
+        <rect class="node-box" width="300" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#10b981" rx="3" />
+        <text class="node-title" x="20" y="28">AgnosticEvidenceLedger</text>
+        <text class="node-sub" x="20" y="48">ledger.py: AgnosticEvidenceLedger</text>
+        <text class="node-sub" x="20" y="66">In-Memory Immutable Claim Store</text>
+        <rect x="20" y="74" width="180" height="15" fill="#1e293b" rx="3" />
+        <text class="node-pill" x="26" y="85">Assigns [E001], [E002] tokens</text>
+      </g>
+
+
+      <!-- ============================================================== -->
+      <!-- STAGE 2 NODES: PARALLEL WORKER INTERNALS (SECTION i OF N)     -->
+      <!-- ============================================================== -->
+
+      <!-- Boundary box for Section i worker -->
+      <rect x="60" y="330" width="1660" height="440" fill="rgba(30, 41, 59, 0.4)" stroke="#334155" stroke-width="1.5" rx="8" />
+      <text x="80" y="354" fill="#38bdf8" font-family="var(--mono)" font-size="11.5" font-weight="700">
+        SECTION WORKER (i of N): _process_section(section_spec, ledger) — Executing Concurrently via asyncio.gather()
+      </text>
+
+      <!-- Step 2.1: Upfront Planner Role -->
+      <g class="node-item" onclick="inspectNode('plan')" transform="translate(90, 390)">
+        <rect class="node-box" width="240" height="110" />
+        <rect x="0" y="0" width="6" height="110" fill="#3b82f6" rx="3" />
+        <text class="node-title" x="18" y="28">2.1 Upfront Planner Role</text>
+        <text class="node-sub" x="18" y="48">roles.py: run_role("plan")</text>
+        <text class="node-sub" x="18" y="66">Generates 4 to 6 queries</text>
+        <text class="node-sub" x="18" y="84">Systematic checklist coverage</text>
+        <rect x="18" y="90" width="160" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="101">Plan Queries Batch</text>
+      </g>
+
+      <!-- Step 2.2: Dual-Tier Retrieval Engine -->
+      <g class="node-item" onclick="inspectNode('search_queue')" transform="translate(390, 370)">
+        <rect class="node-box" width="310" height="150" />
+        <rect x="0" y="0" width="6" height="150" fill="#06b6d4" rx="3" />
+        <text class="node-title" x="18" y="28">2.2 PerplexitySearchQueue</text>
+        <text class="node-sub" x="18" y="48">retrieval.py: Dual Cache + Retrieval</text>
+        
+        <!-- Nested Cache Sub-nodes -->
+        <rect x="18" y="58" width="274" height="28" fill="#0f172a" stroke="#06b6d4" rx="4" />
+        <text x="26" y="76" fill="#38bdf8" font-family="var(--mono)" font-size="10.5" font-weight="700">In-Memory Cache (0ms Hit)</text>
+
+        <rect x="18" y="92" width="274" height="28" fill="#0f172a" stroke="#334155" rx="4" />
+        <text x="26" y="110" fill="#94a3b8" font-family="var(--mono)" font-size="10.5">Perplexity API: batch /search</text>
+
+        <text class="node-sub" x="18" y="136">ResultCompactor (Dedup &amp; Clean)</text>
+      </g>
+
+      <!-- Step 2.3: Atomic Fact Extraction Role -->
+      <g class="node-item" onclick="inspectNode('extract')" transform="translate(760, 390)">
+        <rect class="node-box" width="250" height="110" />
+        <rect x="0" y="0" width="6" height="110" fill="#10b981" rx="3" />
+        <text class="node-title" x="18" y="28">2.3 Atomic Extraction Role</text>
+        <text class="node-sub" x="18" y="48">roles.py: run_role("extract")</text>
+        <text class="node-sub" x="18" y="66">Compact search snippets</text>
+        <text class="node-sub" x="18" y="84">&rarr; JSON claim objects</text>
+        <rect x="18" y="90" width="160" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="101">Tier: fast (gpt-5-mini)</text>
+      </g>
+
+      <!-- Ledger Ingestion Node -->
+      <g class="node-item" onclick="inspectNode('ledger_add')" transform="translate(760, 560)">
+        <rect class="node-box" width="250" height="85" />
+        <rect x="0" y="0" width="6" height="85" fill="#10b981" rx="3" />
+        <text class="node-title" x="18" y="26">Ledger Claim Ingestion</text>
+        <text class="node-sub" x="18" y="44">ledger.add(new_items)</text>
+        <text class="node-sub" x="18" y="62">Assigns [E###] sequential tokens</text>
+      </g>
+
+      <!-- Step 2.4: Decision Diamond: Adaptive Sufficiency Gate -->
+      <g class="node-item" onclick="inspectNode('adaptive_gate')" transform="translate(1120, 445)">
+        <polygon class="diamond-box" points="0,-65 110,0 0,65 -110,0" />
+        <text text-anchor="middle" y="-18" fill="#ffffff" font-size="11.5" font-weight="700">2.4 Adaptive Gate</text>
+        <text text-anchor="middle" y="2" fill="#f59e0b" font-family="var(--mono)" font-size="10" font-weight="700">Claims &ge; 10 &amp;&amp;</text>
+        <text text-anchor="middle" y="18" fill="#f59e0b" font-family="var(--mono)" font-size="10" font-weight="700">0 Gap Queries?</text>
+      </g>
+
+      <!-- Step 2.6: Gap Analysis Role (Follow-up Round) -->
+      <g class="node-item" onclick="inspectNode('gap')" transform="translate(1040, 620)">
+        <rect class="node-box" width="220" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#f59e0b" rx="3" />
+        <text class="node-title" x="18" y="28">2.6 Gap Analysis Role</text>
+        <text class="node-sub" x="18" y="48">roles.py: run_role("gap")</text>
+        <text class="node-sub" x="18" y="66">Checks missing checklist items</text>
+        <rect x="18" y="74" width="160" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="85">Generates next_queries</text>
+      </g>
+
+      <!-- Step 2.5: Section Narrative Drafting Role -->
+      <g class="node-item" onclick="inspectNode('draft')" transform="translate(1360, 390)">
+        <rect class="node-box" width="310" height="140" />
+        <rect x="0" y="0" width="6" height="140" fill="#a855f7" rx="3" />
+        <text class="node-title" x="18" y="28">2.5 Section Narrative Drafting</text>
+        <text class="node-sub" x="18" y="48">roles.py: run_role("draft")</text>
+        <text class="node-sub" x="18" y="66">Input: Ledger claims citing [E###]</text>
+        <rect x="18" y="76" width="274" height="26" fill="#1e293b" rx="4" />
+        <text x="26" y="93" fill="#ec4899" font-family="var(--mono)" font-size="10.5" font-weight="700">429 Retry Controller (parse delay)</text>
+        <text class="node-sub" x="18" y="122">Tier: reasoning (gpt-5.4 / opus-4.8)</text>
+      </g>
+
+
+      <!-- ============================================================== -->
+      <!-- STAGE 3 NODES: CROSS-SECTION EXECUTIVE SYNTHESIS               -->
+      <!-- ============================================================== -->
+
+      <!-- Node 3.1: Quorum Barrier -->
+      <g class="node-item" onclick="inspectNode('quorum')" transform="translate(420, 880)">
+        <rect class="node-box" width="300" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#a855f7" rx="3" />
+        <text class="node-title" x="18" y="28">Section Drafts Quorum Barrier</text>
+        <text class="node-sub" x="18" y="48">orchestrator.py: drafted_sections_map</text>
+        <text class="node-sub" x="18" y="66">Aggregates all 10 drafted narratives</text>
+        <rect x="18" y="74" width="180" height="15" fill="#1e293b" rx="3" />
+        <text class="node-pill" x="24" y="85">Zero Section Loss Guarantee</text>
+      </g>
+
+      <!-- Node 3.2: Synthesize Role -->
+      <g class="node-item" onclick="inspectNode('synthesize')" transform="translate(860, 880)">
+        <rect class="node-box" width="360" height="95" />
+        <rect x="0" y="0" width="6" height="95" fill="#a855f7" rx="3" />
+        <text class="node-title" x="18" y="28">Cross-Section Synthesis Role</text>
+        <text class="node-sub" x="18" y="48">roles.py: run_role("synthesize")</text>
+        <text class="node-sub" x="18" y="66">Produces Executive Summary &amp; Verdict</text>
+        <rect x="18" y="74" width="220" height="15" fill="#1e293b" rx="3" />
+        <text class="node-pill" x="24" y="85">Strategic Classification + Unknowns</text>
+      </g>
+
+
+      <!-- ============================================================== -->
+      <!-- STAGE 5 NODES: RENDERING & FOOTNOTE RESOLUTION                 -->
+      <!-- ============================================================== -->
+
+      <!-- Node 5.1: Footnote Transformer -->
+      <g class="node-item" onclick="inspectNode('transformer')" transform="translate(180, 1110)">
+        <rect class="node-box" width="340" height="110" />
+        <rect x="0" y="0" width="6" height="110" fill="#10b981" rx="3" />
+        <text class="node-title" x="18" y="28">FootnoteTransformer Engine</text>
+        <text class="node-sub" x="18" y="48">renderer.py: FootnoteTransformer</text>
+        <text class="node-sub" x="18" y="66">Scans [E###] &rarr; Sequential Footnotes [^N]</text>
+        <text class="node-sub" x="18" y="84">Attributions: URL, Title, Quote, Date</text>
+        <rect x="18" y="90" width="220" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="101">200+ Verified Citations Resolved</text>
+      </g>
+
+      <!-- Node 5.2: Markdown Renderer -->
+      <g class="node-item" onclick="inspectNode('markdown')" transform="translate(620, 1110)">
+        <rect class="node-box" width="260" height="110" />
+        <rect x="0" y="0" width="6" height="110" fill="#3b82f6" rx="3" />
+        <text class="node-title" x="18" y="28">Markdown Publication</text>
+        <text class="node-sub" x="18" y="48">AgnosticMarkdownRenderer</text>
+        <text class="node-sub" x="18" y="66">Final GitHub-Flavored Document</text>
+        <text class="node-sub" x="18" y="84">Tables, Callouts, Footnotes</text>
+        <rect x="18" y="90" width="160" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="101">Research_Report.md</text>
+      </g>
+
+      <!-- Node 5.3: ReportLab PDF Renderer -->
+      <g class="node-item" onclick="inspectNode('pdf')" transform="translate(940, 1110)">
+        <rect class="node-box" width="290" height="110" />
+        <rect x="0" y="0" width="6" height="110" fill="#e11d48" rx="3" />
+        <text class="node-title" x="18" y="28">ReportLab PDF Engine</text>
+        <text class="node-sub" x="18" y="48">AgnosticPdfRenderer</text>
+        <text class="node-sub" x="18" y="66">Institutional Corporate Layout</text>
+        <text class="node-sub" x="18" y="84">2-Col Footnotes + NumberedCanvas</text>
+        <rect x="18" y="90" width="180" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="101">Page X of Y Pagination</text>
+      </g>
+
+      <!-- Node 5.4: Granular Telemetry -->
+      <g class="node-item" onclick="inspectNode('telemetry')" transform="translate(1290, 1110)">
+        <rect class="node-box" width="280" height="110" />
+        <rect x="0" y="0" width="6" height="110" fill="#f59e0b" rx="3" />
+        <text class="node-title" x="18" y="28">Granular Telemetry &amp; Trees</text>
+        <text class="node-sub" x="18" y="48">telemetry.py</text>
+        <text class="node-sub" x="18" y="66">Hierarchical Timings Tree</text>
+        <text class="node-sub" x="18" y="84">Token Accounting by Substep</text>
+        <rect x="18" y="90" width="180" height="14" fill="#1e293b" rx="2" />
+        <text class="node-pill" x="24" y="101">_telemetry.json + Table</text>
+      </g>
+
+
+      <!-- ============================================================== -->
+      <!-- CONNECTOR WIRES & DATA FLOW PATHS                              -->
+      <!-- ============================================================== -->
+
+      <!-- 1.1 -> 1.2 -->
+      <path class="wire wire-blue" d="M 350 172 L 420 172" marker-end="url(#arrow-blue)" />
+      
+      <!-- 1.2 -> 1.3 -->
+      <path class="wire wire-cyan" d="M 710 172 L 780 172" marker-end="url(#arrow-cyan)" />
+
+      <!-- 1.3 -> 1.4 -->
+      <path class="wire wire-purple" d="M 1060 172 L 1130 172" marker-end="url(#arrow-purple)" />
+
+      <!-- 1.3 -> Stage 2 (Fan out to parallel workers) -->
+      <path class="wire wire-blue" d="M 920 220 L 920 280 L 210 280 L 210 390" marker-end="url(#arrow-blue)" />
+      <text class="wire-label" x="220" y="310">Body Section Specs (1..N)</text>
+
+      <!-- 2.1 (Plan) -> 2.2 (SearchQueue) -->
+      <path class="wire wire-amber" d="M 330 445 L 390 445" marker-end="url(#arrow-amber)" />
+      <text class="wire-label" x="335" y="438">4-6 Queries</text>
+
+      <!-- 2.2 (SearchQueue) -> 2.3 (Extract) -->
+      <path class="wire wire-cyan" d="M 700 445 L 760 445" marker-end="url(#arrow-cyan)" />
+      <text class="wire-label" x="705" y="438">Snippets</text>
+
+      <!-- 2.3 (Extract) -> Ledger Ingestion -->
+      <path class="wire wire-green" d="M 885 500 L 885 560" marker-end="url(#arrow-green)" />
+      <text class="wire-label" x="895" y="535">Claims</text>
+
+      <!-- Ledger Ingestion -> Global Ledger (Cross-boundary sync) -->
+      <path class="wire wire-green wire-dashed" d="M 1010 600 L 1280 600 L 1280 220" marker-end="url(#arrow-green)" />
+      <text class="wire-label" x="1288" y="580">Global Evidence Ledger Sync</text>
+
+      <!-- 2.3 (Extract) -> 2.4 (Adaptive Gate) -->
+      <path class="wire wire-green" d="M 1010 445 L 1120 445" marker-end="url(#arrow-green)" />
+
+      <!-- 2.4 (Adaptive Gate) [YES: Fast-Track] -> 2.5 (Drafting) -->
+      <path class="wire wire-green" d="M 1230 445 L 1360 445" marker-end="url(#arrow-green)" />
+      <rect class="wire-label-bg" x="1245" y="430" width="105" height="18" />
+      <text class="wire-label" x="1248" y="443" fill="#34d399">[YES: FAST-TRACK]</text>
+
+      <!-- 2.4 (Adaptive Gate) [NO: Gaps Remain] -> 2.6 (Gap Analysis) -->
+      <path class="wire wire-amber" d="M 1120 510 L 1120 620" marker-end="url(#arrow-amber)" />
+      <rect class="wire-label-bg" x="1065" y="540" width="90" height="18" />
+      <text class="wire-label" x="1070" y="553" fill="#f59e0b">[NO: GAPS]</text>
+
+      <!-- 2.6 (Gap Analysis) -> Loops back to 2.2 (PerplexitySearchQueue) for Round 2 -->
+      <path class="wire wire-amber wire-dashed" d="M 1040 667 L 545 667 L 545 520" marker-end="url(#arrow-amber)" />
+      <rect class="wire-label-bg" x="650" y="655" width="180" height="18" />
+      <text class="wire-label" x="655" y="668" fill="#f59e0b">Round 2: Follow-up Queries</text>
+
+      <!-- 2.6 (Gap Analysis) after Round 2 -> 2.5 (Drafting) -->
+      <path class="wire wire-purple" d="M 1260 667 L 1515 667 L 1515 530" marker-end="url(#arrow-purple)" />
+      <rect class="wire-label-bg" x="1330" y="655" width="140" height="18" />
+      <text class="wire-label" x="1335" y="668" fill="#c084fc">Coverage Cap &ge; 15 Claims</text>
+
+      <!-- 2.5 (Drafting) -> Stage 3 (Quorum Barrier) -->
+      <path class="wire wire-purple" d="M 1515 530 L 1515 800 L 570 800 L 570 880" marker-end="url(#arrow-purple)" />
+      <rect class="wire-label-bg" x="680" y="790" width="220" height="20" />
+      <text class="wire-label" x="685" y="804" fill="#c084fc">Completed Section Draft (citing [E###])</text>
+
+      <!-- Stage 1.3 (Synthesis Section Specs) -> Stage 3 -->
+      <path class="wire wire-purple wire-dashed" d="M 920 220 L 920 850 L 920 880" marker-end="url(#arrow-purple)" />
+      <text class="wire-label" x="930" y="840">Synthesis Specs</text>
+
+      <!-- 3.1 (Quorum Barrier) -> 3.2 (Synthesize Role) -->
+      <path class="wire wire-purple" d="M 720 927 L 860 927" marker-end="url(#arrow-purple)" />
+      <text class="wire-label" x="735" y="920">All Drafts Ingested</text>
+
+      <!-- 3.2 (Synthesize) -> Stage 5 (Footnote Transformer) -->
+      <path class="wire wire-green" d="M 1040 975 L 1040 1040 L 350 1040 L 350 1110" marker-end="url(#arrow-green)" />
+      <rect class="wire-label-bg" x="480" y="1030" width="240" height="20" />
+      <text class="wire-label" x="485" y="1044" fill="#34d399">Full Draft Set + Synthesis Narratives</text>
+
+      <!-- 5.1 (Footnote Transformer) -> 5.2 (Markdown) -->
+      <path class="wire wire-blue" d="M 520 1165 L 620 1165" marker-end="url(#arrow-blue)" />
+
+      <!-- 5.1 (Footnote Transformer) -> 5.3 (PDF) -->
+      <path class="wire wire-rose" d="M 520 1190 L 940 1190" marker-end="url(#arrow)" />
+
+      <!-- 5.1 (Footnote Transformer) -> 5.4 (Telemetry) -->
+      <path class="wire wire-amber" d="M 520 1215 L 1290 1215" marker-end="url(#arrow-amber)" />
+
+    </svg>
+  </div>
+
+  <!-- Interactive Inspector Panel -->
+  <div class="inspector" id="inspector">
+    <div class="inspector-header">
+      <div class="inspector-title" id="insp-title">Component Inspector</div>
+      <button class="close-btn" onclick="closeInspector()">&times;</button>
     </div>
 
-    <div class="pipeline">
-
-      <!-- STAGE 1 -->
-      <section class="stage-card" id="stage1">
-        <div class="stage-header">
-          <div class="stage-title-wrap">
-            <div class="stage-num cyan">01</div>
-            <div>
-              <h2 class="stage-title">Dynamic Prompt Specification Parsing</h2>
-              <div class="stage-meta">spec_parser.py • MarkdownSpecParser</div>
-            </div>
-          </div>
-          <span class="badge cyan">Zero Hardcoding</span>
-        </div>
-
-        <div class="nodes-grid">
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                Markdown AST Parser
-              </div>
-              <span class="node-badge" style="background: var(--cyan-glow); color: var(--cyan);">0.01s</span>
-            </div>
-            <p class="node-desc">Ingests arbitrary prompt files or unstructured markdown guides, detecting sections, rules, and checklists.</p>
-            <ul class="node-details">
-              <li>Regex & Heading Tree Tokenizer</li>
-              <li>Required fields & bullet constraints extraction</li>
-              <li>Domain-agnostic subject injection</li>
-            </ul>
-          </div>
-
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-                Section Partitioning
-              </div>
-              <span class="node-badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">Partition</span>
-            </div>
-            <p class="node-desc">Separates body empirical sections from overarching cross-section synthesis verdicts.</p>
-            <ul class="node-details">
-              <li>Body Sections (N parallel workers)</li>
-              <li>Synthesis Sections (deferred to Stage 3)</li>
-              <li>Checklist requirements mapping</li>
-            </ul>
-          </div>
-
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-                Global Evidence Ledger
-              </div>
-              <span class="node-badge" style="background: var(--green-glow); color: var(--green);">Singleton</span>
-            </div>
-            <p class="node-desc">Instantiates in-memory thread-safe ledger managing atomic facts and citation IDs.</p>
-            <ul class="node-details">
-              <li>Atomic claims with verbatim quotes</li>
-              <li>Sequential [E001], [E002] tokens</li>
-              <li>Section & source URL indexing</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <!-- CONNECTOR -->
-      <div class="flow-connector" data-stage="stage2">
-        <div class="flow-line"></div>
-        <div class="flow-arrow"></div>
-      </div>
-
-      <!-- STAGE 2 -->
-      <section class="stage-card" id="stage2">
-        <div class="stage-header">
-          <div class="stage-title-wrap">
-            <div class="stage-num blue">02</div>
-            <div>
-              <h2 class="stage-title">Parallel Per-Section Swarm with Adaptive Depth</h2>
-              <div class="stage-meta">orchestrator.py • _process_section • asyncio.gather(*workers)</div>
-            </div>
-          </div>
-          <span class="badge blue">High Concurrency</span>
-        </div>
-
-        <div class="parallel-container">
-          <div class="parallel-header">
-            <div class="parallel-header-title">
-              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              Concurrently Executed for Each Section (Section 1 ... Section N in Parallel)
-            </div>
-            <span class="badge amber">Adaptive Loop</span>
-          </div>
-
-          <div class="sub-pipeline">
-            <!-- Sub-Step 1 -->
-            <div class="sub-step">
-              <div>
-                <div class="sub-step-num">Step 2.1</div>
-                <div class="sub-step-title">Rich Upfront Plan</div>
-                <div class="sub-step-body">Formulates <strong>4 to 6 multi-faceted search queries</strong> systematically covering all section checklist items.</div>
-              </div>
-              <div class="node-details">
-                <li>Role: <code>plan</code></li>
-                <li>Model: <code>--plan-model</code></li>
-                <li>Lat: ~1.5s</li>
-              </div>
-            </div>
-
-            <!-- Sub-Step 2 -->
-            <div class="sub-step highlight-cache">
-              <div>
-                <div class="sub-step-num">Step 2.2</div>
-                <div class="sub-step-title">Retrieval & Cache</div>
-                <div class="sub-step-body">
-                  <strong>In-Memory Cache:</strong> 0ms instant hit on normalized query.<br>
-                  <strong>Perplexity Batch:</strong> Parallel live search + snippet compaction.
-                </div>
-              </div>
-              <div class="node-details">
-                <li>Cache Check: 0ms</li>
-                <li>Dedup syndicated news</li>
-                <li>Concurrent batch API</li>
-              </div>
-            </div>
-
-            <!-- Sub-Step 3 -->
-            <div class="sub-step">
-              <div>
-                <div class="sub-step-num">Step 2.3</div>
-                <div class="sub-step-title">Atomic Extraction</div>
-                <div class="sub-step-body">Extracts verified empirical claims, dates, and quotes. Ingests into Ledger with <code>[E###]</code> IDs.</div>
-              </div>
-              <div class="node-details">
-                <li>Role: <code>extract</code></li>
-                <li>Model: <code>--extract-model</code></li>
-                <li>Zero hallucination</li>
-              </div>
-            </div>
-
-            <!-- Sub-Step 4 -->
-            <div class="sub-step highlight-gate">
-              <div>
-                <div class="sub-step-num">Step 2.4</div>
-                <div class="sub-step-title">Adaptive Gate</div>
-                <div class="sub-step-body">
-                  <strong>Sufficiency Check:</strong> If claims &ge; 10 and 0 gap queries, <strong>exit early to drafting</strong>!<br>
-                  Bypasses redundant rounds.
-                </div>
-              </div>
-              <div class="node-details">
-                <li>Role: <code>gap</code></li>
-                <li>Cuts 50%+ compute</li>
-                <li>Max 2 rounds</li>
-              </div>
-            </div>
-
-            <!-- Sub-Step 5 -->
-            <div class="sub-step">
-              <div>
-                <div class="sub-step-num">Step 2.5</div>
-                <div class="sub-step-title">Narrative Draft</div>
-                <div class="sub-step-body">Drafts analytical narrative strictly citing <code>[E###]</code> tokens. 4-round retry on 429 rate limit backoff.</div>
-              </div>
-              <div class="node-details">
-                <li>Role: <code>draft</code></li>
-                <li>Model: <code>--draft-model</code></li>
-                <li>Zero section skips</li>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- CONNECTOR -->
-      <div class="flow-connector" data-stage="stage3">
-        <div class="flow-line"></div>
-        <div class="flow-arrow"></div>
-      </div>
-
-      <!-- STAGE 3 -->
-      <section class="stage-card" id="stage3">
-        <div class="stage-header">
-          <div class="stage-title-wrap">
-            <div class="stage-num purple">03</div>
-            <div>
-              <h2 class="stage-title">Cross-Section Executive Synthesis</h2>
-              <div class="stage-meta">roles.py • SYNTHESIZE_SYSTEM • reasoning tier</div>
-            </div>
-          </div>
-          <span class="badge purple">Institutional Intelligence</span>
-        </div>
-
-        <div class="nodes-grid">
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/></svg>
-                Draft Quorum Ingestion
-              </div>
-              <span class="node-badge" style="background: var(--purple-glow); color: var(--purple);">Quorum</span>
-            </div>
-            <p class="node-desc">Ingests narrative bodies of all drafted sections into an overarching evidence context.</p>
-            <ul class="node-details">
-              <li>10 complete analytical sections</li>
-              <li>Zero cross-contamination</li>
-              <li>Maintains [E###] traceable lineage</li>
-            </ul>
-          </div>
-
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-                Executive Verdict & Unknowns
-              </div>
-              <span class="node-badge" style="background: var(--purple-glow); color: var(--purple);">Synthesis</span>
-            </div>
-            <p class="node-desc">Synthesizes institutional verdict, macro momentum, risk profile, and undisclosed blind spots.</p>
-            <ul class="node-details">
-              <li>Executive Summary narrative</li>
-              <li>Bottom-line underwriter verdict</li>
-              <li>Critical unknowns catalog</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <!-- CONNECTOR -->
-      <div class="flow-connector" data-stage="stage5">
-        <div class="flow-line"></div>
-        <div class="flow-arrow"></div>
-      </div>
-
-      <!-- STAGE 5 -->
-      <section class="stage-card" id="stage5">
-        <div class="stage-header">
-          <div class="stage-title-wrap">
-            <div class="stage-num green">05</div>
-            <div>
-              <h2 class="stage-title">Publication Document Rendering & Footnote Resolution</h2>
-              <div class="stage-meta">renderer.py • FootnoteTransformer • ReportLab PDF</div>
-            </div>
-          </div>
-          <span class="badge green">Dual Publications</span>
-        </div>
-
-        <div class="nodes-grid">
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-                Footnote Transformer
-              </div>
-              <span class="node-badge" style="background: var(--green-glow); color: var(--green);">[E###] &rarr; [^N]</span>
-            </div>
-            <p class="node-desc">Scans all [E###] citations across body & synthesis, matching with evidence ledger records.</p>
-            <ul class="node-details">
-              <li>Sequential footnote ordering</li>
-              <li>Direct URL & verified source attribution</li>
-              <li>200+ citations resolved without collisions</li>
-            </ul>
-          </div>
-
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                Markdown & PDF Generation
-              </div>
-              <span class="node-badge" style="background: var(--green-glow); color: var(--green);">0.6s</span>
-            </div>
-            <p class="node-desc">Generates formatted markdown and print-ready ReportLab publication PDF.</p>
-            <ul class="node-details">
-              <li>Clean institutional PDF styling</li>
-              <li>Two-column footnotes section</li>
-              <li>NumberedCanvas ('Page X of Y')</li>
-            </ul>
-          </div>
-
-          <div class="node">
-            <div class="node-header">
-              <div class="node-name">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                Granular Telemetry JSON
-              </div>
-              <span class="node-badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">telemetry.py</span>
-            </div>
-            <p class="node-desc">Records hierarchical wall-clock times, compute times, speedup factors, and token trees.</p>
-            <ul class="node-details">
-              <li>Sub-second timings per sub-step</li>
-              <li>Input/output token accounting</li>
-              <li>Terminal ASCII tree and table</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
+    <div class="prop-row">
+      <div class="prop-label">Component Name</div>
+      <div class="prop-val" id="insp-name">Click any node in diagram to inspect</div>
     </div>
 
-    <!-- METRICS BAR -->
-    <div class="metrics-grid">
-      <div class="metric-card">
-        <div class="metric-value">10</div>
-        <div class="metric-label">Concurrent Sections</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">0ms</div>
-        <div class="metric-label">Session Cache Lookup</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">&ge; 200+</div>
-        <div class="metric-label">Verifiable Footnotes</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">50%+</div>
-        <div class="metric-label">Compute Time Saved</div>
-      </div>
+    <div class="prop-row">
+      <div class="prop-label">Source File &amp; Location</div>
+      <div class="code-block" id="insp-file">-</div>
     </div>
 
-    <footer>
-      <p>Agnostic Research & Report Generation Swarm • Built for Google Antigravity & Azure AI Foundry</p>
-      <p style="margin-top: 0.25rem;">
-        Source: <code>backend/app/workflows/agnostic_research_report/</code> and <code>agnostic_workflow/</code>
-      </p>
-    </footer>
+    <div class="prop-row">
+      <div class="prop-label">Cognitive Role / Engine</div>
+      <div class="prop-val" id="insp-role">-</div>
+    </div>
+
+    <div class="prop-row">
+      <div class="prop-label">Architectural Function</div>
+      <div class="prop-val" id="insp-desc">This architecture diagram maps the exact execution lifecycle of the prompt-driven agnostic research swarm.</div>
+    </div>
+
+    <div class="prop-row">
+      <div class="prop-label">Inputs &amp; Preconditions</div>
+      <div class="code-block" id="insp-inputs">-</div>
+    </div>
+
+    <div class="prop-row">
+      <div class="prop-label">Outputs &amp; Artifacts</div>
+      <div class="code-block" id="insp-outputs">-</div>
+    </div>
+
+    <div class="prop-row" style="margin-top: auto;">
+      <div class="prop-label">Speed &amp; Concurrency Impact</div>
+      <div class="prop-val" id="insp-perf">-</div>
+    </div>
   </div>
 
   <script>
-    function filterStage(stageId) {
-      const cards = document.querySelectorAll('.stage-card');
-      const connectors = document.querySelectorAll('.flow-connector');
-      const buttons = document.querySelectorAll('.filter-btn');
+    // Pan & Zoom Engine
+    const viewport = document.getElementById('viewport');
+    const svg = document.getElementById('diagram');
+    let isDragging = false;
+    let startX, startY;
+    let currentScale = 1.0;
+    let currentX = 0;
+    let currentY = 0;
 
-      buttons.forEach(btn => btn.classList.remove('active'));
-      event.target.classList.add('active');
+    function updateTransform() {
+      svg.style.transform = `translate(${currentX}px, ${currentY}px) scale(${currentScale})`;
+    }
 
-      if (stageId === 'all') {
-        cards.forEach(card => card.style.display = 'block');
-        connectors.forEach(conn => conn.style.display = 'flex');
+    viewport.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.node-item') || e.target.closest('.toolbar') || e.target.closest('.inspector')) return;
+      isDragging = true;
+      viewport.classList.add('dragging');
+      startX = e.clientX - currentX;
+      startY = e.clientY - currentY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      currentX = e.clientX - startX;
+      currentY = e.clientY - startY;
+      updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+      viewport.classList.remove('dragging');
+    });
+
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = 1.12;
+      if (e.deltaY < 0) {
+        currentScale = Math.min(currentScale * zoomFactor, 2.5);
       } else {
-        cards.forEach(card => {
-          if (card.id === stageId) {
-            card.style.display = 'block';
-          } else {
-            card.style.display = 'none';
-          }
-        });
-        connectors.forEach(conn => conn.style.display = 'none');
+        currentScale = Math.max(currentScale / zoomFactor, 0.45);
+      }
+      updateTransform();
+    }, { passive: false });
+
+    function zoomIn() {
+      currentScale = Math.min(currentScale * 1.2, 2.5);
+      updateTransform();
+    }
+
+    function zoomOut() {
+      currentScale = Math.max(currentScale / 1.2, 0.45);
+      updateTransform();
+    }
+
+    function resetZoom() {
+      currentScale = 1.0;
+      currentX = 0;
+      currentY = 0;
+      updateTransform();
+    }
+
+    // Node Metadata Catalog
+    const NODE_DATA = {
+      cli: {
+        title: "CLI Entrypoint & Runtime Config",
+        name: "CLI Argument Parser & Provider Session Setup",
+        file: "backend/run_agnostic_research_report.py\nagnostic_workflow/run_workflow.py",
+        role: "System CLI Bootstrap",
+        desc: "Ingests user arguments, resolves provider (Azure Foundry, Groq, Gemini), binds fallback models, and parses task-specific model overrides (--plan-model, --extract-model, --draft-model, etc.).",
+        inputs: "CLI arguments: <subject> [--prompt-file] [--provider] [--model] [--task-models]",
+        outputs: "Parsed argparse.Namespace -> Orchestrator.run()",
+        perf: "Immediate (0ms setup time)"
+      },
+      parser: {
+        title: "Stage 1: Markdown AST Spec Parser",
+        name: "MarkdownSpecParser",
+        file: "backend/app/workflows/agnostic_research_report/spec_parser.py",
+        role: "AST / Markdown Heading Tokenizer",
+        desc: "Parses arbitrary Markdown prompt templates, extracting section names, titles, instructions, bullet rules, and required checklist fields into a strongly-typed ReportPromptSpec.",
+        inputs: "Path to prompt markdown file or inline prompt string",
+        outputs: "ReportPromptSpec (List[SectionSpec], global_rules, closing_statement)",
+        perf: "< 0.01s instant CPU parse (zero hardcoded domains)"
+      },
+      partition: {
+        title: "Section Partitioning Engine",
+        name: "Section Classifier (Body vs Synthesis)",
+        file: "backend/app/workflows/agnostic_research_report/orchestrator.py",
+        role: "DAG Execution Partitioning",
+        desc: "Partitions sections into body empirical research sections (executed in parallel in Stage 2) and synthesis verdict sections (deferred to Stage 3 quorum barrier).",
+        inputs: "List[SectionSpec]",
+        outputs: "body_sections: List[SectionSpec], synth_sections: List[SectionSpec]",
+        perf: "O(N) partition in microseconds"
+      },
+      ledger: {
+        title: "Agnostic Evidence Ledger",
+        name: "AgnosticEvidenceLedger",
+        file: "backend/app/workflows/agnostic_research_report/ledger.py",
+        role: "Immutable Fact Registry & Citation Tokenizer",
+        desc: "Thread-safe in-memory singleton that stores extracted atomic claims, source URLs, confidence scores, publication dates, and verbatim quotes. Assigns sequential [E001], [E002] tokens.",
+        inputs: "List[AgnosticEvidence] from extraction workers",
+        outputs: "[E###] token maps, section claim subsets, global citation audit",
+        perf: "Thread-safe O(1) insertion & O(K) section filtering"
+      },
+      plan: {
+        title: "Step 2.1: Upfront Planner Role",
+        name: "Search Query Formulator",
+        file: "backend/app/workflows/agnostic_research_report/roles.py (PLAN_SYSTEM)",
+        role: "Role 'plan' (task tier: medium)",
+        desc: "Formulates 4 to 6 highly targeted, distinct web search queries systematically addressing every required checklist item in a single pass to maximize discovery breadth in Round 1.",
+        inputs: "Target Subject + Section Title + Required Fields Checklist",
+        outputs: 'JSON: {"queries": [{"text": "query string", "domains": []}]}',
+        perf: "~1.5s per section; executed in parallel across all 10 sections"
+      },
+      search_queue: {
+        title: "Step 2.2: Perplexity Search Queue with Dual Cache",
+        name: "PerplexitySearchQueue (Session Cache + Live Retrieval)",
+        file: "backend/app/workflows/agnostic_research_report/retrieval.py",
+        role: "Search API Client & In-Memory Session Cache",
+        desc: "Checks async in-memory session cache first (0ms hit for overlapping queries). On miss, queries Perplexity API (/search), compacts snippets, and deduplicates syndicated wire stories.",
+        inputs: "List[Dict] queries (text, domains, recency)",
+        outputs: "Cleaned, deduplicated snippets + duration_ms + cache_hits metric",
+        perf: "0ms for cached queries; 3-4s for parallel live batch"
+      },
+      extract: {
+        title: "Step 2.3: Atomic Fact Extraction Role",
+        name: "Evidence Extraction Agent",
+        file: "backend/app/workflows/agnostic_research_report/roles.py (EXTRACT_SYSTEM)",
+        role: "Role 'extract' (task tier: fast, e.g. gpt-5-mini)",
+        desc: "Converts compacted search snippets into structured atomic claims with verbatim quotes, publication dates, and confidence ratings. Strict zero-hallucination constraint.",
+        inputs: "Compacted Search Results text (top 10 snippets)",
+        outputs: 'JSON: {"items": [{"claim": "...", "val": "...", "quote": "...", "source_url": "..."}]}',
+        perf: "Reduced from 2400s compute to <150s using fast model tier"
+      },
+      ledger_add: {
+        title: "Evidence Ingestion & Token Assignment",
+        name: "Ledger.add(items)",
+        file: "backend/app/workflows/agnostic_research_report/ledger.py",
+        role: "Sequential Token Generator",
+        desc: "Assigns permanent [E001], [E002] tokens to all newly extracted atomic facts and indexes them under the active section slug.",
+        inputs: "Unindexed AgnosticEvidence objects",
+        outputs: "Registered AgnosticEvidence objects with assigned IDs",
+        perf: "0ms in-memory append"
+      },
+      adaptive_gate: {
+        title: "Step 2.4: Adaptive Sufficiency Gate",
+        name: "Heuristic Early-Exit Condition",
+        file: "backend/app/workflows/agnostic_research_report/orchestrator.py",
+        role: "Iteration Short-Circuiting Gate",
+        desc: "Evaluates extracted facts count and gap analysis results. If claims >= 10 and 0 checklist gaps exist, or >= 15 claims across rounds, bypasses redundant rounds directly to drafting.",
+        inputs: "claims_count = len(sec_rows), next_queries = gap_res['queries']",
+        outputs: "Boolean: Fast-track to Drafting vs Run Round 2",
+        perf: "Eliminates ~50% of Stage 2 round-trips and compute"
+      },
+      gap: {
+        title: "Step 2.6: Gap Analysis Role (Follow-Up Round)",
+        name: "Section Completeness Auditor",
+        file: "backend/app/workflows/agnostic_research_report/roles.py (GAP_SYSTEM)",
+        role: "Role 'gap' (task tier: fast)",
+        desc: "Compares current evidence claims against section required checklist fields. If critical fields are unverified or missing, outputs targeted follow-up queries for Round 2.",
+        inputs: "Checklist items + Extracted claims summary",
+        outputs: 'JSON: {"queries": [{"text": "targeted gap query"}]}',
+        perf: "~1.2s; only triggered when evidence deficits exist"
+      },
+      draft: {
+        title: "Step 2.5: Section Narrative Drafting Role",
+        name: "Analytical Section Drafter with 429 Retry Controller",
+        file: "backend/app/workflows/agnostic_research_report/roles.py (DRAFT_SYSTEM)",
+        role: "Role 'draft' (task tier: reasoning, e.g. gpt-5.4 / opus-4.8)",
+        desc: "Drafts exhaustive institutional analytical narrative for the section. Strictly cites facts using [E###] tokens. Incorporates 4-attempt HTTP 429 retry loop with dynamic backoff.",
+        inputs: "Section Instructions + Evidence Ledger rows with [E###] tokens",
+        outputs: 'JSON: {"section_text": "### TITLE\\n- Comprehensive narrative [E001]..."}',
+        perf: "15-25s high-depth analytical prose per section"
+      },
+      quorum: {
+        title: "Stage 3: Section Drafts Quorum Barrier",
+        name: "Draft Aggregation Barrier",
+        file: "backend/app/workflows/agnostic_research_report/orchestrator.py",
+        role: "Synchronization Barrier",
+        desc: "Waits until all body section workers complete drafting. Validates that no sections were skipped or dropped due to upstream errors before initiating synthesis.",
+        inputs: "10 completed section texts from parallel workers",
+        outputs: "Combined evidence base for overarching synthesis",
+        perf: "Instant async barrier synchronization"
+      },
+      synthesize: {
+        title: "Stage 3: Cross-Section Synthesis Role",
+        name: "Executive Synthesizer",
+        file: "backend/app/workflows/agnostic_research_report/roles.py (SYNTHESIZE_SYSTEM)",
+        role: "Role 'synthesize' (reasoning tier)",
+        desc: "Synthesizes macro trends, overall underwriter verdict, strategic momentum classification, and identifies critical unknown blind spots across all preceding sections.",
+        inputs: "Target Subject + Synthesis Section Instructions + All Drafted Narratives",
+        outputs: 'JSON: {"executive_summary": "...", "verdict_text": "...", "classification": "...", "unknowns": []}',
+        perf: "10-15s institutional cross-section verdict"
+      },
+      transformer: {
+        title: "Stage 5: FootnoteTransformer Engine",
+        name: "Footnote Citation Resolver",
+        file: "backend/app/workflows/agnostic_research_report/renderer.py",
+        role: "Citation Token Linker & Map Compiler",
+        desc: "Scans all [E###] citation tokens across drafted sections and synthesis. Maps them to ledger evidence items and converts them into sequential numeric footnotes [^1], [^2].",
+        inputs: "Drafted sections + Global AgnosticEvidenceLedger",
+        outputs: "Transformed text with [^N] + Resolved footnote dictionary",
+        perf: "< 0.05s CPU regex & hash resolution"
+      },
+      markdown: {
+        title: "Publication Markdown Compiler",
+        name: "AgnosticMarkdownRenderer",
+        file: "backend/app/workflows/agnostic_research_report/renderer.py",
+        role: "Document Formatter",
+        desc: "Compiles all sections, executive verdict, structured tables, and resolved footnotes into a publication-ready GitHub-Flavored Markdown file.",
+        inputs: "Transformed section texts + Footnotes dictionary",
+        outputs: "Research_Report_{subject}_{timestamp}.md",
+        perf: "< 0.05s file generation"
+      },
+      pdf: {
+        title: "ReportLab Publication PDF Engine",
+        name: "AgnosticPdfRenderer (NumberedCanvas)",
+        file: "backend/app/workflows/agnostic_research_report/renderer.py",
+        role: "PDF Typesetting & Canvas Layout Engine",
+        desc: "Compiles a corporate-styled, multi-page PDF with institutional headers, callout boxes, two-column footnote section, and dynamic NumberedCanvas ('Page X of Y').",
+        inputs: "Transformed markdown + Footnote map + Stylesheet",
+        outputs: "Research_Report_{subject}_{timestamp}.pdf",
+        perf: "0.5s - 0.7s complete compilation"
+      },
+      telemetry: {
+        title: "Hierarchical Telemetry & Token Accounting",
+        name: "Telemetry Collector & ASCII Tree/Table Renderer",
+        file: "backend/app/workflows/agnostic_research_report/telemetry.py",
+        role: "Observability & Profiling Engine",
+        desc: "Captures granular timings (planning_ms, retrieval_ms, extract_ms, gap_ms, draft_ms) and token counts by substep. Emits formatted ASCII tree and table to terminal and writes JSON.",
+        inputs: "Timings dictionary + Token usages + Query counts",
+        outputs: "_telemetry.json + Terminal ASCII Granular Timings Tree",
+        perf: "Sub-millisecond accounting overhead"
+      }
+    };
+
+    function inspectNode(key) {
+      const data = NODE_DATA[key];
+      if (!data) return;
+
+      document.getElementById('insp-title').innerText = data.title;
+      document.getElementById('insp-name').innerText = data.name;
+      document.getElementById('insp-file').innerText = data.file;
+      document.getElementById('insp-role').innerText = data.role;
+      document.getElementById('insp-desc').innerText = data.desc;
+      document.getElementById('insp-inputs').innerText = data.inputs;
+      document.getElementById('insp-outputs').innerText = data.outputs;
+      document.getElementById('insp-perf').innerText = data.perf;
+
+      document.getElementById('inspector').classList.add('open');
+
+      // Highlight selected node box
+      document.querySelectorAll('.node-box').forEach(el => el.classList.remove('selected'));
+      const activeItem = event.currentTarget.querySelector('.node-box');
+      if (activeItem) activeItem.classList.add('selected');
+    }
+
+    function closeInspector() {
+      document.getElementById('inspector').classList.remove('open');
+      document.querySelectorAll('.node-box').forEach(el => el.classList.remove('selected'));
+    }
+
+    function toggleInspectorHelp() {
+      const insp = document.getElementById('inspector');
+      if (insp.classList.contains('open')) {
+        closeInspector();
+      } else {
+        inspectNode('adaptive_gate');
       }
     }
   </script>
