@@ -31,6 +31,9 @@ from agnostic_workflow.roles import (
     run_role,
     resolve_foundry_endpoint,
     is_openai_foundry_model,
+    resolve_task_model,
+    set_task_model,
+    get_task_models,
 )
 from agnostic_workflow.renderer import (
     format_inline_markdown,
@@ -39,6 +42,7 @@ from agnostic_workflow.renderer import (
     AgnosticPdfRenderer,
 )
 from agnostic_workflow.telemetry import render_tree, render_table
+from agnostic_workflow.run_workflow import parse_args, execute_cli, parse_task_models
 
 
 class TestStandaloneAgnosticWorkflow(unittest.TestCase):
@@ -517,6 +521,39 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
         base_host = "https://puneetshrivas32-0871-resource.services.ai.azure.com"
         self.assertEqual(resolve_foundry_endpoint("gpt-5.4", base_host), default_openai)
         self.assertEqual(resolve_foundry_endpoint("claude-opus-4-8", base_host), default_anthropic)
+
+
+
+    def test_14_task_specific_models_hierarchy_and_cli(self):
+        """Verifies resolution priority and CLI parsing for task-specific models in standalone package."""
+        # 1. Provider default tier
+        self.assertEqual(resolve_task_model("plan", provider="azure"), "claude-sonnet-4-6")
+        self.assertEqual(resolve_task_model("synthesize", provider="azure"), "claude-opus-4-8")
+
+        # 2. Direct model_override
+        self.assertEqual(resolve_task_model("plan", model_override="default-model"), "default-model")
+
+        # 3. Explicit task_models dictionary overrides global model
+        t_models = {"extract": "gpt-5-mini", "draft": "gpt-5.4", "synthesize": "claude-opus-4-8"}
+        self.assertEqual(resolve_task_model("extract", task_models=t_models, model_override="default-model"), "gpt-5-mini")
+        self.assertEqual(resolve_task_model("draft", task_models=t_models, model_override="default-model"), "gpt-5.4")
+        self.assertEqual(resolve_task_model("synthesize", task_models=t_models, model_override="default-model"), "claude-opus-4-8")
+        self.assertEqual(resolve_task_model("plan", task_models=t_models, model_override="default-model"), "default-model")
+
+        # 4. CLI flags parsing
+        args = parse_args([
+            "NVIDIA",
+            "--model", "gpt-5.4",
+            "--plan-model", "gpt-5-mini",
+            "--extract-model", "gpt-5-mini",
+            "--draft-model", "claude-sonnet-4-6",
+            "--synth-model", "claude-opus-4-8",
+        ])
+        t_map = parse_task_models(args)
+        self.assertEqual(t_map.get("plan"), "gpt-5-mini")
+        self.assertEqual(t_map.get("extract"), "gpt-5-mini")
+        self.assertEqual(t_map.get("draft"), "claude-sonnet-4-6")
+        self.assertEqual(t_map.get("synthesize"), "claude-opus-4-8")
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ from app.workflows.agnostic_research_report.roles import (
     get_active_provider,
     set_fallback_model,
     get_fallback_model,
+    resolve_task_model,
     PROVIDER_MODELS,
     ROLE_TIER_MAPPING,
 )
@@ -78,6 +79,7 @@ class AgnosticResearchOrchestrator:
         model: Optional[str] = None,
         provider: Optional[str] = None,
         fallback_model: Optional[str] = None,
+        task_models: Optional[Dict[str, str]] = None,
         progress_cb: Optional[Callable[[str, str], None]] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
@@ -104,7 +106,8 @@ class AgnosticResearchOrchestrator:
         tokens_out = 0
 
         # 1. Planner generates initial targeted queries
-        _sec_notify("plan", f"[PLAN] [{section.title}] Formulating targeted search queries...")
+        plan_model = resolve_task_model("plan", task_models, model, provider)
+        _sec_notify("plan", f"[PLAN] [{section.title}] ({plan_model}) Formulating targeted search queries...")
         plan_input = (
             f"TARGET SUBJECT: {subject}\n\n"
             f"SECTION: {section.title} ({section.name})\n"
@@ -116,9 +119,10 @@ class AgnosticResearchOrchestrator:
             plan_res, plan_tok, plan_dur, plan_mod = await run_role(
                 "plan",
                 plan_input,
-                model_override=model,
+                model_override=plan_model,
                 provider_override=provider,
                 fallback_model_override=fallback_model,
+                task_models=task_models,
             )
             current_queries = plan_res.get("queries", [])
             total_plan_ms = plan_dur
@@ -164,9 +168,10 @@ class AgnosticResearchOrchestrator:
 
             if search_batches:
                 # 3. Extract atomic claims into Evidence Ledger
+                extract_model = resolve_task_model("extract", task_models, model, provider)
                 _sec_notify(
                     "extract",
-                    f"[EXTRACT] [{section.title}] (R{rnd_idx}/{max_rounds}) Extracting atomic evidence facts..."
+                    f"[EXTRACT] [{section.title}] ({extract_model}) (R{rnd_idx}/{max_rounds}) Extracting atomic evidence facts..."
                 )
                 compacted_text = "\n".join(
                     f"Title: {r['title']}\nURL: {r['url']}\nDate: {r.get('date')}\nSnippet: {r['snippet']}"
@@ -181,9 +186,10 @@ class AgnosticResearchOrchestrator:
                     extract_res, ext_tok, ext_dur, ext_mod = await run_role(
                         "extract",
                         extract_prompt,
-                        model_override=model,
+                        model_override=extract_model,
                         provider_override=provider,
                         fallback_model_override=fallback_model,
+                        task_models=task_models,
                     )
                     rnd_extract_ms = ext_dur
                     total_extract_ms += rnd_extract_ms
@@ -227,9 +233,10 @@ class AgnosticResearchOrchestrator:
             next_queries: List[Dict[str, Any]] = []
             if rnd < max_rounds - 1:
                 sec_rows = ledger.for_section(section.name)
+                gap_model = resolve_task_model("gap", task_models, model, provider)
                 _sec_notify(
                     "gap",
-                    f"[GAP] [{section.title}] (R{rnd_idx}/{max_rounds}) Evaluating evidence completeness against checklist..."
+                    f"[GAP] [{section.title}] ({gap_model}) (R{rnd_idx}/{max_rounds}) Evaluating evidence completeness against checklist..."
                 )
                 gap_prompt = (
                     f"TARGET SUBJECT: {subject}\n"
@@ -242,9 +249,10 @@ class AgnosticResearchOrchestrator:
                     gap_res, gap_tok, gap_dur, gap_mod = await run_role(
                         "gap",
                         gap_prompt,
-                        model_override=model,
+                        model_override=gap_model,
                         provider_override=provider,
                         fallback_model_override=fallback_model,
+                        task_models=task_models,
                     )
                     rnd_gap_ms = gap_dur
                     total_gap_ms += rnd_gap_ms
@@ -277,9 +285,10 @@ class AgnosticResearchOrchestrator:
             for r in sec_rows
         ) if sec_rows else "No specific public disclosures found in ledger."
 
+        draft_model = resolve_task_model("draft", task_models, model, provider)
         _sec_notify(
             "draft",
-            f"[DRAFT] [{section.title}] Drafting narrative citing {len(sec_rows)} evidence items..."
+            f"[DRAFT] [{section.title}] ({draft_model}) Drafting narrative citing {len(sec_rows)} evidence items..."
         )
 
         draft_prompt = (
@@ -301,9 +310,10 @@ class AgnosticResearchOrchestrator:
                 draft_res, draft_tok, draft_dur, draft_mod = await run_role(
                     "draft",
                     draft_prompt,
-                    model_override=model,
+                    model_override=draft_model,
                     provider_override=provider,
                     fallback_model_override=fallback_model,
+                    task_models=task_models,
                 )
                 raw_text = draft_res.get("section_text", "")
                 if raw_text and not raw_text.strip().endswith("Data unavailable."):
@@ -360,6 +370,12 @@ class AgnosticResearchOrchestrator:
                 "queries_count": queries_count,
                 "claims_extracted": claims_extracted,
                 "evidence_cited_count": len(sec_rows),
+                "models": {
+                    "plan": plan_mod,
+                    "extract": ext_mod if 'ext_mod' in locals() else None,
+                    "gap": gap_mod if 'gap_mod' in locals() else None,
+                    "draft": draft_mod,
+                },
                 "rounds": round_substeps,
             }
         }
@@ -374,6 +390,7 @@ class AgnosticResearchOrchestrator:
         provider: str = "azure",
         model: Optional[str] = None,
         fallback_model: Optional[str] = None,
+        task_models: Optional[Dict[str, str]] = None,
         output_dir: Optional[str] = None,
         on_progress: Optional[Callable[[str, str], None]] = None,
     ) -> AgnosticReportResult:
@@ -435,6 +452,7 @@ class AgnosticResearchOrchestrator:
                 model=model,
                 provider=provider,
                 fallback_model=fallback_model,
+                task_models=task_models,
                 progress_cb=_notify,
             )
             completed_sections += 1
@@ -466,8 +484,9 @@ class AgnosticResearchOrchestrator:
 
         is_testing = os.environ.get("TESTING") == "true" or os.environ.get("MOCK_ROLES") == "true"
         max_synth_retries = 1 if is_testing else int(os.environ.get("SYNTH_MAX_RETRIES", "4"))
+        synth_model = resolve_task_model("synthesize", task_models, model, provider)
         for s_idx, s_spec in enumerate(synth_sections, start=1):
-            _notify("synth", f"[SYNTH] [{s_spec.title}] ({s_idx}/{len(synth_sections)}) Synthesizing cross-section insights...")
+            _notify("synth", f"[SYNTH] [{s_spec.title}] ({synth_model}) ({s_idx}/{len(synth_sections)}) Synthesizing cross-section insights...")
             synth_input = (
                 f"TARGET SUBJECT: {subject}\n\n"
                 f"SYNTHESIS SECTION: {s_spec.title}\n"
@@ -480,9 +499,10 @@ class AgnosticResearchOrchestrator:
                     synth_res, synth_tok, synth_dur, synth_mod = await run_role(
                         "synthesize",
                         synth_input,
-                        model_override=model,
+                        model_override=synth_model,
                         provider_override=provider,
                         fallback_model_override=fallback_model,
+                        task_models=task_models,
                     )
                     drafted_sections_map[s_spec.name] = synth_res.get("executive_summary") or synth_res.get("verdict_text") or f"## {s_spec.title}\n- Synthesis complete."
                     synth_tokens_in += synth_tok.get("input_tokens", 0)
@@ -544,6 +564,7 @@ class AgnosticResearchOrchestrator:
             "date": date_str,
             "subject": subject,
             "model": model or PROVIDER_MODELS.get(provider, {}).get("medium", "default"),
+            "task_models": task_models or {},
             "provider": provider,
             "evidence_count": len(ledger.all()),
             "citations_count": len(footnotes),

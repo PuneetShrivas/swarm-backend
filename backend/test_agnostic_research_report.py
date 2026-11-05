@@ -33,6 +33,10 @@ from app.workflows.agnostic_research_report.roles import (
     parse_retry_delay,
     resolve_foundry_endpoint,
     is_openai_foundry_model,
+    resolve_task_model,
+    set_task_model,
+    set_task_models,
+    get_task_models,
 )
 from app.workflows.agnostic_research_report.renderer import (
     FootnoteTransformer,
@@ -41,7 +45,7 @@ from app.workflows.agnostic_research_report.renderer import (
 )
 from app.workflows.agnostic_research_report.orchestrator import AgnosticResearchOrchestrator
 from app.workflows.agnostic_research_report.telemetry import render_tree, render_table
-from app.workflows.agnostic_research_report.cli import parse_args, execute_cli
+from app.workflows.agnostic_research_report.cli import parse_args, execute_cli, parse_task_models
 
 
 class TestAgnosticResearchReportStep1(unittest.TestCase):
@@ -649,6 +653,64 @@ class TestAgnosticRateLimitRetry(unittest.IsolatedAsyncioTestCase):
         base_host = "https://puneetshrivas32-0871-resource.services.ai.azure.com"
         self.assertEqual(resolve_foundry_endpoint("gpt-5.4", base_host), default_openai)
         self.assertEqual(resolve_foundry_endpoint("claude-opus-4-8", base_host), default_anthropic)
+
+
+
+class TestAgnosticTaskSpecificModels(unittest.TestCase):
+    """Tests for Task-Specific Models in Agnostic Workflow."""
+
+    def test_resolve_task_model_hierarchy(self):
+        """Verifies resolution priority: task_models > env/set > model_override > provider tier default."""
+        # 1. Provider default tier
+        self.assertEqual(resolve_task_model("plan", provider="azure"), "claude-sonnet-4-6")
+        self.assertEqual(resolve_task_model("synthesize", provider="azure"), "claude-opus-4-8")
+
+        # 2. Direct model_override (e.g. global --model flag)
+        self.assertEqual(resolve_task_model("plan", model_override="global-model"), "global-model")
+        self.assertEqual(resolve_task_model("draft", model_override="global-model"), "global-model")
+
+        # 3. Explicit task_models dictionary overrides global model
+        t_models = {"extract": "gpt-5-mini", "draft": "gpt-5.4", "synthesize": "claude-opus-4-8"}
+        self.assertEqual(resolve_task_model("extract", task_models=t_models, model_override="global-model"), "gpt-5-mini")
+        self.assertEqual(resolve_task_model("draft", task_models=t_models, model_override="global-model"), "gpt-5.4")
+        self.assertEqual(resolve_task_model("synthesize", task_models=t_models, model_override="global-model"), "claude-opus-4-8")
+        # Plan is not in task_models, so it falls back to model_override
+        self.assertEqual(resolve_task_model("plan", task_models=t_models, model_override="global-model"), "global-model")
+
+        # 4. set_task_model helper
+        set_task_model("plan", "plan-custom-model")
+        try:
+            self.assertEqual(resolve_task_model("plan", model_override="global-model"), "plan-custom-model")
+            # task_models dict still has highest precedence
+            self.assertEqual(resolve_task_model("plan", task_models={"plan": "dict-model"}, model_override="global-model"), "dict-model")
+        finally:
+            set_task_model("plan", "")
+
+    def test_parse_task_models_cli(self):
+        """Verifies parsing of task model CLI arguments and compound --task-models flag."""
+        args = parse_args([
+            "NVIDIA",
+            "--model", "gpt-5.4",
+            "--plan-model", "gpt-5-mini",
+            "--extract-model", "gpt-5-mini",
+            "--draft-model", "claude-sonnet-4-6",
+            "--synth-model", "claude-opus-4-8",
+        ])
+        t_map = parse_task_models(args)
+        self.assertEqual(t_map.get("plan"), "gpt-5-mini")
+        self.assertEqual(t_map.get("extract"), "gpt-5-mini")
+        self.assertEqual(t_map.get("draft"), "claude-sonnet-4-6")
+        self.assertEqual(t_map.get("synthesize"), "claude-opus-4-8")
+
+        # Test compound --task-models flag
+        args2 = parse_args([
+            "AMD",
+            "--task-models", "plan=llama-3.3-70b-versatile,draft=gpt-5.4,synthesize=claude-opus-4-8",
+        ])
+        t_map2 = parse_task_models(args2)
+        self.assertEqual(t_map2.get("plan"), "llama-3.3-70b-versatile")
+        self.assertEqual(t_map2.get("draft"), "gpt-5.4")
+        self.assertEqual(t_map2.get("synthesize"), "claude-opus-4-8")
 
 
 if __name__ == "__main__":

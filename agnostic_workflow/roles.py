@@ -142,6 +142,66 @@ def get_fallback_model() -> Optional[str]:
     return ACTIVE_FALLBACK_MODEL
 
 
+# Active per-task model overrides
+ACTIVE_TASK_MODELS: Dict[str, str] = {
+    "plan": os.environ.get("MODEL_PLAN", os.environ.get("AZURE_PLAN_MODEL", "")).strip(),
+    "extract": os.environ.get("MODEL_EXTRACT", os.environ.get("AZURE_EXTRACT_MODEL", "")).strip(),
+    "gap": os.environ.get("MODEL_GAP", os.environ.get("AZURE_GAP_MODEL", "")).strip(),
+    "draft": os.environ.get("MODEL_DRAFT", os.environ.get("AZURE_DRAFT_MODEL", "")).strip(),
+    "synthesize": os.environ.get("MODEL_SYNTHESIZE", os.environ.get("MODEL_SYNTH", os.environ.get("AZURE_SYNTHESIZE_MODEL", ""))).strip(),
+    "verify": os.environ.get("MODEL_VERIFY", "").strip(),
+}
+
+
+def set_task_model(role: str, model: str) -> None:
+    """Sets a model override for a specific task role."""
+    norm_role = "synthesize" if role.lower().strip() in ["synth", "synthesize"] else role.lower().strip()
+    ACTIVE_TASK_MODELS[norm_role] = model.strip()
+
+
+def set_task_models(mapping: Dict[str, str]) -> None:
+    """Sets multiple model overrides from a dictionary."""
+    for role, model in mapping.items():
+        if model:
+            set_task_model(role, model)
+
+
+def get_task_models() -> Dict[str, str]:
+    """Returns a dictionary of all active non-empty task model overrides."""
+    return {k: v for k, v in ACTIVE_TASK_MODELS.items() if v}
+
+
+def resolve_task_model(
+    role: str,
+    task_models: Optional[Dict[str, str]] = None,
+    model_override: Optional[str] = None,
+    provider: Optional[str] = None,
+) -> str:
+    """
+    Resolves the exact model to use for a given role based on:
+    1. Explicit task override from passed task_models dict
+    2. Global ACTIVE_TASK_MODELS override (from env or set_task_model)
+    3. Direct model_override (e.g. global CLI --model flag)
+    4. Provider default for the role's tier
+    """
+    norm_role = "synthesize" if role.lower().strip() in ["synth", "synthesize"] else role.lower().strip()
+    if task_models:
+        cand = task_models.get(norm_role) or task_models.get(role)
+        if cand and cand.strip():
+            return cand.strip()
+
+    if ACTIVE_TASK_MODELS.get(norm_role):
+        return ACTIVE_TASK_MODELS[norm_role].strip()
+
+    if model_override and model_override.strip():
+        return model_override.strip()
+
+    prov = (provider or ACTIVE_PROVIDER).lower()
+    prov_models = PROVIDER_MODELS.get(prov, PROVIDER_MODELS.get("azure", {}))
+    role_tier = ROLE_TIER_MAPPING.get(norm_role, "medium")
+    return prov_models.get(role_tier, "claude-sonnet-4-6")
+
+
 def _extract_json(text: str) -> Dict[str, Any]:
     """Robust parser extracting JSON from thinking blocks, fences, or bare dictionaries."""
     if not text:
@@ -484,6 +544,7 @@ async def run_role(
     model_override: Optional[str] = None,
     provider_override: Optional[str] = None,
     fallback_model_override: Optional[str] = None,
+    task_models: Optional[Dict[str, str]] = None,
     mock_response: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, int], float, str]:
     """Executes an LLM role returning (parsed_dict, token_usage, duration_ms, model_used).
@@ -503,9 +564,12 @@ async def run_role(
 
     cfg = ROLES_CONFIG[role]
     active_prov = (provider_override or ACTIVE_PROVIDER).lower()
-    prov_models = PROVIDER_MODELS.get(active_prov, PROVIDER_MODELS["azure"])
-    role_tier = ROLE_TIER_MAPPING.get(role, "medium")
-    selected_model = model_override or prov_models.get(role_tier, "claude-sonnet-4-6")
+    selected_model = resolve_task_model(
+        role=role,
+        task_models=task_models,
+        model_override=model_override,
+        provider=active_prov,
+    )
     active_fallback = fallback_model_override or ACTIVE_FALLBACK_MODEL
 
     models_sequence = [selected_model]

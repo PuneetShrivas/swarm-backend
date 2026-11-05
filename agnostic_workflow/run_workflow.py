@@ -21,7 +21,34 @@ if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
 from agnostic_workflow.orchestrator import AgnosticResearchOrchestrator
+from typing import Dict, Any, Optional
 from agnostic_workflow.telemetry import render_tree, render_table
+
+
+def parse_task_models(args: argparse.Namespace) -> Dict[str, str]:
+    """Builds a normalized dictionary of role -> model mappings from CLI args."""
+    task_map: Dict[str, str] = {}
+    if getattr(args, "task_models", None):
+        for item in args.task_models.split(","):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                k_norm = "synthesize" if k.lower().strip() in ["synth", "synthesize"] else k.lower().strip()
+                if v.strip():
+                    task_map[k_norm] = v.strip()
+
+    if getattr(args, "plan_model", None):
+        task_map["plan"] = args.plan_model.strip()
+    if getattr(args, "extract_model", None):
+        task_map["extract"] = args.extract_model.strip()
+    if getattr(args, "gap_model", None):
+        task_map["gap"] = args.gap_model.strip()
+    if getattr(args, "draft_model", None):
+        task_map["draft"] = args.draft_model.strip()
+    if getattr(args, "synth_model", None):
+        task_map["synthesize"] = args.synth_model.strip()
+
+    return task_map
+
 
 
 def parse_args(args=None) -> argparse.Namespace:
@@ -79,6 +106,37 @@ Examples:
         help="Terminal telemetry format to render upon completion. (Default: tree)",
     )
     parser.add_argument(
+        "--plan-model",
+        default=None,
+        help="Model override specifically for search query planning role (e.g. gpt-5-mini, claude-sonnet-4-6).",
+    )
+    parser.add_argument(
+        "--extract-model",
+        default=None,
+        help="Model override specifically for atomic evidence extraction (e.g. gpt-5-mini, claude-sonnet-4-6).",
+    )
+    parser.add_argument(
+        "--gap-model",
+        default=None,
+        help="Model override specifically for gap analysis (e.g. gpt-5-mini).",
+    )
+    parser.add_argument(
+        "--draft-model",
+        default=None,
+        help="Model override specifically for section narrative drafting (e.g. gpt-5.4, claude-opus-4-8).",
+    )
+    parser.add_argument(
+        "--synth-model", "--synthesize-model",
+        dest="synth_model",
+        default=None,
+        help="Model override specifically for cross-section executive synthesis (e.g. claude-opus-4-8, gpt-5.4).",
+    )
+    parser.add_argument(
+        "--task-models",
+        default=None,
+        help="Comma-separated role=model assignments, e.g. 'plan=gpt-5-mini,extract=gpt-5-mini,draft=gpt-5.4,synthesize=claude-opus-4-8'.",
+    )
+    parser.add_argument(
         "--quiet", "-q",
         action="store_true",
         help="Suppress intermediate progress notifications.",
@@ -93,6 +151,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
     fallback = args.fallback_model.strip() if args.fallback_model else None
     mode = args.mode.lower()
     fmt = args.format.lower()
+    task_models = parse_task_models(args)
 
     if not args.quiet:
         print("=" * 86, flush=True)
@@ -101,7 +160,14 @@ async def execute_cli(args: argparse.Namespace) -> int:
         print(f" Subject:         {subject}", flush=True)
         print(f" Prompt File:     {args.prompt_file or 'Default Standard Research Report Template'}", flush=True)
         print(f" LLM Provider:    {provider.upper()}", flush=True)
-        print(f" Model Selected:  {model} (Fallback: {fallback or 'None'})", flush=True)
+        print(f" Default Model:   {model} (Fallback: {fallback or 'None'})", flush=True)
+        if task_models:
+            print(" Task Models:", flush=True)
+            for role_name in ["plan", "extract", "gap", "draft", "synthesize"]:
+                assigned = task_models.get(role_name, f"{model} (default)")
+                print(f"   * {role_name.capitalize():<12} {assigned}", flush=True)
+        else:
+            print(f" Task Models:     {model} across all tasks", flush=True)
         print(f" Research Mode:   {mode.upper()}", flush=True)
         print(f" Telemetry Fmt:   {fmt.upper()}", flush=True)
         print("-" * 86, flush=True)
@@ -121,6 +187,7 @@ async def execute_cli(args: argparse.Namespace) -> int:
             provider=provider,
             model=model,
             fallback_model=fallback,
+            task_models=task_models,
             output_dir=args.output_dir,
             on_progress=on_progress,
         )

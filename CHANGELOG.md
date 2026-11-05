@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Task-Specific Model Configuration for Agnostic Swarm (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
+  - Implemented hierarchical task model resolution in `roles.py` (`resolve_task_model`, `set_task_model`, `set_task_models`, `get_task_models`), allowing distinct models for each cognitive task (`plan`, `extract`, `gap`, `draft`, `synthesize`).
+  - Enables cost/speed optimization by assigning fast mini models (e.g. `gpt-5-mini`, `gemini-2.5-flash`) to high-volume extraction and gap checking, while directing flagship reasoning models (e.g. `gpt-5.4`, `claude-opus-4-8`) to analytical narrative drafting and cross-section synthesis.
+  - Added CLI arguments to `backend/run_agnostic_research_report.py` and `agnostic_workflow/run_workflow.py`:
+    - `--plan-model <model>`: Custom model for search query formulation.
+    - `--extract-model <model>`: Custom model for atomic fact extraction from search results.
+    - `--gap-model <model>`: Custom model for section checklist completeness evaluation.
+    - `--draft-model <model>`: Custom model for analytical section narrative drafting.
+    - `--synth-model` / `--synthesize-model <model>`: Custom model for cross-section executive synthesis.
+    - `--task-models "plan=modelA,extract=modelA,draft=modelB,synthesize=modelC"`: Compound mapping string.
+  - Added CLI startup banner summary displaying explicit task-to-model assignments.
+  - Integrated model name reporting in live progress notifications (`[*] [EXTRACT] [SECTION] (gpt-5-mini)...`).
+  - Recorded assigned models in section telemetry and report metadata.
+  - Added automated unit test suites (`TestAgnosticTaskSpecificModels` and `test_14_task_specific_models_hierarchy_and_cli`) across backend and standalone packages.
+  - Re-bundled standalone distribution package `agnostic_workflow.zip` (49,595 bytes).
 - **Real-Time Visual Progress & Granular CLI Telemetry for Stage 2 Concurrent Research (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
   - Implemented granular lifecycle milestone telemetry during Stage 2 parallel research and extraction across sections:
     - **`[PLAN]` / `[PLAN DONE]`**: Emits query formulation start and reports query counts and planning latency.
