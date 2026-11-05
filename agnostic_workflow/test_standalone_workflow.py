@@ -29,6 +29,8 @@ from agnostic_workflow.roles import (
     get_active_provider,
     parse_retry_delay,
     run_role,
+    resolve_foundry_endpoint,
+    is_openai_foundry_model,
 )
 from agnostic_workflow.renderer import (
     format_inline_markdown,
@@ -449,6 +451,42 @@ class TestStandaloneAgnosticWorkflow(unittest.TestCase):
         finally:
             os.environ.clear()
             os.environ.update(orig_env)
+
+
+    def test_13_resolve_foundry_endpoint_routing(self):
+        """Verifies endpoint changes to /openai/v1/messages for gpt-5.4 and gpt-5-mini and /anthropic/ for Claude."""
+        default_anthropic = "https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"
+        default_openai = "https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages"
+
+        # Model detection
+        self.assertTrue(is_openai_foundry_model("gpt-5.4"))
+        self.assertTrue(is_openai_foundry_model("gpt-5-mini"))
+        self.assertFalse(is_openai_foundry_model("claude-opus-4-8"))
+        self.assertFalse(is_openai_foundry_model("claude-sonnet-4-6"))
+
+        # Default resolution
+        self.assertEqual(resolve_foundry_endpoint("gpt-5.4"), default_openai)
+        self.assertEqual(resolve_foundry_endpoint("gpt-5-mini"), default_openai)
+        self.assertEqual(resolve_foundry_endpoint("claude-opus-4-8"), default_anthropic)
+        self.assertEqual(resolve_foundry_endpoint("claude-sonnet-4-6"), default_anthropic)
+
+        # When AZURE_FOUNDRY_ENDPOINT is set to anthropic in env
+        orig_env = os.environ.get("AZURE_FOUNDRY_ENDPOINT")
+        try:
+            os.environ["AZURE_FOUNDRY_ENDPOINT"] = default_anthropic
+            self.assertEqual(resolve_foundry_endpoint("gpt-5.4"), default_openai)
+            self.assertEqual(resolve_foundry_endpoint("gpt-5-mini"), default_openai)
+            self.assertEqual(resolve_foundry_endpoint("claude-opus-4-8"), default_anthropic)
+        finally:
+            if orig_env is not None:
+                os.environ["AZURE_FOUNDRY_ENDPOINT"] = orig_env
+            else:
+                os.environ.pop("AZURE_FOUNDRY_ENDPOINT", None)
+
+        # When bare host is passed
+        base_host = "https://puneetshrivas32-0871-resource.services.ai.azure.com"
+        self.assertEqual(resolve_foundry_endpoint("gpt-5.4", base_host), default_openai)
+        self.assertEqual(resolve_foundry_endpoint("claude-opus-4-8", base_host), default_anthropic)
 
 
 if __name__ == "__main__":

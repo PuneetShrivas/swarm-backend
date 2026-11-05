@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - 2026-11-05
 
 ### Added
+- **Dynamic Azure Foundry Endpoint Routing for GPT-5.4 & GPT-5-Mini (`backend/app/workflows/agnostic_research_report/` & `agnostic_workflow/`)**:
+  - Implemented `resolve_foundry_endpoint(model)` in both agnostic workflow instances:
+    - Automatically routes requests to `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/openai/v1/messages"` when `gpt-5.4` or `gpt-5-mini` is used.
+    - Automatically routes requests to `AZURE_FOUNDRY_ENDPOINT="https://puneetshrivas32-0871-resource.services.ai.azure.com/anthropic/v1/messages"` when Anthropic Claude models (e.g. `claude-opus-4-8`, `claude-sonnet-4-6`) are used.
+    - Automatically converts configured endpoints containing `/anthropic/` to `/openai/` whenever an OpenAI model is selected.
+  - Enhanced REST response parsing in `_execute_azure_chat_with_tokens` to support both Anthropic `content` blocks and OpenAI `choices` structures, plus dual token usage keys (`input_tokens`/`prompt_tokens` and `output_tokens`/`completion_tokens`).
+  - Added unit test verifications (`test_resolve_foundry_endpoint_routing` and `test_13_resolve_foundry_endpoint_routing`) across both test suites.
+  - Repacked standalone distribution package `agnostic_workflow.zip`.
 - **Agnostic Workflow Azure Rate Limit (HTTP 429) Retry & Zero Section Skipping (`backend/app/workflows/agnostic_research_report/`)**:
   - **Dynamic 429 Delay Parsing (`roles.py`)**: Implemented `parse_retry_delay()` extracting exact retry recommendations from Azure Foundry error bodies (e.g. `"Please wait 8 seconds before retrying."`) and applying a `+2.0s` safety cushion to prevent immediate re-triggering.
   - **Multi-Round Cooldown Progress Loop (`roles.py`)**: Added an outer retry loop (`max_outer_rounds = 5`, configurable via `AZURE_MAX_RETRY_ROUNDS`) with progressive cooldown calculations and terminal progress bar countdowns (`⏳ [AZURE COOLDOWN] Role 'draft': [#####-----] 10s/25s...`) before retrying model sequences.
